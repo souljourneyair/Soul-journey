@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Путешествие души — Soul Journey</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===== ЭКРАН ВХОДА ===== -->
+<div id="authScreen" class="screen">
+  <div class="screen-bg" id="authBg"></div>
+  <div class="board-frame auth-card">
+    <div class="board-header">
+      <span class="board-title">ПУТЕШЕСТВИЕ ДУШИ</span>
+      <span class="board-sub">TERMINAL ACCESS</span>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="login">ВХОД</button>
+      <button class="tab" data-tab="register">РЕГИСТРАЦИЯ</button>
+    </div>
+
+    <form id="loginForm" class="auth-form">
+      <label>Логин<input type="text" id="loginUsername" required autocomplete="username"></label>
+      <label>Пароль<input type="password" id="loginPassword" required autocomplete="current-password"></label>
+      <button type="submit" class="btn-primary">Войти</button>
+      <div class="form-msg" id="loginMsg"></div>
+    </form>
+
+    <form id="registerForm" class="auth-form hidden">
+      <label>Логин<input type="text" id="regUsername" required minlength="3"></label>
+      <label>Пароль<input type="password" id="regPassword" required minlength="4"></label>
+      <button type="submit" class="btn-primary">Создать аккаунт</button>
+      <div class="form-msg" id="regMsg"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== ЭКРАН ВЫБОРА СТАРТА ===== -->
+<div id="startScreen" class="screen hidden">
+  <div class="board-frame start-card">
+    <div class="board-header">
+      <span class="board-title">НОВЫЙ РЕЙС</span>
+      <span class="board-sub">ВЫБЕРИТЕ РЕЖИМ СТАРТА</span>
+    </div>
+    <div class="start-options">
+      <button class="start-option" data-start="A">
+        <span class="start-option-code">A</span>
+        <span class="start-option-name">С НУЛЯ</span>
+        <span class="start-option-desc">16 клеток земли, здание администрации и вертолётная стоянка. Стройте аэропорт с фундамента.</span>
+      </button>
+      <button class="start-option disabled" data-start="B" disabled>
+        <span class="start-option-code">B</span>
+        <span class="start-option-name">С ВОЗДУХА</span>
+        <span class="start-option-desc">Авиакомпания и вертолёт на чужом аэропорте. Скоро — Итерация 2.</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ИГРОВОЙ ЭКРАН ===== -->
+<div id="gameScreen" class="screen hidden">
+  <div class="screen-bg" id="gameBg"></div>
+
+  <header class="topboard">
+    <button id="menuToggle" class="menu-toggle" aria-label="Меню">☰</button>
+    <img id="gameLogo" class="topboard-logo hidden" alt="Логотип" />
+    <div class="topboard-brand">
+      <span class="topboard-title">ПУТЕШЕСТВИЕ<span>ДУШИ</span></span>
+      <span class="topboard-airport" id="topboardAirport"></span>
+      <span class="topboard-player" id="topboardPlayer"></span>
+    </div>
+
+    <div class="stat-block">
+      <div class="stat">
+        <span class="stat-label">КАПИТАЛ</span>
+        <span class="stat-value flap" id="statMoney">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">ДОХОД/МИН</span>
+        <span class="stat-value flap" id="statIncome">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">СОДЕРЖ. А/П</span>
+        <span class="stat-value flap" id="statUpkeep">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">РАСХОДЫ ОБЩ.</span>
+        <span class="stat-value flap" id="statExpenses">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">РЕПУТАЦИЯ</span>
+        <span class="stat-value flap" id="statRep">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">УРОВЕНЬ</span>
+        <span class="stat-value flap" id="statLevel">1</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">СТОЯНКА</span>
+        <span class="stat-value flap" id="statApron">0/0</span>
+      </div>
+      <div class="stat" id="statFuelWrap">
+        <span class="stat-label">ТОПЛИВО</span>
+        <span class="stat-value flap" id="statFuel">0</span>
+      </div>
+      <div class="stat" id="statPaxWrap">
+        <span class="stat-label">ПАССАЖИРЫ</span>
+        <span class="stat-value flap" id="statPax">—</span>
+      </div>
+      <div class="stat stat-timer">
+        <span class="stat-label">ВРЕМЯ В ИГРЕ</span>
+        <span class="stat-value" id="statTimer">00:00:00</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="xp-bar-wrap">
+    <div class="xp-bar"><div class="xp-bar-fill" id="xpBarFill"></div></div>
+    <span class="xp-bar-text" id="xpBarText">0 / 0 XP до след. уровня</span>
+  </div>
+
+  <main class="game-main">
+    <nav class="left-menu" id="leftMenu">
+      <div class="left-menu-title">МЕНЮ</div>
+      <button id="territoryBtn" class="left-menu-btn">🗺 Территория а/п</button>
+      <button id="fleetBtn" class="left-menu-btn">✈ Авиапарк</button>
+      <button id="envelopeBtn" class="left-menu-btn envelope-btn hidden">✉ Договоры<span id="envelopeBadge" class="envelope-badge hidden">0</span></button>
+      <button id="createAirlineBtn" class="left-menu-btn hidden">🏢 Создать АК</button>
+      <button id="leaderboardBtn" class="left-menu-btn">🏆 Рейтинг</button>
+      <button id="restartBtn" class="left-menu-btn left-menu-btn-danger">↺ Начать сначала</button>
+      <button id="logoutBtn" class="left-menu-btn">⎋ Выход</button>
+    </nav>
+
+    <section class="objects-panel">
+      <div class="panel-title">МОИ ОБЪЕКТЫ</div>
+      <div class="objects-table-wrap">
+        <table class="objects-table">
+          <thead>
+            <tr><th class="col-photo">Объект</th><th>Описание</th><th class="col-action">Действие</th></tr>
+          </thead>
+          <tbody id="objectsTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <aside class="side-panel">
+      <div class="panel-title">ДОСТУПНЫЕ ПОСТРОЙКИ</div>
+      <div id="buildMenu" class="build-menu"></div>
+    </aside>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+</div>
+
+<!-- ===== ЭКРАН БАНКРОТСТВА (game over) ===== -->
+<div id="bankruptModal" class="modal hidden">
+  <div class="modal-card board-frame bankrupt-modal">
+    <div class="board-header">
+      <span class="board-title">ИГРА ОКОНЧЕНА</span>
+      <span class="board-sub">ВЫ РАЗОРЕНЫ</span>
+    </div>
+    <div class="bankrupt-body">
+      <p class="bankrupt-text">Долг вашего аэропорта достиг предела — стоимости всех построек. Содержание больше нечем покрывать.</p>
+      <div class="bankrupt-actions">
+        <button id="bankruptRestart" class="btn-primary">Начать сначала</button>
+        <button id="bankruptDelete" class="btn-secondary btn-danger">Удалить аккаунт</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА НАЗВАНИЯ АЭРОПОРТА (первый вход) ===== -->
+<div id="airportNameModal" class="modal hidden">
+  <div class="modal-card board-frame name-modal">
+    <div class="board-header">
+      <span class="board-title">НАЗОВИТЕ ВАШ АЭРОПОРТ</span>
+      <span class="board-sub">ЭТО ИМЯ УВИДЯТ ВСЕ</span>
+    </div>
+    <div class="name-modal-body">
+      <input type="text" id="airportNameInput" maxlength="40" placeholder="Например: Шереметьево-2">
+      <div class="form-msg" id="airportNameMsg"></div>
+      <button id="airportNameSave" class="btn-primary">Готово</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА ПРЕДЛОЖЕНИЯ СОЗДАТЬ АК (5 уровень) ===== -->
+<div id="airlineOfferModal" class="modal hidden">
+  <div class="modal-card board-frame name-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">СОЗДАЙТЕ СВОЮ АВИАКОМПАНИЮ</span>
+      <span class="board-sub">ДОСТУПНО С 5 УРОВНЯ</span>
+    </div>
+    <div class="name-modal-body">
+      <p class="offer-text">Ваш аэропорт достиг 5 уровня! Теперь вы можете основать собственную авиакомпанию, покупать самолёты и отправлять их в рейсы. Создать сейчас?</p>
+      <div class="form-msg" id="airlineOfferMsg"></div>
+      <div class="offer-actions">
+        <button id="airlineOfferAccept" class="btn-primary">Создать АК</button>
+        <button id="airlineOfferDismiss" class="btn-secondary">Позже</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА ВВОДА НАЗВАНИЯ АК ===== -->
+<div id="airlineNameModal" class="modal hidden">
+  <div class="modal-card board-frame name-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">НАЗВАНИЕ АВИАКОМПАНИИ</span>
+      <span class="board-sub">ПРИДУМАЙТЕ ИМЯ СВОЕЙ АК</span>
+    </div>
+    <div class="name-modal-body">
+      <input type="text" id="airlineNameInput" maxlength="40" placeholder="Например: Небо России">
+      <div class="form-msg" id="airlineNameMsg"></div>
+      <button id="airlineNameSave" class="btn-primary">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА ТОПЛИВНОЙ БИРЖИ ===== -->
+<div id="fuelModal" class="modal hidden">
+  <div class="modal-card board-frame fuel-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">ТОПЛИВНЫЙ СКЛАД</span>
+      <span class="board-sub" id="fuelSub">ЗАПАС И ПОСТАВЩИКИ</span>
+    </div>
+    <div class="fuel-body">
+      <div class="fuel-refill-block">
+        <div class="fuel-amount-row">
+          <input type="number" id="fuelAmountInput" min="1" placeholder="кол-во единиц" />
+          <div class="fuel-quick-btns">
+            <button class="btn-secondary fuel-quick" data-frac="0.333">1/3</button>
+            <button class="btn-secondary fuel-quick" data-frac="0.5">1/2</button>
+            <button class="btn-secondary fuel-quick" data-frac="1">Полный</button>
+          </div>
+        </div>
+        <div class="fuel-refill-row">
+          <button id="fuelRefillBtn" class="btn-primary">Заправить</button>
+          <span id="fuelRefillCost" class="fuel-refill-cost"></span>
+        </div>
+      </div>
+
+      <div id="fuelContractBlock" class="fuel-contract-block"></div>
+
+      <div class="fuel-section-title">Поставщики топлива</div>
+      <div id="fuelSuppliers" class="fuel-suppliers"></div>
+    </div>
+    <button id="closeFuel" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА КОНВЕРТА (договоры) ===== -->
+<div id="envelopeModal" class="modal hidden">
+  <div class="modal-card board-frame envelope-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">ДОГОВОРЫ С АВИАКОМПАНИЯМИ</span>
+      <span class="board-sub" id="envelopeSub">ПРЕДЛОЖЕНИЯ И КОНТРАКТЫ</span>
+    </div>
+    <div class="envelope-body">
+      <div class="envelope-section-title">Новые предложения</div>
+      <div id="envelopeOffers" class="envelope-list"></div>
+      <div class="envelope-section-title">Действующие договоры</div>
+      <div id="envelopeContracts" class="envelope-list"></div>
+    </div>
+    <button id="closeEnvelope" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА АВИАПАРКА ===== -->
+<div id="fleetModal" class="modal hidden">
+  <div class="modal-card board-frame fleet-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">АВИАПАРК</span>
+      <span class="board-sub" id="fleetSub">МЕСТА И ВПП</span>
+    </div>
+    <div class="fleet-modal-body">
+      <div class="fleet-section-title">Мои самолёты</div>
+      <div id="fleetList" class="fleet-list"></div>
+      <div class="fleet-section-title">Купить или взять в лизинг</div>
+      <div id="fleetShop" class="fleet-shop"></div>
+      <div class="form-msg" id="fleetMsg"></div>
+    </div>
+    <button id="closeFleet" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА ТЕРРИТОРИИ (СЕТКА) ===== -->
+<div id="territoryModal" class="modal hidden">
+  <div class="modal-card board-frame territory-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">ТЕРРИТОРИЯ АЭРОПОРТА</span>
+      <span class="board-sub">КЛИКНИТЕ ПО КЛЕТКЕ, ЧТОБЫ ПОСТРОИТЬ ИЛИ УПРАВЛЯТЬ</span>
+    </div>
+    <div class="territory-modal-body">
+      <div class="territory-toolbar">
+        <button id="swapModeBtn" class="btn-secondary">↔ Поменять местами</button>
+        <span id="swapHint" class="swap-hint hidden">Выберите первую клетку…</span>
+      </div>
+      <div id="airportGrid" class="airport-grid"></div>
+      <button id="buyLandBtn" class="btn-secondary">Выкупить землю</button>
+      <div id="territoryBuildMenu" class="territory-build-menu"></div>
+    </div>
+    <button id="closeTerritory" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА РЕЙТИНГА ===== -->
+<div id="leaderboardModal" class="modal hidden">
+  <div class="modal-card board-frame">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">РЕЙТИНГ СИНГЛОВ</span>
+      <span class="board-sub">ВРЕМЯ ДО 10 УРОВНЯ</span>
+    </div>
+    <table class="leaderboard-table">
+      <thead><tr><th>#</th><th>Игрок</th><th>Путь</th><th>Время</th></tr></thead>
+      <tbody id="leaderboardBody"></tbody>
+    </table>
+    <button id="closeLeaderboard" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА УПРАВЛЕНИЯ ЗДАНИЕМ ===== -->
+<div id="buildingModal" class="modal hidden">
+  <div class="modal-card board-frame building-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title" id="bmTitle">ЗДАНИЕ</span>
+      <span class="board-sub" id="bmStatus">В СОБСТВЕННОСТИ</span>
+    </div>
+    <div class="building-modal-body">
+      <p class="building-modal-desc" id="bmDesc"></p>
+      <div class="building-modal-stats" id="bmStats"></div>
+      <div class="building-modal-actions" id="bmActions"></div>
+      <div class="form-msg" id="bmMsg"></div>
+    </div>
+    <button id="closeBuildingModal" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
