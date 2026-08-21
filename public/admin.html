@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soul Journey — Admin</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="admin.css">
+</head>
+<body>
+
+<!-- ===== ЭКРАН ВХОДА ===== -->
+<div id="authScreen" class="screen">
+  <div class="board-frame auth-card">
+    <div class="board-header">
+      <span class="board-title">ADMIN ACCESS</span>
+      <span class="board-sub">SOUL JOURNEY CONTROL PANEL</span>
+    </div>
+    <form id="loginForm" class="auth-form">
+      <label>Логин<input type="text" id="loginUsername" required autocomplete="username"></label>
+      <label>Пароль<input type="password" id="loginPassword" required autocomplete="current-password"></label>
+      <button type="submit" class="btn-primary">Войти</button>
+      <div class="form-msg" id="loginMsg"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ===== ДОСТУП ЗАПРЕЩЁН ===== -->
+<div id="deniedScreen" class="screen hidden">
+  <div class="board-frame auth-card">
+    <div class="board-header">
+      <span class="board-title">ДОСТУП ЗАПРЕЩЁН</span>
+      <span class="board-sub">У ЭТОГО АККАУНТА НЕТ ПРАВ АДМИНИСТРАТОРА</span>
+    </div>
+    <div class="auth-form">
+      <button id="deniedLogoutBtn" class="btn-secondary">Выйти</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ПАНЕЛЬ АДМИНА ===== -->
+<div id="adminScreen" class="screen-wide hidden">
+  <header class="topboard">
+    <div class="topboard-brand">SOUL JOURNEY<span>ADMIN</span></div>
+    <nav class="admin-nav">
+      <button class="admin-nav-btn active" id="navPlayersBtn">Игроки</button>
+      <button class="admin-nav-btn" id="navObjectsBtn">Объекты</button>
+      <button class="admin-nav-btn" id="navGalleryBtn">Галерея</button>
+      <button class="admin-nav-btn" id="navSettingsBtn">Настройки</button>
+    </nav>
+    <div class="stat-block"><span id="adminWho" class="stat-label"></span></div>
+    <a href="index.html" class="btn-ghost">В ИГРУ</a>
+    <button id="logoutBtn" class="btn-ghost">ВЫХОД</button>
+  </header>
+
+  <main class="admin-main" id="playersView">
+    <section class="players-panel">
+      <div class="panel-title">ИГРОКИ</div>
+      <input type="text" id="playerSearch" class="search-input" placeholder="Поиск по логину…">
+      <div id="playersList" class="players-list"></div>
+    </section>
+
+    <section class="player-detail-panel" id="playerDetailPanel">
+      <div class="empty-hint">Выберите игрока слева</div>
+    </section>
+  </main>
+
+  <main class="gallery-main hidden" id="galleryView">
+    <div class="gallery-categories" id="galleryCategories"></div>
+    <div class="gallery-detail" id="galleryDetail">
+      <div class="empty-hint">Выберите здание слева</div>
+    </div>
+  </main>
+
+  <main class="objects-admin-main hidden" id="objectsView">
+    <div class="objects-admin-editor">
+      <div class="panel-title">ОФОРМЛЕНИЕ ОБЪЕКТА</div>
+      <select id="objectsBuildingSelect" class="search-input"></select>
+      <div id="objectsEditorForm"></div>
+    </div>
+    <div class="objects-admin-table">
+      <div class="panel-title">ВСЕ ОБЪЕКТЫ — ОПИСАНИЕ МОЖНО РЕДАКТИРОВАТЬ</div>
+      <div class="objects-admin-table-wrap">
+        <table class="objects-table admin-objects-table">
+          <thead><tr><th>Объект</th><th>Описание</th><th>Действие</th></tr></thead>
+          <tbody id="objectsAdminTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <main class="gallery-main hidden" id="settingsView">
+    <div class="gallery-upload">
+      <div class="panel-title">ЛОГОТИП ИГРЫ</div>
+      <p class="build-menu-hint">Логотип отображается в шапке слева от названия игры. Виден всем игрокам. PNG, JPEG, GIF, WEBP или SVG, до 5 МБ.</p>
+      <div id="logoPreviewWrap" style="margin:12px 0;"></div>
+      <input type="file" id="logoFileInput" accept="image/*" style="display:none;" />
+      <button class="btn-primary" id="logoUploadBtn">Загрузить логотип</button>
+      <button class="btn-secondary btn-danger" id="logoRemoveBtn">Убрать логотип</button>
+      <div class="build-menu-hint" id="logoMsg" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="gallery-upload" style="margin-top:20px;">
+      <div class="panel-title">ФОН ЭКРАНА ВХОДА</div>
+      <p class="build-menu-hint">Фон за окном входа (до авторизации). Картинка (до 5 МБ) или видео MP4/WEBM (до 10 МБ). Видео проигрывается без звука, зациклено.</p>
+      <div id="authBgPreviewWrap" style="margin:12px 0;"></div>
+      <input type="file" id="authBgFileInput" accept="image/*,video/mp4,video/webm,video/ogg" style="display:none;" />
+      <button class="btn-primary" id="authBgUploadBtn">Загрузить фон входа</button>
+      <button class="btn-secondary btn-danger" id="authBgRemoveBtn">Убрать фон</button>
+      <div class="build-menu-hint" id="authBgMsg" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="gallery-upload" style="margin-top:20px;">
+      <div class="panel-title">ФОН ИГРОВОГО ЭКРАНА</div>
+      <p class="build-menu-hint">Фон за игровым интерфейсом. Картинка (до 5 МБ) или видео MP4/WEBM (до 10 МБ). Видео — без звука, зациклено.</p>
+      <div id="gameBgPreviewWrap" style="margin:12px 0;"></div>
+      <input type="file" id="gameBgFileInput" accept="image/*,video/mp4,video/webm,video/ogg" style="display:none;" />
+      <button class="btn-primary" id="gameBgUploadBtn">Загрузить фон игры</button>
+      <button class="btn-secondary btn-danger" id="gameBgRemoveBtn">Убрать фон</button>
+      <div class="build-menu-hint" id="gameBgMsg" style="margin-top:8px;"></div>
+    </div>
+
+    <div class="gallery-upload" style="margin-top:20px;">
+      <div class="panel-title">НАСТРОЙКИ ГЕЙМПЛЕЯ</div>
+      <p class="build-menu-hint">Цены на нефть и золото влияют на рыночную цену авиатоплива для всех игроков. Выше нефть/золото — дороже топливо (в пределах ±30% от базы поставщика).</p>
+      <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px; max-width:320px;">
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span class="build-menu-hint">Цена нефти (база 70)</span>
+          <input type="number" id="oilPriceInput" min="0" step="1" class="admin-input" />
+        </label>
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span class="build-menu-hint">Цена золота (база 2000)</span>
+          <input type="number" id="goldPriceInput" min="0" step="1" class="admin-input" />
+        </label>
+        <div class="build-menu-hint" id="marketMultInfo"></div>
+        <button class="btn-primary" id="gameplaySaveBtn">Сохранить</button>
+        <div class="build-menu-hint" id="gameplayMsg"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- ===== МОДАЛКА РЕДАКТИРОВАНИЯ КЛЕТКИ ===== -->
+<div id="cellModal" class="modal hidden">
+  <div class="modal-card board-frame cell-modal">
+    <div class="board-header">
+      <span class="board-title" id="cellModalTitle">КЛЕТКА</span>
+      <span class="board-sub" id="cellModalSub"></span>
+    </div>
+    <div class="cell-modal-body" id="cellModalBody"></div>
+    <button id="closeCellModal" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА ВЫБОРА ИЗ МЕДИАТЕКИ ===== -->
+<div id="mediaPickerModal" class="modal hidden">
+  <div class="modal-card board-frame media-picker-modal">
+    <div class="board-header">
+      <span class="board-title">МЕДИАТЕКА</span>
+      <span class="board-sub">ВЫБЕРИТЕ РАНЕЕ ЗАГРУЖЕННУЮ КАРТИНКУ</span>
+    </div>
+    <div class="media-grid" id="mediaGrid"></div>
+    <button id="closeMediaPicker" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="admin.js"></script>
+</body>
+</html>
