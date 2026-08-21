@@ -1067,9 +1067,7 @@ function renderBuildingModal() {
   } else if (state === 'owned' && rentView === 'exchange') {
     renderExchangeView(actions, building, def, econ);
   } else if (state === 'owned') {
-    if (!isNonRentable(building.buildingId)) {
-      actions.appendChild(actionBtn('Сдать в аренду', openExchange));
-    }
+    actions.appendChild(actionBtn('Сдать в аренду', openExchange));
     actions.appendChild(actionBtn('Снести', () => buildingAction('demolish'), true));
   } else if (state === 'listed') {
     actions.appendChild(actionBtn('Снять с биржи (вернуть себе)', () => buildingAction('rent-cancel-listing')));
@@ -1165,10 +1163,7 @@ function renderBuildingPanel(cellIndex, container) {
   } else if (state === 'owned' && accRentView === 'exchange') {
     renderExchangeViewAcc(actions, cellIndex, building, def, econ);
   } else if (state === 'owned') {
-    // вертолётки и стоянки нельзя сдавать в аренду (нужны для операций)
-    if (!isNonRentable(building.buildingId)) {
-      actions.appendChild(actionBtn('Сдать в аренду', () => openExchangeAcc(cellIndex)));
-    }
+    actions.appendChild(actionBtn('Сдать в аренду', () => openExchangeAcc(cellIndex)));
     actions.appendChild(actionBtn('Снести', () => buildingActionAcc(cellIndex, 'demolish'), true));
   } else if (state === 'listed') {
     actions.appendChild(actionBtn('Снять с биржи', () => buildingActionAcc(cellIndex, 'rent-cancel-listing')));
@@ -1182,63 +1177,21 @@ function renderBuildingPanel(cellIndex, container) {
   }
 }
 
-// Здания, которые нельзя сдавать в аренду (нужны для операций аэропорта):
-// вертолётки и стоянки ВС. Флаг nonRentable задаётся в каталоге.
-function isNonRentable(buildingId) {
-  return !!STATE.catalog?.[buildingId]?.nonRentable;
-}
-
-// Вместимость конкретного инфраструктурного здания-места.
-function slotCapacityOf(building) {
-  const id = building.buildingId;
-  const level = building.upgradeLevel || 1;
-  // вертолётка: мест = уровень (ур.2 = 2 борта). Стоянка: всегда 1 место
-  // (апгрейд стоянки меняет принимаемые размеры, а не число мест).
-  if (id === 'helipad') return level * (STATE.apronEconomy?.HELIPAD_SLOTS_PER_LEVEL || 1);
-  if (id.startsWith('stand')) return 1;
-  return 1;
-}
-
-// Занятость КОНКРЕТНОЙ площадки (вариант B): общий счётчик занятых мест
-// распределяется по площадкам одного типа по порядку (по cellIndex).
-// Возвращает { used, total } для данного здания.
-function slotOccupancyOf(building) {
-  const id = building.buildingId;
-  // группа зданий того же "класса мест"
-  let sameType, totalUsed;
-  if (id === 'helipad') {
-    sameType = STATE.buildings.filter(b => b.buildingId === 'helipad' && (b.state || 'owned') !== 'sold' && (b.state) !== 'rented' && !b.constructionType);
-    totalUsed = STATE.apronSlots?.heli?.used || 0;
-  } else if (id.startsWith('stand')) {
-    sameType = STATE.buildings.filter(b => b.buildingId?.startsWith('stand') && (b.state || 'owned') !== 'sold' && (b.state) !== 'rented' && !b.constructionType);
-    totalUsed = STATE.apronSlots?.plane?.used || 0;
-  } else {
-    return { used: 0, total: slotCapacityOf(building) };
-  }
-  // сортируем по cellIndex и раскидываем занятые места по порядку
-  sameType.sort((a, b) => a.cellIndex - b.cellIndex);
-  let remaining = totalUsed;
-  for (const b of sameType) {
-    const cap = slotCapacityOf(b);
-    const used = Math.min(cap, remaining);
-    remaining -= used;
-    if (b.cellIndex === building.cellIndex) return { used, total: cap };
-  }
-  return { used: 0, total: slotCapacityOf(building) };
-}
-
 // Статус инфраструктурного здания вместо "+0/мин".
 function infraStatusText(building) {
   const id = building.buildingId;
   if (id.startsWith('runway')) return '🛬 Работает';
+  // вертолётки/стоянки/ангар — заняты или свободны (агрегат по типу через STATE)
   if (id === 'helipad') {
-    const o = slotOccupancyOf(building);
-    return o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`;
+    const heli = STATE.apronSlots?.heli;
+    if (heli) return heli.used > 0 ? `🚁 Занята (${heli.used}/${heli.total})` : '🚁 Свободна';
+    return '🚁 Готова';
   }
   if (id === 'hangar') return '🔧 Готов к ремонту';
   if (id.startsWith('stand')) {
-    const o = slotOccupancyOf(building);
-    return o.used > 0 ? `✈️ Занята (${o.used}/${o.total})` : `✈️ Свободна (0/${o.total})`;
+    const pl = STATE.apronSlots?.plane;
+    if (pl) return pl.used > 0 ? `✈️ Занята (${pl.used}/${pl.total})` : '✈️ Свободна';
+    return '✈️ Свободна';
   }
   return 'В работе';
 }
