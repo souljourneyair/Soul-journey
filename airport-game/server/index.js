@@ -1215,6 +1215,7 @@ app.post('/api/building/rent-offers', auth, (req, res) => {
   if (!ctx) return;
   const { def, building } = ctx;
   if (!def.removable) return res.status(400).json({ error: 'not_removable', message: 'Это здание нельзя сдать в аренду' });
+  if (def.nonRentable) return res.status(400).json({ error: 'non_rentable', message: 'Это здание нельзя сдавать в аренду' });
   if (building.state !== 'owned') return res.status(400).json({ error: 'wrong_state', message: 'Здание сейчас не свободно' });
 
   const effIncome = def.income * upgradeMultiplier(building.upgradeLevel || 1);
@@ -1227,6 +1228,7 @@ app.post('/api/building/rent-accept', auth, (req, res) => {
   if (!ctx) return;
   const { airport, building, def } = ctx;
   if (!def.removable) return res.status(400).json({ error: 'not_removable', message: 'Это здание нельзя сдать в аренду' });
+  if (def.nonRentable) return res.status(400).json({ error: 'non_rentable', message: 'Это здание нельзя сдавать в аренду' });
   if (building.state !== 'owned') return res.status(400).json({ error: 'wrong_state', message: 'Здание сейчас не свободно' });
 
   // Не доверяем цене от клиента напрямую — проверяем, что она укладывается
@@ -1250,6 +1252,7 @@ app.post('/api/building/rent-list', auth, (req, res) => {
   if (!ctx) return;
   const { airport, building, def } = ctx;
   if (!def.removable) return res.status(400).json({ error: 'not_removable', message: 'Это здание нельзя сдать в аренду' });
+  if (def.nonRentable) return res.status(400).json({ error: 'non_rentable', message: 'Это здание нельзя сдавать в аренду' });
   if (building.state !== 'owned') return res.status(400).json({ error: 'wrong_state', message: 'Здание сейчас не свободно' });
 
   // Доход с учётом уровня апгрейда — от него считаем границы цены аренды,
