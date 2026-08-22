@@ -1253,7 +1253,15 @@ function slotOccupancyOf(building) {
 // Статус инфраструктурного здания вместо "+0/мин".
 function infraStatusText(building) {
   const id = building.buildingId;
-  if (id.startsWith('runway')) return '🛬 Работает';
+  if (id.startsWith('runway')) {
+    // загрузка суточной квоты посадок этой полосы
+    const rw = (STATE.runwayLoad || []).find(r => r.cellIndex === building.cellIndex);
+    if (!rw) return '🛬 Работает';
+    const left = Math.max(0, rw.capacity - rw.used);
+    const sizes = rw.accepts.map(x => x === 'large' ? 'больш.' : x === 'medium' ? 'средн.' : 'малые').join('/');
+    if (left <= 0) return `🛬 Квота исчерпана (${rw.used}/${rw.capacity}) · ${sizes}`;
+    return `🛬 Посадок: ${rw.used}/${rw.capacity} за сутки · ${sizes}`;
+  }
   if (id === 'helipad') {
     const o = slotOccupancyOf(building);
     return o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`;

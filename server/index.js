@@ -671,6 +671,83 @@ function assignAll(stands, toPlace) {
   return assignStands(stands, toPlace) !== null;
 }
 
+// ---------- ВПП: размер принимаемых бортов и пропускная способность ----------
+// Квота задаётся как «посадок за игровые сутки» (1440 тиков) и расходуется
+// плавно: запас восстанавливается каждый тик на capacity/1440, а не обнуляется
+// в полночь — иначе игроки копили бы прилёты к сбросу счётчика.
+// Взлёты квоту не расходуют, полосу занимает только посадка.
+const MINUTES_PER_DAY = 1440;
+
+function runwayCapacity(def, level) {
+  const arr = def.landingsPerDay;
+  if (!arr || !arr.length) return Infinity;
+  return arr[Math.min(Math.max((level || 1) - 1, 0), arr.length - 1)];
+}
+
+// Сколько квоты израсходовано на текущий момент (с учётом восстановления).
+function runwayUsed(b, capacity, currentTick) {
+  const stored = b.rwLandings || 0;
+  const since = currentTick - (b.rwLandingsTick || 0);
+  const restored = since * (capacity / MINUTES_PER_DAY);
+  return Math.max(0, stored - restored);
+}
+
+// Все рабочие ВПП аэропорта с текущей загрузкой.
+function listRunways(airportId, currentTick) {
+  const buildings = store.getBuildingsByAirport(airportId);
+  const out = [];
+  for (const b of buildings) {
+    const def = BUILDINGS[b.buildingId];
+    if (!def || !def.isRunway) continue;
+    if ((b.state || 'owned') === 'sold' || b.state === 'rented') continue;
+    if (isUnderConstruction(b)) continue;
+    const level = b.upgradeLevel || 1;
+    const capacity = runwayCapacity(def, level);
+    out.push({
+      cellIndex: b.cellIndex, buildingId: def.id, name: def.name, level, capacity,
+      accepts: def.accepts || ['small', 'medium', 'large'],
+      lineType: def.lineType,
+      used: runwayUsed(b, capacity, currentTick),
+    });
+  }
+  return out;
+}
+
+// Есть ли вообще полоса, способная принять борт такого размера (без учёта квоты).
+function hasRunwayForSize(airportId, size, currentTick) {
+  return listRunways(airportId, currentTick).some(r => r.accepts.includes(size));
+}
+
+// Подобрать полосу для посадки борта: подходит по размеру и есть остаток квоты.
+// usedThisTick — клетки полос, уже принявших борт в этом тике: одна полоса
+// принимает не больше одного борта за тик (это и есть прежнее правило
+// «сколько ВПП, столько одновременных посадок»).
+function pickRunwayForLanding(airportId, size, currentTick, usedThisTick) {
+  const runways = listRunways(airportId, currentTick)
+    .filter(r => r.accepts.includes(size))
+    .filter(r => !usedThisTick || !usedThisTick.has(r.cellIndex))
+    .filter(r => r.used + 1 <= r.capacity);
+  if (!runways.length) return null;
+  // берём наименее подходящую по размеру (малую раньше большой) и наименее
+  // загруженную — чтобы большая полоса оставалась свободной для крупных бортов
+  const rank = { small: 1, medium: 2, large: 3 };
+  runways.sort((a, b) => {
+    const ra = Math.max(...a.accepts.map(s => rank[s]));
+    const rb = Math.max(...b.accepts.map(s => rank[s]));
+    if (ra !== rb) return ra - rb;
+    return (a.used / a.capacity) - (b.used / b.capacity);
+  });
+  return runways[0];
+}
+
+// Списать одну посадку с квоты полосы.
+function consumeRunwayLanding(airportId, runway, currentTick) {
+  store.updateBuildingAtCell(airportId, runway.cellIndex, {
+    rwLandings: runway.used + 1,
+    rwLandingsTick: currentTick,
+  });
+}
+
 // Сколько ВПП есть у игрока (для одновременных операций взлёта/посадки).
 function totalRunways(airportId) {
   const buildings = store.getBuildingsByAirport(airportId);
@@ -767,6 +844,11 @@ function serializeAirport(airport) {
       };
     })(),
     apronWaiting: (airport.waitingBorts || []).length,  // бортов в очереди на посадку
+    // загрузка ВПП: сколько посадок из суточной квоты израсходовано
+    runwayLoad: listRunways(airport.id, store.getTickCounter()).map(r => ({
+      cellIndex: r.cellIndex, buildingId: r.buildingId, level: r.level,
+      capacity: r.capacity, used: Math.round(r.used), accepts: r.accepts,
+    })),
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
     canFlyMvl: canFlyMvl(airport.id),                    // можно ли выполнять МВЛ-рейсы
@@ -2050,8 +2132,18 @@ app.post('/api/aircraft/acquire', auth, (req, res) => {
   if (mode !== 'buy' && mode !== 'lease') return res.status(400).json({ error: 'bad_mode' });
   if (airport.level < type.minLevel) return res.status(400).json({ error: 'level_too_low', message: `Нужен уровень ${type.minLevel}` });
 
-  // проверка свободной стоянки подходящего размера
   const size = aircraftSize(typeId);
+  // нужна полоса, способная принять такой борт (малая ВПП не примет средний)
+  if (!hasRunwayForSize(airport.id, size, store.getTickCounter())) {
+    const sizeNames = { small: 'малых', medium: 'средних', large: 'больших' };
+    const needed = { small: 'малая', medium: 'средняя', large: 'большая' };
+    return res.status(400).json({
+      error: 'no_runway_for_size',
+      message: `Нет ВПП для ${sizeNames[size]} самолётов. Нужна ${needed[size]} ВПП или крупнее.`,
+    });
+  }
+
+  // проверка свободной стоянки подходящего размера
   if (!canPlaceAircraft(airport.id, size)) {
     const sizeNames = { small: 'маленького', medium: 'среднего', large: 'большого' };
     return res.status(400).json({
@@ -2124,6 +2216,11 @@ app.post('/api/aircraft/fly', auth, (req, res) => {
     return res.status(400).json({ error: 'servicing', message: `Борт на обслуживании — готов через ${left} мин` });
   }
   if (ac.decommissioned) return res.status(400).json({ error: 'decommissioned', message: 'Самолёт списан (выработал ресурс). Его можно только продать.' });
+
+  // Полоса должна принимать борт такого размера (иначе ему некуда возвращаться)
+  if (!hasRunwayForSize(airport.id, aircraftSize(ac.typeId), nowTick)) {
+    return res.status(400).json({ error: 'no_runway_for_size', message: 'Нет ВПП, принимающей борт такого размера' });
+  }
 
   // Вышка обязательна для полётов
   if (!hasTower(airport.id)) {
@@ -2464,7 +2561,8 @@ function processAircraftTick(airport, currentTick, notifications) {
   let income = 0;
   let reputation = 0;
   const runways = totalRunways(airport.id);
-  let landingsThisTick = 0;
+  // полосы, уже принявшие борт в этом тике: одна ВПП — одна посадка за тик
+  const runwaysUsedThisTick = new Set();
 
   // Свободные "ремонтные" места ангаров: всего мест под самолёты в ангарах
   // минус те, кто сейчас стоит (idle/broken/waiting не в воздухе). Упрощаем:
@@ -2553,11 +2651,13 @@ function processAircraftTick(airport, currentTick, notifications) {
         // 'flying' и в подсчёт он не попадает, но так проверка не сломается,
         // если порядок присвоения статуса когда-нибудь изменится.
         const standFree = canPlaceAircraft(airport.id, aircraftSize(ac.typeId), ac.id);
-        if (landingsThisTick < runways && standFree) {
-          landingsThisTick++;
+        const rw = pickRunwayForLanding(airport.id, aircraftSize(ac.typeId), currentTick, runwaysUsedThisTick);
+        if (rw && standFree) {
+          runwaysUsedThisTick.add(rw.cellIndex);
+          consumeRunwayLanding(airport.id, rw, currentTick);
           landAircraft(ac, type);
         } else {
-          // нет ВПП или нет свободной стоянки — кружит, ждёт
+          // нет полосы (занята, исчерпана квота или не тот размер) либо нет стоянки
           income -= type.idlePenaltyPerTick;
           reputation -= type.idleRepPenaltyPerTick;
           store.updateAircraft(ac.id, { status: 'waiting' });
@@ -2568,13 +2668,15 @@ function processAircraftTick(airport, currentTick, notifications) {
       // (waiting входит в «стоит на земле»), и без исключения себя он просил бы
       // вторую стоянку — то есть не сел бы никогда и кружил, теряя деньги.
       const standFree = canPlaceAircraft(airport.id, aircraftSize(ac.typeId), ac.id);
-      if (landingsThisTick < runways && standFree) {
-        landingsThisTick++;
+      const rw = pickRunwayForLanding(airport.id, aircraftSize(ac.typeId), currentTick, runwaysUsedThisTick);
+      if (rw && standFree) {
+        runwaysUsedThisTick.add(rw.cellIndex);
+        consumeRunwayLanding(airport.id, rw, currentTick);
         landAircraft(ac, type);
       } else {
         income -= type.idlePenaltyPerTick;
         reputation -= type.idleRepPenaltyPerTick;
-        const reason = !standFree ? 'нет свободной стоянки' : 'нет свободной ВПП';
+        const reason = !standFree ? 'нет свободной стоянки' : 'нет свободной ВПП (занята или исчерпана суточная квота)';
         notifications.push(`⚠️ ${type.name} кружит — ${reason}. Идут издержки.`);
       }
     } else if (ac.status === 'broken' || ac.status === 'idle') {
@@ -2688,6 +2790,9 @@ function processContractsTick(airport, currentTick, notifications) {
   const ownPlaneSizes = store.getAircraftByAirport(airport.id).map(a => aircraftSize(a.typeId));
   const contractPlaneSizes = apron.filter(b => b.craft === 'plane').map(b => b.size);
 
+  // одна полоса принимает не больше одного борта за тик
+  const runwaysUsedThisTick = new Set();
+
   const stillWaiting = [];
   for (const w of waiting) {
     const craft = w.craft || 'heli';
@@ -2718,9 +2823,12 @@ function processContractsTick(airport, currentTick, notifications) {
         stillWaiting.push(w);
       }
     } else {
-      // самолётный борт: нужна свободная стоянка его размера
+      // самолётный борт: нужна свободная стоянка его размера И подходящая ВПП
       const stand = placeContractPlane(airport.id, w.size, ownPlaneSizes, contractPlaneSizes);
-      if (stand) {
+      const rw = stand ? pickRunwayForLanding(airport.id, w.size, currentTick, runwaysUsedThisTick) : null;
+      if (stand && rw) {
+        runwaysUsedThisTick.add(rw.cellIndex);
+        consumeRunwayLanding(airport.id, rw, currentTick);
         contractPlaneSizes.push(w.size); // занимаем стоянку
         // Время обслуживания зависит от уровня доставшейся стоянки: чем выше
         // уровень, тем быстрее борт освободит место (30 мин на ур.1, 12 на ур.5).
@@ -2746,7 +2854,9 @@ function processContractsTick(airport, currentTick, notifications) {
         const penalty = w.payPerArrival * APRON_ECONOMY.TURNAWAY_PENALTY_MULT;
         income -= penalty;
         reputation -= APRON_ECONOMY.TURNAWAY_REPUTATION_HIT;
-        notifications.push(`✈️ Самолёт «${w.airline}» развернулся — нет свободной стоянки! Штраф ${penalty} у.е.`);
+        const why = hasRunwayForSize(airport.id, w.size, currentTick)
+          ? 'нет свободной стоянки или полосы' : `нет ВПП, принимающей ${w.size === 'large' ? 'большие' : w.size === 'medium' ? 'средние' : 'малые'} самолёты`;
+        notifications.push(`✈️ Самолёт «${w.airline}» развернулся — ${why}! Штраф ${penalty} у.е.`);
       } else {
         stillWaiting.push(w);
       }
