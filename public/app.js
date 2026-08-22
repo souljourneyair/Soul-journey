@@ -1260,11 +1260,16 @@ function infraStatusText(building) {
     const left = Math.max(0, rw.capacity - rw.used);
     const sizes = rw.accepts.map(x => x === 'large' ? 'больш.' : x === 'medium' ? 'средн.' : 'малые').join('/');
     if (left <= 0) return `🛬 Квота исчерпана (${rw.used}/${rw.capacity}) · ${sizes}`;
-    return `🛬 Посадок: ${rw.used}/${rw.capacity} за сутки · ${sizes}`;
+    if (rw.waitTicks > 0) return `🛬 Интервал вышки: ${rw.waitTicks} мин · ${rw.used}/${rw.capacity} за сутки`;
+    return `🛬 Свободна · ${rw.used}/${rw.capacity} за сутки · ${sizes}`;
   }
   if (id === 'helipad') {
     const o = slotOccupancyOf(building);
     return o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`;
+  }
+  if (id === 'tower') {
+    const iv = STATE.towerInterval;
+    return iv ? `📡 Интервал между операциями: ${iv} мин` : '📡 Работает';
   }
   if (id === 'hangar') return '🔧 Готов к ремонту';
   if (id.startsWith('stand')) {

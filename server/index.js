@@ -708,6 +708,8 @@ function listRunways(airportId, currentTick) {
       accepts: def.accepts || ['small', 'medium', 'large'],
       lineType: def.lineType,
       used: runwayUsed(b, capacity, currentTick),
+      // раньше этого тика полоса не примет следующий борт (интервал вышки)
+      nextOpTick: b.rwNextOpTick || 0,
     });
   }
   return out;
@@ -726,6 +728,8 @@ function pickRunwayForLanding(airportId, size, currentTick, usedThisTick) {
   const runways = listRunways(airportId, currentTick)
     .filter(r => r.accepts.includes(size))
     .filter(r => !usedThisTick || !usedThisTick.has(r.cellIndex))
+    // интервал вышки: полоса выдерживает паузу между операциями
+    .filter(r => currentTick >= r.nextOpTick)
     .filter(r => r.used + 1 <= r.capacity);
   if (!runways.length) return null;
   // берём наименее подходящую по размеру (малую раньше большой) и наименее
@@ -740,11 +744,15 @@ function pickRunwayForLanding(airportId, size, currentTick, usedThisTick) {
   return runways[0];
 }
 
-// Списать одну посадку с квоты полосы.
+// Списать одну посадку с квоты полосы и выдержать интервал вышки до следующей.
+// Интервал применяется к КАЖДОЙ полосе отдельно: иначе вторая и третья ВПП не
+// добавляли бы пропускной способности и строить их было бы незачем.
 function consumeRunwayLanding(airportId, runway, currentTick) {
+  const interval = towerInterval(airportId);
   store.updateBuildingAtCell(airportId, runway.cellIndex, {
     rwLandings: runway.used + 1,
     rwLandingsTick: currentTick,
+    rwNextOpTick: currentTick + interval,
   });
 }
 
@@ -848,6 +856,7 @@ function serializeAirport(airport) {
     runwayLoad: listRunways(airport.id, store.getTickCounter()).map(r => ({
       cellIndex: r.cellIndex, buildingId: r.buildingId, level: r.level,
       capacity: r.capacity, used: Math.round(r.used), accepts: r.accepts,
+      waitTicks: Math.max(0, r.nextOpTick - store.getTickCounter()),
     })),
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
