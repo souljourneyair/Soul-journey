@@ -13,7 +13,7 @@ const {
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
-  standAcceptsSizes, aircraftSize,
+  standAcceptsSizes, aircraftSize, standServiceMinutes,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
@@ -639,15 +639,19 @@ function canPlaceAircraft(airportId, newSize, excludeAircraftId = null) {
   return assignAll(stands, toPlace);
 }
 
-// Жадное сопоставление: можно ли разместить все самолёты toPlace на стоянках stands.
+// Жадное сопоставление: раскладывает самолёты toPlace по стоянкам stands.
+// Возвращает массив той же длины, что toPlace: для каждого самолёта — индекс
+// доставшейся ему стоянки, либо null, если разместить всех не удалось.
 // Размещаем крупные первыми (им меньше подходящих стоянок), каждому — наименее
 // избыточную свободную стоянку.
-function assignAll(stands, toPlace) {
+function assignStands(stands, toPlace) {
   const sizeRank = { large: 3, medium: 2, small: 1 };
-  const planes = [...toPlace].sort((a, b) => sizeRank[b] - sizeRank[a]); // крупные первыми
+  // помним исходные позиции, чтобы вернуть ответ в порядке toPlace
+  const order = toPlace.map((size, idx) => ({ size, idx }))
+    .sort((a, b) => sizeRank[b.size] - sizeRank[a.size]);
   const used = new Array(stands.length).fill(false);
-  for (const size of planes) {
-    // ищем свободную стоянку, которая вмещает size, с минимальной «избыточностью»
+  const result = new Array(toPlace.length).fill(-1);
+  for (const { size, idx } of order) {
     let best = -1, bestRank = 99;
     for (let i = 0; i < stands.length; i++) {
       if (used[i]) continue;
@@ -655,10 +659,16 @@ function assignAll(stands, toPlace) {
       const rank = sizeRank[stands[i].standSize];
       if (rank < bestRank) { bestRank = rank; best = i; }
     }
-    if (best === -1) return false; // не нашлось места
+    if (best === -1) return null; // не нашлось места
     used[best] = true;
+    result[idx] = best;
   }
-  return true;
+  return result;
+}
+
+// Влезают ли все самолёты toPlace на стоянки stands.
+function assignAll(stands, toPlace) {
+  return assignStands(stands, toPlace) !== null;
 }
 
 // Сколько ВПП есть у игрока (для одновременных операций взлёта/посадки).
@@ -1974,10 +1984,19 @@ function totalExpensesPerTick(airportId) {
 
 // Можно ли разместить договорный самолёт размера newSize, если на стоянках
 // уже стоят свои самолёты (ownSizes) и договорные борты (contractSizes).
-function canPlaceContractPlane(airportId, newSize, ownSizes, contractSizes) {
+// Возвращает стоянку, которая достанется новому договорному борту, либо null.
+// Нужна не только сама возможность посадки, но и уровень стоянки: от него
+// зависит, сколько борт будет обслуживаться.
+function placeContractPlane(airportId, newSize, ownSizes, contractSizes) {
   const stands = listStands(airportId);
   const toPlace = [...ownSizes, ...contractSizes, newSize];
-  return assignAll(stands, toPlace);
+  const assignment = assignStands(stands, toPlace);
+  if (!assignment) return null;
+  return stands[assignment[toPlace.length - 1]]; // стоянка последнего — нового борта
+}
+
+function canPlaceContractPlane(airportId, newSize, ownSizes, contractSizes) {
+  return placeContractPlane(airportId, newSize, ownSizes, contractSizes) !== null;
 }
 
 function aircraftCtx(req, res) {
@@ -2660,12 +2679,16 @@ function processContractsTick(airport, currentTick, notifications) {
       }
     } else {
       // самолётный борт: нужна свободная стоянка его размера
-      const placed = canPlaceContractPlane(airport.id, w.size, ownPlaneSizes, contractPlaneSizes);
-      if (placed) {
+      const stand = placeContractPlane(airport.id, w.size, ownPlaneSizes, contractPlaneSizes);
+      if (stand) {
         contractPlaneSizes.push(w.size); // занимаем стоянку
+        // Время обслуживания зависит от уровня доставшейся стоянки: чем выше
+        // уровень, тем быстрее борт освободит место (30 мин на ур.1, 12 на ур.5).
+        const serviceMinutes = standServiceMinutes(stand.level);
         apron.push({
           contractId: w.contractId, airline: w.airline,
-          departsTick: currentTick + APRON_ECONOMY.STAND_MINUTES,
+          departsTick: currentTick + serviceMinutes,
+          standLevel: stand.level, standBuildingId: stand.buildingId,
           payPerArrival: w.payPerArrival, craft: 'plane', size: w.size, flightType: w.flightType || 'vvl',
         });
         income += w.payPerArrival;

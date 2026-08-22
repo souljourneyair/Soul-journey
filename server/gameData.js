@@ -197,7 +197,13 @@ function getFuelSupplier(id) {
 // ==================== ПРИЁМ БОРТОВ (пропускная способность, Слой 1) ====================
 const APRON_ECONOMY = {
   HELIPAD_SLOTS_PER_LEVEL: 1,     // мест на вертолётке = уровень апгрейда (ур.1=1 ... ур.5=5)
-  STAND_MINUTES: 30,              // сколько самолёт стоит на земле (занимает место)
+  // Сколько самолёт стоит на земле (занимает стоянку) — по уровню стоянки.
+  // Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин, то есть одна
+  // стоянка пропускает в 2.5 раза больше бортов. Это единственный эффект
+  // апгрейда стоянки помимо приёма меньших размеров с ур.3: дохода стоянки не
+  // приносят, оплата за прилёт уже включает полное обслуживание борта.
+  STAND_MINUTES_BY_LEVEL: [30, 25, 20, 16, 12],
+  STAND_MINUTES: 30,              // ур.1, оставлено для совместимости
   HELI_STAND_MINUTES: 2,          // вертолёт стоит недолго — быстро освобождает площадку
   CONTRACT_ARRIVAL_INTERVAL: 30, // как часто борт по одному договору хочет прилететь (мин)
   ARRIVAL_INTERVAL_VARIANCE: 0.3, // разброс интервала прилётов ±30%
@@ -362,7 +368,18 @@ const UPGRADE_ECONOMY = {
 };
 
 function upgradeCost(def, targetLevel) {
-  return Math.round(def.cost * UPGRADE_ECONOMY.COST_MULTIPLIER * targetLevel) || Math.round(1000 * UPGRADE_ECONOMY.COST_MULTIPLIER * targetLevel);
+  // Здание может задать свой множитель (upgradeCostMult). У стоянок он ниже
+  // общего: апгрейд не даёт им дохода, только скорость обслуживания, и по
+  // общей формуле оказался бы заведомо невыгоднее постройки новой стоянки.
+  const mult = def.upgradeCostMult != null ? def.upgradeCostMult : UPGRADE_ECONOMY.COST_MULTIPLIER;
+  return Math.round(def.cost * mult * targetLevel) || Math.round(1000 * mult * targetLevel);
+}
+
+// Время обслуживания самолёта на стоянке (игровых минут) по уровню стоянки.
+function standServiceMinutes(upgradeLevel) {
+  const arr = APRON_ECONOMY.STAND_MINUTES_BY_LEVEL;
+  const idx = Math.min(Math.max((upgradeLevel || 1) - 1, 0), arr.length - 1);
+  return arr[idx];
 }
 
 function upgradeMultiplier(upgradeLevel) {
@@ -439,25 +456,25 @@ const BUILDINGS = {
     id: 'stand_small', name: 'Малая стоянка ВС', minLevel: 4,
     cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, nonRentable: true, reputation: 0, xp: 700, removable: true, maxUpgradeLevel: 5,
-    standSize: 'small',   // вмещает маленькие самолёты
+    upgradeCostMult: 0.2, standSize: 'small',   // вмещает маленькие самолёты
     aircraftSlots: 1,
-    desc: 'Стоянка для маленького самолёта. Одно место под базирование или приём борта.',
+    desc: 'Стоянка для маленького самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин, то есть вдвое с половиной больше прилётов через ту же стоянку.',
   },
   stand_medium: {
     id: 'stand_medium', name: 'Средняя стоянка ВС', minLevel: 6,
     cost: 14000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, nonRentable: true, reputation: 0, xp: 1700, removable: true, maxUpgradeLevel: 5,
-    standSize: 'medium',  // вмещает средние; с ур.3 — ещё и маленькие
+    upgradeCostMult: 0.2, standSize: 'medium',  // вмещает средние; с ур.3 — ещё и маленькие
     aircraftSlots: 1,
-    desc: 'Стоянка для среднего (узкофюзеляжного) самолёта. После апгрейда до 3 уровня вмещает также маленькие самолёты.',
+    desc: 'Стоянка для среднего (узкофюзеляжного) самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также маленькие самолёты.',
   },
   stand_large: {
     id: 'stand_large', name: 'Большая стоянка ВС', minLevel: 8,
     cost: 32000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, nonRentable: true, reputation: 0, xp: 3600, removable: true, maxUpgradeLevel: 5,
-    standSize: 'large',   // вмещает большие; с ур.3 — ещё средние и маленькие
+    upgradeCostMult: 0.2, standSize: 'large',   // вмещает большие; с ур.3 — ещё средние и маленькие
     aircraftSlots: 1,
-    desc: 'Стоянка для большого (широкофюзеляжного) самолёта. После апгрейда до 3 уровня вмещает также средние и маленькие самолёты.',
+    desc: 'Стоянка для большого (широкофюзеляжного) самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также средние и маленькие самолёты.',
   },
   hangar: {
     id: 'hangar', name: 'Ангар', minLevel: 4,
@@ -746,7 +763,7 @@ module.exports = {
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
-  standAcceptsSizes, aircraftSize,
+  standAcceptsSizes, aircraftSize, standServiceMinutes,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
