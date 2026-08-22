@@ -15,6 +15,7 @@ const {
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
+  DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
@@ -534,10 +535,14 @@ function totalApronSlots(airportId) {
   const buildings = store.getBuildingsByAirport(airportId).filter(b =>
     (b.state || 'owned') !== 'sold' && b.state !== 'rented' && !isUnderConstruction(b));
   let slots = 0;
+  const currentTick = store.getTickCounter();
   for (const b of buildings) {
-    if (b.buildingId === 'helipad') {
-      slots += (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
-    }
+    if (b.buildingId !== 'helipad') continue;
+    if (b.ruined) continue;   // разрушенная площадка не принимает
+    const base = (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
+    const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
+    // Округляем вниз, но целая площадка всегда принимает хотя бы один борт.
+    slots += Math.max(1, Math.floor(base * damageMultiplier(b.wear || 0, repairing)));
   }
   return slots;
 }
@@ -548,15 +553,21 @@ function totalApronSlots(airportId) {
 function towerInterval(airportId) {
   const buildings = store.getBuildingsByAirport(airportId).filter(b =>
     ((b.state || 'owned') !== 'sold' && b.state !== 'rented') && !isUnderConstruction(b) && b.buildingId === 'tower');
-  if (buildings.length === 0) return APRON_ECONOMY.TOWER_INTERVAL_NONE;
+  const working = buildings.filter(b => !b.ruined);
+  if (working.length === 0) return APRON_ECONOMY.TOWER_INTERVAL_NONE;
+  const currentTick = store.getTickCounter();
   // берём лучший (минимальный) интервал среди вышек и делим на их число
   let best = APRON_ECONOMY.TOWER_INTERVAL_NONE;
-  for (const b of buildings) {
+  for (const b of working) {
     const lvl = b.upgradeLevel || 1;
     const iv = APRON_ECONOMY.TOWER_INTERVAL_BY_LEVEL[lvl - 1] || APRON_ECONOMY.TOWER_INTERVAL_BY_LEVEL[0];
-    if (iv < best) best = iv;
+    // Повреждение растягивает интервал: при 50% он вдвое длиннее.
+    const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
+    const mult = damageMultiplier(b.wear || 0, repairing);
+    const effective = mult > 0 ? iv / mult : APRON_ECONOMY.TOWER_INTERVAL_NONE;
+    if (effective < best) best = effective;
   }
-  return Math.max(1, Math.round(best / buildings.length));
+  return Math.max(1, Math.round(best / working.length));
 }
 
 // Есть ли построенная диспетчерская вышка (обязательна для полётов своих самолётов).
@@ -612,10 +623,15 @@ function listStands(airportId) {
     if ((b.state || 'owned') === 'sold') continue;
     if (b.state === 'rented') continue; // сданная в аренду стоянка не работает на операции
     if (isUnderConstruction(b)) continue;
+    if (b.ruined) continue;
+    // Стоянка — одно место, дробить его нельзя, поэтому правило простое:
+    // при повреждении от половины и выше борт на неё не встаёт.
+    if ((b.wear || 0) >= DAMAGE_ECONOMY.WRENCH_WEAR) continue;
     stands.push({
       buildingId: b.buildingId,
       standSize: def.standSize,
       level: b.upgradeLevel || 1,
+      cellIndex: b.cellIndex,
       accepts: standAcceptsSizes(def.standSize, b.upgradeLevel || 1),
     });
   }
@@ -705,15 +721,15 @@ function listRunways(airportId, currentTick) {
     const level = b.upgradeLevel || 1;
     const baseCapacity = runwayCapacity(def, level);
     // во время ремонта полоса принимает на 70% меньше бортов
-    const repairing = b.rwRepairEndsTick != null && currentTick < b.rwRepairEndsTick;
+    const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
     const capacity = repairing
       ? Math.max(1, Math.round(baseCapacity * RUNWAY_ECONOMY.REPAIR_CAPACITY_MULT))
       : baseCapacity;
     out.push({
       cellIndex: b.cellIndex, buildingId: def.id, name: def.name, level,
       capacity, baseCapacity, repairing,
-      wear: b.rwWear || 0,
-      repairEndsTick: b.rwRepairEndsTick || null,
+      wear: b.wear || 0,
+      repairEndsTick: b.repairEndsTick || null,
       accepts: def.accepts || ['small', 'medium', 'large'],
       lineType: def.lineType,
       used: runwayUsed(b, capacity, currentTick),
@@ -769,7 +785,7 @@ function consumeRunwayLanding(airportId, runway, currentTick, size) {
     rwLandings: runway.used + 1,
     rwLandingsTick: currentTick,
     rwNextOpTick: currentTick + interval,
-    rwWear: wearAfter,
+    wear: wearAfter,
   });
 
   // Последствия считаем по износу ДО посадки: борт садился на ту полосу,
@@ -888,6 +904,7 @@ function serializeAirport(airport) {
       repairTicksLeft: r.repairEndsTick ? Math.max(0, r.repairEndsTick - store.getTickCounter()) : 0,
       repairCost: r.wear > 0 ? runwayRepairCost(BUILDINGS[r.buildingId], r.wear) : 0,
     })),
+    repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
     canFlyMvl: canFlyMvl(airport.id),                    // можно ли выполнять МВЛ-рейсы
@@ -936,6 +953,13 @@ function serializeAirport(airport) {
         // состояние работ: тип ('build'|'upgrade'), сколько тиков осталось / всего, целевой уровень
         constructionType: constructing ? b.constructionType : null,
         constructionTicksLeft: constructing ? Math.max(0, b.constructionEndsTick - nowTick) : 0,
+        // состояние объекта: повреждение, ремонт, разрушение
+        wear: b.wear || 0,
+        ruined: !!b.ruined,
+        repairing: b.repairEndsTick != null && nowTick < b.repairEndsTick,
+        repairTicksLeft: b.repairEndsTick ? Math.max(0, b.repairEndsTick - nowTick) : 0,
+        repairCost: (b.wear || 0) >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR && def ? damageRepairCost(def, b.wear || 0) : 0,
+        ruinedDemolishCost: b.ruined && def ? ruinedDemolishCost(def) : 0,
         constructionTotal,
         pendingUpgradeLevel: b.pendingUpgradeLevel || null,
       };
@@ -1536,34 +1560,90 @@ app.post('/api/building/swap', auth, (req, res) => {
   res.json(serializeAirport(fresh));
 });
 
-// Ремонт ВПП: обнуляет износ, пока идёт — полоса принимает на 70% меньше бортов.
-app.post('/api/building/runway-repair', auth, (req, res) => {
+// Ремонт здания: обнуляет повреждение. Пока идут работы объект действует
+// на 30% (но не хуже, чем уже был от повреждения) — см. damageMultiplier.
+app.post('/api/building/repair', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
   const { cellIndex } = req.body || {};
   const b = store.getBuildingsByAirport(airport.id).find(x => x.cellIndex === cellIndex);
   if (!b) return res.status(404).json({ error: 'not_found', message: 'Объект не найден' });
   const def = BUILDINGS[b.buildingId];
-  if (!def || !def.isRunway) return res.status(400).json({ error: 'not_runway', message: 'Ремонтировать можно только ВПП' });
-  if ((b.state || 'owned') !== 'owned') return res.status(400).json({ error: 'not_owned', message: 'Полоса сдана или продана' });
+  if (!def) return res.status(404).json({ error: 'not_found' });
+  if (b.ruined) return res.status(400).json({ error: 'ruined', message: 'Объект разрушен и ремонту не подлежит — только снос' });
+  if ((b.state || 'owned') !== 'owned') return res.status(400).json({ error: 'not_owned', message: 'Объект сдан или продан' });
   if (isUnderConstruction(b)) return res.status(400).json({ error: 'busy', message: 'Идут строительные работы' });
 
   const currentTick = store.getTickCounter();
-  if (b.rwRepairEndsTick != null && currentTick < b.rwRepairEndsTick) {
-    return res.status(400).json({ error: 'already_repairing', message: 'Полоса уже на ремонте' });
+  if (b.repairEndsTick != null && currentTick < b.repairEndsTick) {
+    return res.status(400).json({ error: 'already_repairing', message: 'Объект уже на ремонте' });
   }
-  const wear = b.rwWear || 0;
-  if (wear <= 0) return res.status(400).json({ error: 'no_wear', message: 'Полоса в идеальном состоянии' });
+  const wear = b.wear || 0;
+  if (wear < DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR) {
+    return res.status(400).json({ error: 'no_wear', message: 'Объект в порядке — ремонтировать нечего' });
+  }
 
-  const cost = runwayRepairCost(def, wear);
+  const cost = damageRepairCost(def, wear);
   if (airport.money < cost) {
     return res.status(400).json({ error: 'no_money', message: `Не хватает средств: нужно ${cost.toLocaleString('ru-RU')} у.е.` });
   }
-  const ticks = runwayRepairTicks(wear);
+  const ticks = damageRepairTicks(wear);
   store.updateAirport(airport.id, { money: airport.money - cost });
-  store.updateBuildingAtCell(airport.id, cellIndex, { rwRepairEndsTick: currentTick + ticks });
-
+  store.updateBuildingAtCell(airport.id, cellIndex, { repairEndsTick: currentTick + ticks });
   res.json({ ...serializeAirport(store.getAirportById(airport.id)), _repair: { cost, ticks } });
+});
+
+// Отремонтировать всё повреждённое разом. Открывается с 7 уровня аэропорта.
+// Все объекты чинятся одновременно: заплатил разом — получил разом, но
+// аэропорт на время просядет целиком.
+app.post('/api/building/repair-all', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const level = levelFromXp(airport.xp || 0);
+  if (level < DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL) {
+    return res.status(403).json({
+      error: 'level_too_low',
+      message: `Массовый ремонт доступен с ${DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL} уровня аэропорта`,
+    });
+  }
+  const currentTick = store.getTickCounter();
+  const targets = store.getBuildingsByAirport(airport.id).filter(b => {
+    const def = BUILDINGS[b.buildingId];
+    return def && !b.ruined && (b.state || 'owned') === 'owned' && !isUnderConstruction(b)
+      && !(b.repairEndsTick != null && currentTick < b.repairEndsTick)
+      && (b.wear || 0) >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR;
+  });
+  if (!targets.length) return res.status(400).json({ error: 'nothing_to_repair', message: 'Всё в порядке, чинить нечего' });
+
+  let total = 0;
+  for (const b of targets) total += damageRepairCost(BUILDINGS[b.buildingId], b.wear || 0);
+  if (airport.money < total) {
+    return res.status(400).json({ error: 'no_money', message: `На общий ремонт нужно ${total.toLocaleString('ru-RU')} у.е.` });
+  }
+  let maxTicks = 0;
+  for (const b of targets) {
+    const ticks = damageRepairTicks(b.wear || 0);
+    if (ticks > maxTicks) maxTicks = ticks;
+    store.updateBuildingAtCell(airport.id, b.cellIndex, { repairEndsTick: currentTick + ticks });
+  }
+  store.updateAirport(airport.id, { money: airport.money - total });
+  res.json({ ...serializeAirport(store.getAirportById(airport.id)), _repair: { cost: total, ticks: maxTicks, count: targets.length } });
+});
+
+// Снос разрушенного объекта: возврата нет, игрок платит четверть цены нового.
+// Уйти в минус разрешено — иначе клетка запиралась бы навсегда при пустом счёте.
+app.post('/api/building/demolish-ruined', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const { cellIndex } = req.body || {};
+  const b = store.getBuildingsByAirport(airport.id).find(x => x.cellIndex === cellIndex);
+  if (!b) return res.status(404).json({ error: 'not_found' });
+  if (!b.ruined) return res.status(400).json({ error: 'not_ruined', message: 'Объект не разрушен' });
+  const def = BUILDINGS[b.buildingId];
+  const cost = ruinedDemolishCost(def);
+  store.updateAirport(airport.id, { money: airport.money - cost });
+  store.removeBuildingAtCell(airport.id, cellIndex);
+  res.json({ ...serializeAirport(store.getAirportById(airport.id)), _demolish: { cost } });
 });
 
 app.post('/api/building/upgrade', auth, (req, res) => {
@@ -2075,6 +2155,25 @@ app.get('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
   });
 });
 
+// Инструмент проверки: повредить или разрушить объект игрока вручную.
+// Нужен, чтобы тестировать механику повреждений до появления ЧС, и останется
+// частью будущей панели вызова происшествий.
+app.post('/api/admin/damage-building', auth, adminAuth, (req, res) => {
+  const { username, cellIndex, wear, ruined } = req.body || {};
+  const target = store.findUserByUsername(username);
+  if (!target) return res.status(404).json({ error: 'no_user', message: 'Игрок не найден' });
+  const airport = store.getAirportByUserId(target.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const b = store.getBuildingsByAirport(airport.id).find(x => x.cellIndex === cellIndex);
+  if (!b) return res.status(404).json({ error: 'not_found', message: 'Объект не найден' });
+
+  const patch = {};
+  if (ruined !== undefined) patch.ruined = !!ruined;
+  if (wear !== undefined) patch.wear = Math.min(1, Math.max(0, Number(wear) || 0));
+  store.updateBuildingAtCell(airport.id, cellIndex, patch);
+  res.json({ ok: true, cellIndex, ...patch });
+});
+
 app.post('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
   const { oilPrice, goldPrice } = req.body || {};
   if (oilPrice !== undefined) {
@@ -2525,20 +2624,23 @@ function runTick() {
       // во время апгрейда показатели снижены на UPGRADE_WORK_PENALTY
       const workPenalty = (b.constructionEndsTick != null && b.constructionType === 'upgrade')
         ? (1 - CONFIG.UPGRADE_WORK_PENALTY) : 1;
+      // Разрушенное здание не работает вовсе, повреждённое — пропорционально.
+      const repairingNow = b.repairEndsTick != null && currentTick < b.repairEndsTick;
+      const damageMult = b.ruined ? 0 : damageMultiplier(b.wear || 0, repairingNow);
       let income;
       if (def.id === 'airline_office') {
         // офис: пока нет самолётов — убыток; есть хотя бы один — обычный доход
         const fleetCount = store.getAircraftByAirport(airport.id).length;
         income = fleetCount > 0
-          ? Math.round(def.income * upgradeMult * workPenalty)
+          ? Math.round(def.income * upgradeMult * workPenalty * damageMult)
           : (def.officeIncomeWithoutAircraft || -60);
       } else {
         income = state === 'rented'
-          ? (b.rentPrice || def.income)
-          : Math.round(def.income * upgradeMult * workPenalty);
+          ? (b.rentPrice || def.income)   // аренду платит бот, повреждения его забота
+          : Math.round(def.income * upgradeMult * workPenalty * damageMult);
       }
       incomePerTick += income;
-      reputationPerTick += (def.reputation || 0) * upgradeMult * workPenalty;
+      reputationPerTick += (def.reputation || 0) * upgradeMult * workPenalty * damageMult;
     }
 
     // ---- генерация пассажирского трафика (пулы ожидающих вылета) ----
@@ -2563,25 +2665,25 @@ function runTick() {
     reputationPerTick = Math.round(reputationPerTick);
     const freshAirport = store.getAirportByUserId(airport.userId) || airport;
 
-    // --- Завершение ремонта ВПП ---
+    // --- Завершение ремонта ---
     for (const b of store.getBuildingsByAirport(airport.id)) {
-      if (b.rwRepairEndsTick == null || currentTick < b.rwRepairEndsTick) continue;
-      store.updateBuildingAtCell(airport.id, b.cellIndex, { rwRepairEndsTick: null, rwWear: 0 });
+      if (b.repairEndsTick == null || currentTick < b.repairEndsTick) continue;
+      store.updateBuildingAtCell(airport.id, b.cellIndex, { repairEndsTick: null, wear: 0 });
       const rdef = BUILDINGS[b.buildingId];
-      notifications.push(`✅ ${rdef ? rdef.name : 'ВПП'} отремонтирована — износ обнулён, пропускная способность восстановлена.`);
+      notifications.push(`✅ ${rdef ? rdef.name : 'Объект'} отремонтирован — повреждения устранены, работает в полную силу.`);
     }
 
-    // --- Ветшание ВПП ---
-    // Полоса стареет и без работы: покрытие трескается, разметка стирается.
-    // Медленно (0.72% за игровые сутки), чтобы простаивающая полоса не
-    // превращалась в постоянный налог, но и не стояла вечно новой.
+    // --- Ветшание зданий ---
+    // Всё ветшает само: покрытие трескается, техника изнашивается. Медленно —
+    // 1.4% за игровые сутки, то есть до первой пометки около игровой недели.
+    // Не ветшают: сданные в аренду (их содержит бот), строящиеся, на ремонте
+    // и уже разрушенные.
     for (const b of store.getBuildingsByAirport(airport.id)) {
-      const rdef = BUILDINGS[b.buildingId];
-      if (!rdef || !rdef.isRunway) continue;
+      if (b.ruined) continue;
       if ((b.state || 'owned') !== 'owned' || isUnderConstruction(b)) continue;
-      if (b.rwRepairEndsTick != null && currentTick < b.rwRepairEndsTick) continue; // на ремонте не ветшает
-      const aged = Math.min(1, (b.rwWear || 0) + RUNWAY_ECONOMY.AGING_PER_TICK);
-      if (aged !== (b.rwWear || 0)) store.updateBuildingAtCell(airport.id, b.cellIndex, { rwWear: aged });
+      if (b.repairEndsTick != null && currentTick < b.repairEndsTick) continue;
+      const aged = Math.min(1, (b.wear || 0) + DAMAGE_ECONOMY.AGING_PER_TICK);
+      if (aged !== (b.wear || 0)) store.updateBuildingAtCell(airport.id, b.cellIndex, { wear: aged });
     }
 
     // --- Содержание аэропорта ---

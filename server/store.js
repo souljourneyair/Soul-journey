@@ -47,6 +47,23 @@ function load() {
     // Мягкая миграция: если файл создан до появления какого-то поля — подставляем дефолт,
     // чтобы обновление кода не ломало уже работающий data.json на сервере.
     if (data.nextMediaId === undefined) data.nextMediaId = 1;
+    // Износ ВПП переехал в общее для всех зданий поле wear. Переносим старое
+    // значение у уже наигранных сохранений, чтобы накопленный износ не пропал
+    // и чтобы в панели не оказалось двух разных повреждений у одной полосы.
+    if (Array.isArray(data.buildings)) {
+      for (const b of data.buildings) {
+        if (b.rwWear !== undefined) {
+          if (b.wear === undefined) b.wear = b.rwWear;
+          delete b.rwWear;
+        }
+        if (b.rwRepairEndsTick !== undefined) {
+          if (b.repairEndsTick === undefined) b.repairEndsTick = b.rwRepairEndsTick;
+          delete b.rwRepairEndsTick;
+        }
+        if (b.wear === undefined) b.wear = 0;
+        if (b.ruined === undefined) b.ruined = false;
+      }
+    }
     if (!data.buildingLabelStyles) data.buildingLabelStyles = {};
     if (!data.buildingNames) data.buildingNames = {};
     if (!data.buildingDescriptions) data.buildingDescriptions = {};

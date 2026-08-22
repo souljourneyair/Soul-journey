@@ -738,3 +738,26 @@ body {
   color: var(--text-dim);
   margin: -6px 0 4px;
 }
+
+/* --- состояние объекта: повреждение, ремонт, разрушение --- */
+.cell-damage {
+  position: absolute; top: 4px; left: 4px; z-index: 3;
+  font-size: 18px; line-height: 1;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+}
+.cell-damage.worn { font-size: 22px; color: var(--board-amber); opacity: 0.75; }
+.cell-damage.repairing, .cell-damage.ruined { font-size: 18px; }
+.obj-damage { font-size: 12px; line-height: 1.4; font-family: var(--mono); }
+.obj-damage.worn { color: var(--text-dim); }
+.obj-damage.bad { color: var(--board-amber); }
+.obj-damage.repairing { color: var(--board-amber); }
+.obj-damage.ruined { color: var(--red); font-weight: 700; }
+
+/* --- модальное окно ЧС --- */
+.event-modal-card { max-width: 460px; text-align: center; }
+.event-modal-icon { font-size: 54px; line-height: 1; margin-bottom: 12px; }
+.event-modal-text { font-size: 14px; line-height: 1.6; color: var(--text); margin: 0 0 18px; }
+.event-modal-list {
+  font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+  text-align: left; margin: 0 0 18px; padding-left: 18px;
+}

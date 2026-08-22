@@ -249,6 +249,65 @@ function runwayRepairTicks(wear) {
   return Math.max(5, Math.round(RUNWAY_ECONOMY.REPAIR_TICKS_AT_FULL * (wear || 0)));
 }
 
+// ---------- Повреждения зданий (общая механика) ----------
+// Одно поле wear на все здания: и медленное ветшание, и удары от ЧС.
+// Смысл цифры везде одинаковый — полезность здания умножается на (1 - wear).
+const DAMAGE_ECONOMY = {
+  // Ветшание: 1.4% за игровые сутки. До первой пометки (10%) — около игровой
+  // недели, до гаечного ключа (50%) — примерно пять недель. Осмотр зданий
+  // становится делом на раз в несколько сессий, а не постоянной суетой.
+  AGING_PER_TICK: 0.0000097,     // 1.4% / 1440 минут
+  // Сданное в аренду здание не ветшает: его эксплуатирует и содержит бот.
+  // Иначе аренда превращалась бы в ловушку «сдал, забыл, вернулся к развалинам».
+
+  // Ниже этого повреждения ремонт не предлагается: ветшание идёт непрерывно,
+  // и без порога у каждого здания сразу висела бы кнопка «починить за 300».
+  MIN_REPAIRABLE_WEAR: 0.01,
+
+  // Пороги сигналов игроку.
+  NOTICE_WEAR: 0.10,   // мелкая пометка на иконке — вред уже начался
+  WRENCH_WEAR: 0.50,   // гаечный ключ поверх иконки — чинить пора
+
+  // Ремонт: та же формула, что у ВПП, чтобы игрок учил одно правило.
+  REPAIR_PCT_OF_COST: 0.4,
+  REPAIR_TICKS_AT_FULL: 200,
+  // Во время ремонта здание работает на 30%. Но берём ХУДШЕЕ из двух, а не
+  // произведение: сильно побитое здание во время ремонта не проседает ещё
+  // сильнее. Иначе запуск ремонта делал бы игроку хуже, чем бездействие.
+  REPAIR_CAPACITY_MULT: 0.3,
+
+  // Снос разрушенного (сгорело/развалилось): игрок не получает возврата,
+  // а платит четверть цены нового такого здания. Разрешаем уйти в минус,
+  // иначе клетка запирается навсегда при пустом кошельке.
+  DEMOLISH_RUINED_PCT: 0.25,
+
+  // Кнопка «отремонтировать всё» открывается с этого уровня аэропорта.
+  REPAIR_ALL_MIN_LEVEL: 7,
+};
+
+// Множитель полезности здания: доход, вместимость, пропускная способность.
+// repairing — идёт ремонт (тогда не ниже REPAIR_CAPACITY_MULT, но и не хуже,
+// чем уже было от повреждения).
+function damageMultiplier(wear, repairing) {
+  const fromWear = Math.max(0, 1 - (wear || 0));
+  if (!repairing) return fromWear;
+  return Math.min(fromWear, DAMAGE_ECONOMY.REPAIR_CAPACITY_MULT) === fromWear
+    ? fromWear                                   // уже хуже — ремонт не ухудшает
+    : DAMAGE_ECONOMY.REPAIR_CAPACITY_MULT;
+}
+
+function damageRepairCost(def, wear) {
+  return Math.max(300, Math.round(def.cost * DAMAGE_ECONOMY.REPAIR_PCT_OF_COST * (wear || 0)));
+}
+
+function damageRepairTicks(wear) {
+  return Math.max(5, Math.round(DAMAGE_ECONOMY.REPAIR_TICKS_AT_FULL * (wear || 0)));
+}
+
+function ruinedDemolishCost(def) {
+  return Math.round(def.cost * DAMAGE_ECONOMY.DEMOLISH_RUINED_PCT);
+}
+
 const APRON_ECONOMY = {
   HELIPAD_SLOTS_PER_LEVEL: 1,     // мест на вертолётке = уровень апгрейда (ур.1=1 ... ур.5=5)
   // Сколько самолёт стоит на земле (занимает стоянку) — по уровню стоянки.
@@ -849,6 +908,7 @@ module.exports = {
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
+  DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,

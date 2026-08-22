@@ -426,6 +426,7 @@ function bumpStat(el) {
 
 function renderAll() {
   renderStats();
+  renderRepairAllBar();
   renderObjectsTable();
   renderGrid();
   renderBuildMenu();
@@ -681,6 +682,7 @@ function renderBuildingRow(building, tbody, indent) {
   tr.className = 'objects-row';
   const desc = displayBuildingDesc(building.buildingId);
   const levelDetail = levelDetailText(building.buildingId, level);
+  const dmgRow = damageState(building);
   tr.innerHTML = `
     <td class="obj-name-cell" style="padding-left:${14 + indent * 22}px">
       <div class="obj-name-inner">
@@ -689,6 +691,7 @@ function renderBuildingRow(building, tbody, indent) {
         <div class="obj-name-wrap">
           <span class="obj-name">${escapeHtml(name)}</span>
           ${levelDetail ? `<span class="obj-subname">${escapeHtml(levelDetail)}</span>` : ''}
+          ${dmgRow.cls !== 'ok' ? `<span class="obj-damage ${dmgRow.cls}">${dmgRow.mark} ${escapeHtml(dmgRow.label)}</span>` : ''}
         </div>
       </div>
     </td>
@@ -757,6 +760,7 @@ function renderGrid() {
 
       const globalSkin = resolveBuildingImage(building.buildingId, building.upgradeLevel);
       const iconValue = building.customIcon || globalSkin || BUILDING_ICONS[building.buildingId] || '🏗️';
+      const dmg = damageState(building);
       const iconHtml = /^https?:\/\/|^data:image|^\/uploads\//.test(iconValue)
         ? `<img src="${iconValue}" alt="" class="cell-icon-img">`
         : `<div class="cell-icon">${iconValue}</div>`;
@@ -769,10 +773,16 @@ function renderGrid() {
         ? ` style="${labelStyle.fontSize ? `font-size:${normalizeFontSize(labelStyle.fontSize)} !important;` : ''}${labelStyle.color ? `color:${labelStyle.color} !important;` : ''}"`
         : '';
 
+      // Гаечный ключ с 50% повреждения, мелкая точка с 10% — двухступенчатый
+      // сигнал: игрок видит, что вред уже идёт, задолго до срочного ремонта.
+      const damageOverlay = dmg.mark
+        ? `<span class="cell-damage ${dmg.cls}" title="${escapeHtml(dmg.label)}">${dmg.mark}</span>`
+        : '';
       cell.innerHTML = `
         <div class="cell-image-wrap">
           ${badge}
           ${workingOverlay}
+          ${damageOverlay}
           ${iconHtml}
         </div>
         <div class="cell-label"${labelStyleAttr}>${escapeHtml(displayName)}</div>
@@ -1184,7 +1194,13 @@ function renderBuildingPanel(cellIndex, container) {
     return;
   }
 
-  if (state === 'owned' && building.nextUpgradeCost) {
+  if (state === 'owned' && building.nextUpgradeCost && building.repairCost > 0) {
+    // Сначала ремонт: иначе апгрейд стал бы способом чинить в обход механики.
+    const hint = document.createElement('div');
+    hint.className = 'build-menu-hint';
+    hint.textContent = 'Апгрейд недоступен, пока объект повреждён — сначала ремонт.';
+    actions.appendChild(hint);
+  } else if (state === 'owned' && building.nextUpgradeCost) {
     const canAfford = STATE.money >= building.nextUpgradeCost;
     const btn = actionBtn(canAfford ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${building.nextUpgradeCost.toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств', () => buildingActionAcc(cellIndex, 'upgrade'));
     btn.disabled = !canAfford;
@@ -1193,23 +1209,24 @@ function renderBuildingPanel(cellIndex, container) {
   if (building.buildingId === 'fuel_depot' && state === 'owned') {
     actions.appendChild(actionBtn('⛽ Топливная биржа', openFuelExchange));
   }
-  // Ремонт ВПП: доступен, когда есть износ и полоса не на ремонте
-  if (def.isRunway && state === 'owned') {
-    const rw = (STATE.runwayLoad || []).find(r => r.cellIndex === cellIndex);
-    if (rw && rw.repairing) {
-      const btn = actionBtn(`🚧 Ремонт идёт — ${rw.repairTicksLeft} мин`, () => {});
-      btn.disabled = true;
-      actions.appendChild(btn);
-    } else if (rw && rw.wear > 0) {
-      const canAfford = STATE.money >= rw.repairCost;
-      const btn = actionBtn(
-        canAfford
-          ? `🔧 Отремонтировать — износ ${Math.round(rw.wear * 100)}% (${rw.repairCost.toLocaleString('ru-RU')} у.е.)`
-          : `Не хватает средств на ремонт (${rw.repairCost.toLocaleString('ru-RU')} у.е.)`,
-        () => repairRunway(cellIndex));
-      btn.disabled = !canAfford;
-      actions.appendChild(btn);
-    }
+  // Состояние объекта: повреждение, ремонт, снос разрушенного
+  if (building.ruined) {
+    const cost = building.ruinedDemolishCost || 0;
+    const btn = actionBtn(`💥 Снести развалины (${cost.toLocaleString('ru-RU')} у.е.)`, () => demolishRuined(cellIndex));
+    actions.appendChild(btn);
+  } else if (state === 'owned' && building.repairing) {
+    const btn = actionBtn(`🚧 Ремонт идёт — ${building.repairTicksLeft} мин`, () => {});
+    btn.disabled = true;
+    actions.appendChild(btn);
+  } else if (state === 'owned' && building.repairCost > 0) {
+    const canAfford = STATE.money >= building.repairCost;
+    const btn = actionBtn(
+      canAfford
+        ? `🔧 Отремонтировать — ${Math.round(building.wear * 100)}% (${building.repairCost.toLocaleString('ru-RU')} у.е.)`
+        : `Не хватает средств на ремонт (${building.repairCost.toLocaleString('ru-RU')} у.е.)`,
+      () => repairBuilding(cellIndex));
+    btn.disabled = !canAfford;
+    actions.appendChild(btn);
   }
   if (!def.removable) {
     // только апгрейд
@@ -1309,14 +1326,60 @@ function infraStatusText(building) {
   return 'В работе';
 }
 
-async function repairRunway(cellIndex) {
+async function repairBuilding(cellIndex) {
   try {
-    const res = await api('/api/building/runway-repair', 'POST', { cellIndex });
+    const res = await api('/api/building/repair', 'POST', { cellIndex });
     STATE = res;
     const info = res._repair;
     toast(info
-      ? `Ремонт начат: ${info.cost.toLocaleString('ru-RU')} у.е., ${info.ticks} мин. Пропускная способность снижена на 70%.`
+      ? `Ремонт начат: ${info.cost.toLocaleString('ru-RU')} у.е., ${info.ticks} мин. Объект работает на 30%.`
       : 'Ремонт начат');
+    renderAll();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+$('#eventModalOk')?.addEventListener('click', () => $('#eventModal').classList.add('hidden'));
+$('#repairAllBtn')?.addEventListener('click', repairAll);
+
+// Кнопка общего ремонта: показываем только с нужного уровня и только когда
+// действительно есть что чинить.
+function renderRepairAllBar() {
+  const bar = $('#repairAllBar');
+  if (!bar) return;
+  const damaged = (STATE.buildings || []).filter(b =>
+    !b.ruined && !b.repairing && (b.repairCost || 0) > 0 && (b.state || 'owned') === 'owned');
+  const minLevel = STATE.repairAllMinLevel || 7;
+  if ((STATE.level || 1) < minLevel || !damaged.length) {
+    bar.classList.add('hidden');
+    return;
+  }
+  const total = damaged.reduce((sum, b) => sum + (b.repairCost || 0), 0);
+  $('#repairAllBtn').textContent = `🔧 Отремонтировать всё — ${damaged.length} об. (${total.toLocaleString('ru-RU')} у.е.)`;
+  $('#repairAllBtn').disabled = STATE.money < total;
+  bar.classList.remove('hidden');
+}
+
+async function repairAll() {
+  try {
+    const res = await api('/api/building/repair-all', 'POST', {});
+    STATE = res;
+    const info = res._repair;
+    toast(info
+      ? `Ремонт ${info.count} объектов: ${info.cost.toLocaleString('ru-RU')} у.е., до ${info.ticks} мин.`
+      : 'Ремонт начат');
+    renderAll();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function demolishRuined(cellIndex) {
+  try {
+    const res = await api('/api/building/demolish-ruined', 'POST', { cellIndex });
+    STATE = res;
+    toast(`Развалины снесены за ${(res._demolish?.cost || 0).toLocaleString('ru-RU')} у.е. Клетка свободна.`);
     renderAll();
   } catch (err) {
     toast(err.message, true);
@@ -2302,6 +2365,81 @@ document.addEventListener('keydown', (e) => {
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Модальное окно происшествия. Блокирующее: закрывается только кнопкой,
+// чтобы игрок точно прочитал, что случилось с аэропортом.
+// Тексты — черновые, заказчик пришлёт свои варианты.
+const EVENT_TEXTS = {
+  meteor: {
+    title: 'МЕТЕОРИТНЫЙ ДОЖДЬ', icon: '☄️',
+    lines: [
+      'Матрица вселенной разгневалась, и интерпретатор послал на ваш мир метеориты. Аэропорт получил повреждения — скорее проверьте свои здания!',
+      'Небо прочертили огненные росчерки. Диспетчеры считают воронки, вы — убытки. Проверьте, что уцелело.',
+      'Космос прислал незапланированный груз без накладных. Часть построек приняла его на себя.',
+    ],
+  },
+  earthquake: {
+    title: 'ЗЕМЛЕТРЯСЕНИЕ', icon: '🌋',
+    lines: [
+      'Земля под аэропортом дрогнула. По стенам пошли трещины, где-то осыпалась облицовка. Обойдите здания и оцените ущерб.',
+      'Толчки подняли пыль над полосами. Техника цела не везде — проверьте состояние объектов.',
+      'Планета решила напомнить, кто здесь хозяин. Аэропорт устоял, но не весь.',
+    ],
+  },
+  fire: {
+    title: 'ПОЖАР', icon: '🔥',
+    lines: [
+      'В аэропорту вспыхнул пожар. Дым видно с диспетчерской вышки — проверьте, что осталось от построек.',
+      'Огонь нашёл, чем поживиться. Чем быстрее осмотрите здания, тем меньше потеряете.',
+    ],
+  },
+  flood: {
+    title: 'НАВОДНЕНИЕ', icon: '🌊',
+    lines: [
+      'Вода вышла из берегов и добралась до перрона. Полосы и стоянки под ударом — оцените повреждения.',
+      'Аэропорт по щиколотку в воде. Покрытие размыто, стоянки залиты. Проверьте объекты.',
+    ],
+  },
+  birds: {
+    title: 'ПТИЦЫ', icon: '🦅',
+    lines: [
+      'Стая птиц вышла на глиссаду одновременно с бортом. Без последствий не обошлось.',
+    ],
+  },
+  storm: {
+    title: 'МАГНИТНАЯ БУРЯ', icon: '🧲',
+    lines: [
+      'Магнитная буря сбивает приборы. Вышка и полосы работают вполсилы, пока всё не уляжется.',
+      'Солнце устроило помехи. Диспетчеры разводят борта вручную — пропускная способность упала.',
+    ],
+  },
+};
+
+function showEventModal(kind, details) {
+  const cfg = EVENT_TEXTS[kind] || EVENT_TEXTS.earthquake;
+  const line = cfg.lines[Math.floor(Math.random() * cfg.lines.length)];
+  $('#eventModalTitle').textContent = cfg.title;
+  $('#eventModalIcon').textContent = cfg.icon;
+  $('#eventModalText').textContent = line;
+  const list = $('#eventModalList');
+  if (details && details.length) {
+    list.innerHTML = details.map(d => `<li>${escapeHtml(d)}</li>`).join('');
+    list.classList.remove('hidden');
+  } else {
+    list.classList.add('hidden');
+  }
+  $('#eventModal').classList.remove('hidden');
+}
+
+// Состояние объекта по повреждению: слово, цвет, значок.
+function damageState(building) {
+  if (building.ruined) return { label: 'Разрушено', cls: 'ruined', mark: '💥' };
+  const w = building.wear || 0;
+  if (building.repairing) return { label: `Ремонт — ${building.repairTicksLeft} мин`, cls: 'repairing', mark: '🚧' };
+  if (w >= 0.50) return { label: `Требует ремонта — ${Math.round(w * 100)}%`, cls: 'bad', mark: '🔧' };
+  if (w >= 0.10) return { label: `Есть износ — ${Math.round(w * 100)}%`, cls: 'worn', mark: '·' };
+  return { label: 'Исправно', cls: 'ok', mark: '' };
 }
 
 // Покрытие и оснащение объекта на текущем уровне (сейчас есть у ВПП).
