@@ -680,12 +680,16 @@ function renderBuildingRow(building, tbody, indent) {
   const tr = document.createElement('tr');
   tr.className = 'objects-row';
   const desc = displayBuildingDesc(building.buildingId);
+  const levelDetail = levelDetailText(building.buildingId, level);
   tr.innerHTML = `
     <td class="obj-name-cell" style="padding-left:${14 + indent * 22}px">
       <div class="obj-name-inner">
         ${indent > 0 ? '<span class="obj-branch">└</span>' : ''}
         <div class="obj-photo">${photoHtml}</div>
-        <span class="obj-name">${escapeHtml(name)}</span>
+        <div class="obj-name-wrap">
+          <span class="obj-name">${escapeHtml(name)}</span>
+          ${levelDetail ? `<span class="obj-subname">${escapeHtml(levelDetail)}</span>` : ''}
+        </div>
       </div>
     </td>
     <td class="obj-desc">${escapeHtml(desc)}</td>
@@ -1001,6 +1005,12 @@ function renderBuildingModal() {
   const state = building.state || 'owned';
 
   $('#bmTitle').textContent = `${displayBuildingName(building.buildingId).toUpperCase()} ${toRoman(building.upgradeLevel)}`;
+  const bmSurface = $('#bmSurface');
+  if (bmSurface) {
+    const detail = levelDetailText(building.buildingId, building.upgradeLevel);
+    bmSurface.textContent = detail;
+    bmSurface.classList.toggle('hidden', !detail);
+  }
   $('#bmDesc').textContent = displayBuildingDesc(building.buildingId);
 
   const statusLabels = {
@@ -2258,6 +2268,14 @@ document.addEventListener('keydown', (e) => {
 
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Покрытие и оснащение объекта на текущем уровне (сейчас есть у ВПП).
+// Показывается отдельной строкой под названием, чтобы не раздувать описание.
+function levelDetailText(buildingId, level) {
+  const arr = STATE.catalog?.[buildingId]?.surfaceByLevel;
+  if (!arr || !arr.length) return '';
+  return arr[Math.min(Math.max((level || 1) - 1, 0), arr.length - 1)] || '';
 }
 
 function toRoman(n) {

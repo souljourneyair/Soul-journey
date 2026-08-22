@@ -280,7 +280,17 @@ body {
 }
 .obj-photo-img { width: 100%; height: 100%; object-fit: cover; }
 .obj-photo-emoji { font-size: 30px; line-height: 1; }
+.obj-name-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .obj-name { font-weight: 600; color: var(--text); }
+/* покрытие и оснащение текущего уровня — строкой под названием */
+.obj-subname {
+  font-family: var(--mono); font-size: 10px; line-height: 1.35;
+  color: var(--text-dim); letter-spacing: 0.2px;
+}
+.building-modal-surface {
+  font-family: var(--mono); font-size: 11px; color: var(--board-amber);
+  margin: 0 0 8px; letter-spacing: 0.3px;
+}
 .obj-desc { color: var(--text-dim); line-height: 1.4; }
 .obj-action { font-family: var(--mono); color: var(--board-amber); white-space: nowrap; }
 .obj-status { display: inline-block; }
