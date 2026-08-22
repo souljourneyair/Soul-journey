@@ -696,10 +696,9 @@ body {
 
   /* --- модалки на весь экран по ширине --- */
   .modal { padding: 12px; align-items: flex-end; }
-  .modal-card, .building-modal, .cell-modal, .media-picker-modal, .territory-modal {
+  .modal-card, .building-modal, .cell-modal, .territory-modal {
     width: 100%; max-width: 100%; max-height: 85vh;
   }
-  .media-grid { grid-template-columns: repeat(3, 1fr); }
 
   /* --- таблица рейтинга: меньше паддингов, чтобы влезала --- */
   .leaderboard-table th, .leaderboard-table td { padding: 8px 12px; font-size: 12px; }

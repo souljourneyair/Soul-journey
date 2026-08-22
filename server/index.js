@@ -807,7 +807,6 @@ function serializeAirport(airport) {
     upgradeEconomy: UPGRADE_ECONOMY,
     // картинки зданий из папок uploads/buildings/<id>/ — источник правды
     buildingMedia: mediaScan.buildingsManifest(),
-    buildingSkins: store.getBuildingSkins(), // устарело, снести после миграции
     buildingLabelStyles: store.getBuildingLabelStyles(),
     buildingNames: store.getBuildingNames(),
     buildingDescriptions: store.getBuildingDescriptions(),
@@ -1726,8 +1725,6 @@ app.post('/api/admin/players/:username/unban', auth, adminAuth, (req, res) => {
 });
 
 // ---------- Галерея: медиатека, скины зданий по (тип, уровень), стили текста ----------
-const UPLOADS_DIR = path.join(__dirname, '..', 'public', 'uploads', 'gallery');
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const ALLOWED_IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5MB
@@ -1740,9 +1737,7 @@ app.get('/api/admin/gallery', auth, adminAuth, (req, res) => {
   res.json({
     catalog: BUILDINGS,
     buildLimits: BUILD_LIMITS,
-    mediaLibrary: store.getMediaLibrary(),
     buildingMedia: mediaScan.buildingsManifest(),
-    buildingSkins: store.getBuildingSkins(),
     buildingLabelStyles: store.getBuildingLabelStyles(),
     buildingNames: store.getBuildingNames(),
     buildingDescriptions: store.getBuildingDescriptions(),
@@ -1765,92 +1760,8 @@ app.post('/api/admin/gallery/rename', auth, adminAuth, (req, res) => {
   res.json({ buildingNames: names });
 });
 
-app.post('/api/admin/gallery/upload', auth, adminAuth, (req, res) => {
-  const { dataUrl, filename } = req.body || {};
-  if (typeof dataUrl !== 'string') return res.status(400).json({ error: 'invalid_input' });
-
-  const match = dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-  if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки (base64)' });
-
-  const mimeType = match[1];
-  const ext = ALLOWED_IMAGE_TYPES[mimeType];
-  if (!ext) return res.status(400).json({ error: 'unsupported_type', message: 'Поддерживаются PNG, JPEG, GIF, WEBP, SVG' });
-
-  const base64Data = match[2];
-  const buffer = Buffer.from(base64Data, 'base64');
-  if (buffer.length > MAX_UPLOAD_BYTES) {
-    return res.status(400).json({ error: 'file_too_large', message: 'Максимум 5MB' });
-  }
-
-  const safeName = `${crypto.randomBytes(8).toString('hex')}.${ext}`;
-  fs.writeFileSync(path.join(UPLOADS_DIR, safeName), buffer);
-  const url = `/uploads/gallery/${safeName}`;
-
-  const asset = store.addMediaAsset(url, filename || safeName);
-  res.json(asset);
-});
-
 // Логотип игры: загрузка (админ) и публичное получение настроек.
-app.post('/api/admin/logo', auth, adminAuth, (req, res) => {
-  const { dataUrl } = req.body || {};
-  if (typeof dataUrl !== 'string') return res.status(400).json({ error: 'invalid_input' });
-  const match = dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-  if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки (base64)' });
-  const ext = ALLOWED_IMAGE_TYPES[match[1]];
-  if (!ext) return res.status(400).json({ error: 'unsupported_type', message: 'Поддерживаются PNG, JPEG, GIF, WEBP, SVG' });
-  const buffer = Buffer.from(match[2], 'base64');
-  if (buffer.length > MAX_UPLOAD_BYTES) return res.status(400).json({ error: 'file_too_large', message: 'Максимум 5MB' });
-
-  const safeName = `logo_${crypto.randomBytes(6).toString('hex')}.${ext}`;
-  fs.writeFileSync(path.join(UPLOADS_DIR, safeName), buffer);
-  const url = `/uploads/gallery/${safeName}`;
-  const settings = store.setSetting('logoUrl', url);
-  res.json({ logoUrl: settings.logoUrl });
-});
-
-app.post('/api/admin/logo/remove', auth, adminAuth, (req, res) => {
-  const settings = store.setSetting('logoUrl', null);
-  res.json({ logoUrl: settings.logoUrl || null });
-});
-
 // Фон экрана (auth = вход, game = игра): картинка или видео.
-app.post('/api/admin/background', auth, adminAuth, (req, res) => {
-  const { screen, dataUrl } = req.body || {};
-  if (screen !== 'auth' && screen !== 'game') return res.status(400).json({ error: 'bad_screen' });
-  if (typeof dataUrl !== 'string') return res.status(400).json({ error: 'invalid_input' });
-
-  const match = dataUrl.match(/^data:([a-zA-Z0-9\/+.-]+);base64,(.+)$/);
-  if (!match) return res.status(400).json({ error: 'invalid_data', message: 'Ожидается data URL (base64)' });
-  const mime = match[1];
-  const buffer = Buffer.from(match[2], 'base64');
-
-  let ext, kind;
-  if (ALLOWED_IMAGE_TYPES[mime]) {
-    ext = ALLOWED_IMAGE_TYPES[mime]; kind = 'image';
-    if (buffer.length > MAX_BG_IMAGE_BYTES) return res.status(400).json({ error: 'file_too_large', message: `Картинка — максимум ${Math.round(MAX_BG_IMAGE_BYTES/1024/1024)} МБ` });
-  } else if (ALLOWED_VIDEO_TYPES[mime]) {
-    ext = ALLOWED_VIDEO_TYPES[mime]; kind = 'video';
-    if (buffer.length > MAX_BG_VIDEO_BYTES) return res.status(400).json({ error: 'file_too_large', message: `Видео — максимум ${Math.round(MAX_BG_VIDEO_BYTES/1024/1024)} МБ` });
-  } else {
-    return res.status(400).json({ error: 'unsupported_type', message: 'Картинка (PNG/JPEG/GIF/WEBP) или видео (MP4/WEBM/OGG)' });
-  }
-
-  const safeName = `bg_${screen}_${crypto.randomBytes(6).toString('hex')}.${ext}`;
-  fs.writeFileSync(path.join(UPLOADS_DIR, safeName), buffer);
-  const url = `/uploads/gallery/${safeName}`;
-  store.setSetting(screen === 'auth' ? 'authBgUrl' : 'gameBgUrl', url);
-  store.setSetting(screen === 'auth' ? 'authBgKind' : 'gameBgKind', kind);
-  res.json({ url, kind, screen });
-});
-
-app.post('/api/admin/background/remove', auth, adminAuth, (req, res) => {
-  const { screen } = req.body || {};
-  if (screen !== 'auth' && screen !== 'game') return res.status(400).json({ error: 'bad_screen' });
-  store.setSetting(screen === 'auth' ? 'authBgUrl' : 'gameBgUrl', null);
-  store.setSetting(screen === 'auth' ? 'authBgKind' : 'gameBgKind', null);
-  res.json({ screen, url: null });
-});
-
 // ---------- Медиа-папки: картинки зданий по уровням и фоны экранов ----------
 // Пересканировать папки вручную (после заливки файлов мимо админки — по SFTP/git).
 app.post('/api/admin/media/rescan', auth, adminAuth, (req, res) => {
@@ -1859,33 +1770,14 @@ app.post('/api/admin/media/rescan', auth, adminAuth, (req, res) => {
 });
 
 // Загрузить картинку конкретного уровня здания прямо в его папку.
-// Либо dataUrl (новый файл), либо sourceUrl (копия из медиатеки).
 app.post('/api/admin/media/building', auth, adminAuth, (req, res) => {
-  const { buildingId, level, dataUrl, sourceUrl } = req.body || {};
+  const { buildingId, level, dataUrl } = req.body || {};
   if (!BUILDINGS[buildingId]) return res.status(400).json({ error: 'unknown_building' });
   const lvl = String(level).toLowerCase();
   if (lvl !== 'default' && !/^[1-9]\d?$/.test(lvl)) {
     return res.status(400).json({ error: 'bad_level', message: 'Уровень — число или default' });
   }
 
-  // Вариант 1: копируем уже загруженный файл из медиатеки.
-  if (typeof sourceUrl === 'string' && sourceUrl) {
-    const rel = decodeURIComponent(sourceUrl.split('?')[0]);
-    if (!rel.startsWith('/uploads/')) return res.status(400).json({ error: 'bad_source' });
-    const src = path.join(__dirname, '..', 'public', rel);
-    const publicRoot = path.join(__dirname, '..', 'public', 'uploads');
-    if (!src.startsWith(publicRoot) || !fs.existsSync(src)) {
-      return res.status(400).json({ error: 'source_not_found', message: 'Исходный файл не найден' });
-    }
-    const ext = path.extname(src).slice(1).toLowerCase();
-    if (!mediaScan.IMAGE_EXT[ext]) return res.status(400).json({ error: 'unsupported_type' });
-    mediaScan.removeBuildingLevel(buildingId, lvl);
-    fs.copyFileSync(src, mediaScan.buildingFilePath(buildingId, lvl, ext));
-    mediaScan.rescan();
-    return res.json({ buildings: mediaScan.buildingsManifest() });
-  }
-
-  // Вариант 2: новый файл из формы.
   const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
   if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки' });
   const ext = ALLOWED_IMAGE_TYPES[match[1]];
@@ -2035,17 +1927,6 @@ app.post('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
     oilPrice: s.oilPrice, goldPrice: s.goldPrice,
     fuelMarketMult: +mult.toFixed(3),
   });
-});
-
-app.post('/api/admin/gallery/assign', auth, adminAuth, (req, res) => {
-  const { buildingId, upgradeLevel, url } = req.body || {};
-  if (!BUILDINGS[buildingId]) return res.status(400).json({ error: 'unknown_building' });
-  const level = Number(upgradeLevel);
-  if (!level || level < 1 || level > BUILDINGS[buildingId].maxUpgradeLevel) {
-    return res.status(400).json({ error: 'invalid_level' });
-  }
-  const skins = store.setBuildingSkin(buildingId, level, url || null);
-  res.json({ buildingSkins: skins });
 });
 
 app.post('/api/admin/gallery/label-style', auth, adminAuth, (req, res) => {

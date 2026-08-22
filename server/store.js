@@ -34,8 +34,6 @@ const EMPTY_DB = {
   contractOffers: [], // предложения авиакомпаний в конверте { id, airportId, airline, payPerTick, durationTicks, createdTick, expiresTick, thinking }
   contracts: [],      // активные договоры { id, airportId, airline, payPerTick, endsTick, signedTick }
   leaderboard: [],    // { id, username, startType, elapsedSeconds, achievedAt }
-  mediaLibrary: [],    // { id, url, filename, uploadedAt } — загруженные картинки, переиспользуются между слотами
-  buildingSkins: {},    // { [buildingId]: { [upgradeLevel]: url } } — глобально, одинаково у всех игроков
   buildingLabelStyles: {}, // { [buildingId]: { fontSize, color } } — глобально, одинаково у всех игроков
   buildingNames: {},        // { [buildingId]: "Своё название" } — глобальное переименование объекта, одинаково у всех игроков
   buildingDescriptions: {},  // { [buildingId]: "Своё описание" } — глобальное описание объекта, одинаково у всех игроков
@@ -49,8 +47,6 @@ function load() {
     // Мягкая миграция: если файл создан до появления какого-то поля — подставляем дефолт,
     // чтобы обновление кода не ломало уже работающий data.json на сервере.
     if (data.nextMediaId === undefined) data.nextMediaId = 1;
-    if (!data.mediaLibrary) data.mediaLibrary = [];
-    if (!data.buildingSkins) data.buildingSkins = {};
     if (!data.buildingLabelStyles) data.buildingLabelStyles = {};
     if (!data.buildingNames) data.buildingNames = {};
     if (!data.buildingDescriptions) data.buildingDescriptions = {};
@@ -378,36 +374,6 @@ function removeAllBuildings(airportId) {
 }
 
 // ---------- медиатека (Галерея в админке) ----------
-function addMediaAsset(url, filename) {
-  const data = load();
-  const asset = { id: data.nextMediaId++, url, filename, uploadedAt: Date.now() };
-  data.mediaLibrary.push(asset);
-  save(data);
-  return asset;
-}
-
-function getMediaLibrary() {
-  const data = load();
-  return data.mediaLibrary;
-}
-
-function setBuildingSkin(buildingId, upgradeLevel, url) {
-  const data = load();
-  if (!data.buildingSkins[buildingId]) data.buildingSkins[buildingId] = {};
-  if (url) {
-    data.buildingSkins[buildingId][upgradeLevel] = url;
-  } else {
-    delete data.buildingSkins[buildingId][upgradeLevel]; // очистка — вернёт дефолтную иконку
-  }
-  save(data);
-  return data.buildingSkins;
-}
-
-function getBuildingSkins() {
-  const data = load();
-  return data.buildingSkins;
-}
-
 function setBuildingLabelStyle(buildingId, style) {
   const data = load();
   data.buildingLabelStyles[buildingId] = style; // { fontSize, color }
@@ -652,7 +618,7 @@ module.exports = {
   createAirport, getAirportByUserId, getAirportById, updateAirport, getAllAirports,
   addBuilding, getBuildingsByAirport, findBuildingAtCell, updateBuildingAtCell, removeBuildingAtCell, removeAllBuildings, swapCells,
   addLeaderboardEntry, getLeaderboard,
-  addMediaAsset, getMediaLibrary, setBuildingSkin, getBuildingSkins, setBuildingLabelStyle, getBuildingLabelStyles,
+  setBuildingLabelStyle, getBuildingLabelStyles,
   setBuildingName, getBuildingNames, setBuildingDescription, getBuildingDescriptions,
   getSettings, setSetting,
   addAircraft, getAircraftByAirport, getAircraftById, updateAircraft, removeAircraft, removeAllAircraft,

@@ -171,17 +171,6 @@
 }
 
 /* ===== MEDIA PICKER ===== */
-.media-picker-modal { width: 560px; max-height: 80vh; }
-.media-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-  padding: 20px 24px; max-height: 50vh; overflow-y: auto;
-}
-.media-grid-item {
-  aspect-ratio: 1; background: var(--bg-cell); border: 1px solid var(--line); border-radius: 4px;
-  cursor: pointer; display: flex; align-items: center; justify-content: center; overflow: hidden;
-}
-.media-grid-item:hover { border-color: var(--board-amber); }
-.media-grid-item img { width: 100%; height: 100%; object-fit: contain; }
 .cell-modal { width: 420px; }
 .cell-modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
 .cell-modal-body select {
@@ -217,9 +206,7 @@
   .topboard { padding: 10px 12px; gap: 8px; flex-wrap: wrap; row-gap: 8px; }
   .admin-nav { order: 3; width: 100%; }
   .admin-nav-btn { flex: 1; }
-  .modal-card, .cell-modal, .media-picker-modal { width: 100%; max-width: 100%; }
-  .media-grid { grid-template-columns: repeat(3, 1fr); }
-  .ban-buttons { flex-direction: column; }
+  .modal-card, .cell-modal,     .ban-buttons { flex-direction: column; }
   .ban-buttons .btn-secondary { width: 100%; }
 }
 

@@ -632,9 +632,8 @@ function escapeAttr(s) {
 }
 
 // ===== GALLERY =====
-let galleryData = null; // { catalog, mediaLibrary, buildingMedia, buildingLabelStyles }
+let galleryData = null; // { catalog, buildingMedia, buildingLabelStyles, buildingNames, buildingDescriptions }
 let selectedGalleryBuilding = null;
-let mediaPickerTargetLevel = null; // при выборе картинки из медиатеки — для какого уровня она предназначена
 
 const GALLERY_GROUPS = [
   { title: 'Администрация', ids: ['admin'] },
@@ -714,7 +713,6 @@ function renderGalleryDetail() {
               Загрузить
               <input type="file" accept="image/*" data-level="${level}" class="gallery-upload-input">
             </label>
-            <button class="btn-secondary gallery-pick-btn" data-level="${level}">Выбрать из медиатеки</button>
             ${ownUrl ? `<button class="btn-secondary btn-danger gallery-clear-btn" data-level="${level}">Удалить файл</button>` : ''}
           </div>
         </div>
@@ -764,9 +762,6 @@ function renderGalleryDetail() {
   detail.querySelectorAll('.gallery-upload-input').forEach(input => {
     input.addEventListener('change', (e) => handleGalleryUpload(e, input.dataset.level));
   });
-  detail.querySelectorAll('.gallery-pick-btn').forEach(btn => {
-    btn.addEventListener('click', () => openMediaPicker(btn.dataset.level));
-  });
   detail.querySelectorAll('.gallery-clear-btn').forEach(btn => {
     btn.addEventListener('click', () => removeBuildingLevel(btn.dataset.level));
   });
@@ -793,20 +788,6 @@ function handleGalleryUpload(event, level) {
   reader.onerror = () => toast('Не удалось прочитать файл', true);
   reader.readAsDataURL(file);
   event.target.value = '';
-}
-
-// Копия картинки из медиатеки в папку здания.
-async function assignSkin(level, url) {
-  try {
-    const data = await api('/api/admin/media/building', 'POST', {
-      buildingId: selectedGalleryBuilding, level, sourceUrl: url,
-    });
-    galleryData.buildingMedia = data.buildings;
-    toast('Картинка сохранена');
-    renderGalleryDetail();
-  } catch (err) {
-    toast(err.message, true);
-  }
 }
 
 async function removeBuildingLevel(level) {
@@ -965,33 +946,6 @@ function renderObjectsAdminTable() {
 }
 
 // ===== MEDIA PICKER =====
-function openMediaPicker(level) {
-  mediaPickerTargetLevel = level;
-  const grid = $('#mediaGrid');
-  grid.innerHTML = '';
-
-  if (galleryData.mediaLibrary.length === 0) {
-    grid.innerHTML = '<div class="empty-hint">Пока ничего не загружено — используйте «Загрузить»</div>';
-  } else {
-    [...galleryData.mediaLibrary].reverse().forEach(asset => {
-      const item = document.createElement('div');
-      item.className = 'media-grid-item';
-      item.innerHTML = `<img src="${asset.url}" alt="${escapeAttr(asset.filename)}" title="${escapeAttr(asset.filename)}">`;
-      item.addEventListener('click', async () => {
-        await assignSkin(mediaPickerTargetLevel, asset.url);
-        closeMediaPicker();
-      });
-      grid.appendChild(item);
-    });
-  }
-  $('#mediaPickerModal').classList.remove('hidden');
-}
-
-function closeMediaPicker() {
-  $('#mediaPickerModal').classList.add('hidden');
-}
-$('#closeMediaPicker').addEventListener('click', closeMediaPicker);
-
 function toRoman(n) {
   const map = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
   return map[n] || String(n);
