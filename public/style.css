@@ -761,3 +761,18 @@ body {
   font-family: var(--mono); font-size: 12px; color: var(--text-dim);
   text-align: left; margin: 0 0 18px; padding-left: 18px;
 }
+
+/* строка состояния объекта в панели */
+.acc-condition {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+  padding: 8px 10px; margin-bottom: 10px; border-radius: 6px;
+  background: rgba(124,138,153,0.10); border-left: 3px solid var(--text-dim);
+}
+.acc-condition-label { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.acc-condition-eff { font-size: 12px; color: var(--text-dim); }
+.acc-condition.ok { border-left-color: var(--green); }
+.acc-condition.worn { border-left-color: var(--text-dim); }
+.acc-condition.bad, .acc-condition.repairing { border-left-color: var(--board-amber); background: rgba(245,158,11,0.10); }
+.acc-condition.bad .acc-condition-label, .acc-condition.repairing .acc-condition-label { color: var(--board-amber); }
+.acc-condition.ruined { border-left-color: var(--red); background: rgba(248,113,113,0.12); }
+.acc-condition.ruined .acc-condition-label { color: var(--red); font-weight: 700; }

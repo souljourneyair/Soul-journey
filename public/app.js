@@ -1181,8 +1181,21 @@ function renderBuildingPanel(cellIndex, container) {
     statsHtml = `<span>Выкуп обратно: ${def.cost.toLocaleString('ru-RU')} у.е.</span>`;
   }
 
+  // Состояние объекта — видно всегда, включая «Исправно», чтобы игрок мог
+  // осматривать здания и понимать, где всё в порядке.
+  let condHtml = '';
+  if (!working && (state === 'owned' || building.ruined)) {
+    const d = damageState(building);
+    const eff = damageEffectText(building, def);
+    condHtml = `<div class="acc-condition ${d.cls}">
+      <span class="acc-condition-label">${d.mark ? d.mark + ' ' : ''}${escapeHtml(d.label)}</span>
+      ${eff ? `<span class="acc-condition-eff">${escapeHtml(eff)}</span>` : ''}
+    </div>`;
+  }
+
   container.innerHTML = `
     <div class="acc-header"><span class="acc-status">${statusText}</span></div>
+    ${condHtml}
     <div class="acc-stats">${statsHtml}</div>
     <div class="acc-actions"></div>
     <div class="acc-msg form-msg"></div>
@@ -2432,6 +2445,28 @@ function showEventModal(kind, details) {
   $('#eventModal').classList.remove('hidden');
 }
 
+// Что именно теряется из-за повреждения — чтобы процент не был абстракцией.
+function damageEffectText(building, def) {
+  const w = building.wear || 0;
+  if (building.ruined) return 'Не работает совсем';
+  const mult = building.repairing ? Math.min(1 - w, 0.3) : 1 - w;
+  const lostPct = Math.round((1 - mult) * 100);
+  if (lostPct <= 0) return '';
+  const parts = [];
+  if (def.income > 0) parts.push(`доход −${lostPct}%`);
+  if (def.reputation > 0) parts.push(`репутация −${lostPct}%`);
+  if (building.buildingId === 'helipad') {
+    const base = (building.upgradeLevel || 1);
+    parts.push(`мест ${Math.max(1, Math.floor(base * mult))} из ${base}`);
+  }
+  if (def.standSize) {
+    parts.push(w >= 0.5 ? 'борт не принимает' : 'принимает борт');
+  }
+  if (building.buildingId === 'tower') parts.push(`интервал +${Math.round((1 / mult - 1) * 100)}%`);
+  if (def.isRunway) parts.push(`пропускная −${lostPct}%`);
+  return parts.join(' · ');
+}
+
 // Состояние объекта по повреждению: слово, цвет, значок.
 function damageState(building) {
   if (building.ruined) return { label: 'Разрушено', cls: 'ruined', mark: '💥' };
@@ -2439,6 +2474,9 @@ function damageState(building) {
   if (building.repairing) return { label: `Ремонт — ${building.repairTicksLeft} мин`, cls: 'repairing', mark: '🚧' };
   if (w >= 0.50) return { label: `Требует ремонта — ${Math.round(w * 100)}%`, cls: 'bad', mark: '🔧' };
   if (w >= 0.10) return { label: `Есть износ — ${Math.round(w * 100)}%`, cls: 'worn', mark: '·' };
+  // Значка на иконке ещё нет, но говорить «Исправно» нечестно: показатели уже
+  // просели. В панели пишем правду, на сетке пока не шумим.
+  if (w >= 0.01) return { label: `Небольшой износ — ${Math.round(w * 100)}%`, cls: 'ok', mark: '' };
   return { label: 'Исправно', cls: 'ok', mark: '' };
 }
 
