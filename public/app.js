@@ -1193,6 +1193,24 @@ function renderBuildingPanel(cellIndex, container) {
   if (building.buildingId === 'fuel_depot' && state === 'owned') {
     actions.appendChild(actionBtn('⛽ Топливная биржа', openFuelExchange));
   }
+  // Ремонт ВПП: доступен, когда есть износ и полоса не на ремонте
+  if (def.isRunway && state === 'owned') {
+    const rw = (STATE.runwayLoad || []).find(r => r.cellIndex === cellIndex);
+    if (rw && rw.repairing) {
+      const btn = actionBtn(`🚧 Ремонт идёт — ${rw.repairTicksLeft} мин`, () => {});
+      btn.disabled = true;
+      actions.appendChild(btn);
+    } else if (rw && rw.wear > 0) {
+      const canAfford = STATE.money >= rw.repairCost;
+      const btn = actionBtn(
+        canAfford
+          ? `🔧 Отремонтировать — износ ${Math.round(rw.wear * 100)}% (${rw.repairCost.toLocaleString('ru-RU')} у.е.)`
+          : `Не хватает средств на ремонт (${rw.repairCost.toLocaleString('ru-RU')} у.е.)`,
+        () => repairRunway(cellIndex));
+      btn.disabled = !canAfford;
+      actions.appendChild(btn);
+    }
+  }
   if (!def.removable) {
     // только апгрейд
   } else if (state === 'owned' && accRentView === 'exchange') {
@@ -1267,11 +1285,13 @@ function infraStatusText(building) {
     // загрузка суточной квоты посадок этой полосы
     const rw = (STATE.runwayLoad || []).find(r => r.cellIndex === building.cellIndex);
     if (!rw) return '🛬 Работает';
+    const wearPct = Math.round((rw.wear || 0) * 100);
+    if (rw.repairing) return `🚧 Ремонт: ${rw.repairTicksLeft} мин · пропускная −70%`;
+    const wearNote = wearPct >= 10 ? ` · износ ${wearPct}% ⚠️` : wearPct > 0 ? ` · износ ${wearPct}%` : '';
     const left = Math.max(0, rw.capacity - rw.used);
-    const sizes = rw.accepts.map(x => x === 'large' ? 'больш.' : x === 'medium' ? 'средн.' : 'малые').join('/');
-    if (left <= 0) return `🛬 Квота исчерпана (${rw.used}/${rw.capacity}) · ${sizes}`;
-    if (rw.waitTicks > 0) return `🛬 Интервал вышки: ${rw.waitTicks} мин · ${rw.used}/${rw.capacity} за сутки`;
-    return `🛬 Свободна · ${rw.used}/${rw.capacity} за сутки · ${sizes}`;
+    if (left <= 0) return `🛬 Квота исчерпана (${rw.used}/${rw.capacity})${wearNote}`;
+    if (rw.waitTicks > 0) return `🛬 Интервал вышки: ${rw.waitTicks} мин · ${rw.used}/${rw.capacity}${wearNote}`;
+    return `🛬 Свободна · ${rw.used}/${rw.capacity} за сутки${wearNote}`;
   }
   if (id === 'helipad') {
     const o = slotOccupancyOf(building);
@@ -1287,6 +1307,20 @@ function infraStatusText(building) {
     return o.used > 0 ? `✈️ Занята (${o.used}/${o.total})` : `✈️ Свободна (0/${o.total})`;
   }
   return 'В работе';
+}
+
+async function repairRunway(cellIndex) {
+  try {
+    const res = await api('/api/building/runway-repair', 'POST', { cellIndex });
+    STATE = res;
+    const info = res._repair;
+    toast(info
+      ? `Ремонт начат: ${info.cost.toLocaleString('ru-RU')} у.е., ${info.ticks} мин. Пропускная способность снижена на 70%.`
+      : 'Ремонт начат');
+    renderAll();
+  } catch (err) {
+    toast(err.message, true);
+  }
 }
 
 // Действия из аккордеона (переиспользуют существующие эндпоинты).

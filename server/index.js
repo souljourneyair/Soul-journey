@@ -14,6 +14,7 @@ const {
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
   standAcceptsSizes, aircraftSize, standServiceMinutes,
+  RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
@@ -702,9 +703,17 @@ function listRunways(airportId, currentTick) {
     if ((b.state || 'owned') === 'sold' || b.state === 'rented') continue;
     if (isUnderConstruction(b)) continue;
     const level = b.upgradeLevel || 1;
-    const capacity = runwayCapacity(def, level);
+    const baseCapacity = runwayCapacity(def, level);
+    // во время ремонта полоса принимает на 70% меньше бортов
+    const repairing = b.rwRepairEndsTick != null && currentTick < b.rwRepairEndsTick;
+    const capacity = repairing
+      ? Math.max(1, Math.round(baseCapacity * RUNWAY_ECONOMY.REPAIR_CAPACITY_MULT))
+      : baseCapacity;
     out.push({
-      cellIndex: b.cellIndex, buildingId: def.id, name: def.name, level, capacity,
+      cellIndex: b.cellIndex, buildingId: def.id, name: def.name, level,
+      capacity, baseCapacity, repairing,
+      wear: b.rwWear || 0,
+      repairEndsTick: b.rwRepairEndsTick || null,
       accepts: def.accepts || ['small', 'medium', 'large'],
       lineType: def.lineType,
       used: runwayUsed(b, capacity, currentTick),
@@ -744,16 +753,34 @@ function pickRunwayForLanding(airportId, size, currentTick, usedThisTick) {
   return runways[0];
 }
 
-// Списать одну посадку с квоты полосы и выдержать интервал вышки до следующей.
+// Списать одну посадку с квоты полосы, выдержать интервал вышки и накопить износ.
 // Интервал применяется к КАЖДОЙ полосе отдельно: иначе вторая и третья ВПП не
 // добавляли бы пропускной способности и строить их было бы незачем.
-function consumeRunwayLanding(airportId, runway, currentTick) {
+// Возвращает последствия посадки: сломался ли борт и сколько репутации потеряно.
+function consumeRunwayLanding(airportId, runway, currentTick, size) {
   const interval = towerInterval(airportId);
+  // Износ считаем от БАЗОВОЙ квоты, а не от урезанной ремонтом: иначе полоса
+  // на ремонте стиралась бы втрое быстрее.
+  const added = runwayWearPerLanding(runway.baseCapacity, size);
+  const wearBefore = runway.wear || 0;
+  const wearAfter = Math.min(1, wearBefore + added);
+
   store.updateBuildingAtCell(airportId, runway.cellIndex, {
     rwLandings: runway.used + 1,
     rwLandingsTick: currentTick,
     rwNextOpTick: currentTick + interval,
+    rwWear: wearAfter,
   });
+
+  // Последствия считаем по износу ДО посадки: борт садился на ту полосу,
+  // какой она была в момент касания.
+  const over = wearBefore - RUNWAY_ECONOMY.SAFE_WEAR;
+  if (over <= 0) return { broke: false, repLoss: 0, wear: wearAfter };
+  return {
+    broke: Math.random() < over * RUNWAY_ECONOMY.BREAKDOWN_CHANCE_PER_WEAR,
+    repLoss: over * RUNWAY_ECONOMY.REPUTATION_HIT_PER_WEAR,
+    wear: wearAfter,
+  };
 }
 
 // Сколько ВПП есть у игрока (для одновременных операций взлёта/посадки).
@@ -857,6 +884,9 @@ function serializeAirport(airport) {
       cellIndex: r.cellIndex, buildingId: r.buildingId, level: r.level,
       capacity: r.capacity, used: Math.round(r.used), accepts: r.accepts,
       waitTicks: Math.max(0, r.nextOpTick - store.getTickCounter()),
+      wear: r.wear, repairing: r.repairing,
+      repairTicksLeft: r.repairEndsTick ? Math.max(0, r.repairEndsTick - store.getTickCounter()) : 0,
+      repairCost: r.wear > 0 ? runwayRepairCost(BUILDINGS[r.buildingId], r.wear) : 0,
     })),
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
@@ -1504,6 +1534,36 @@ app.post('/api/building/swap', auth, (req, res) => {
   store.swapCells(airport.id, cellA, cellB);
   const fresh = store.getAirportByUserId(req.user.id);
   res.json(serializeAirport(fresh));
+});
+
+// Ремонт ВПП: обнуляет износ, пока идёт — полоса принимает на 70% меньше бортов.
+app.post('/api/building/runway-repair', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const { cellIndex } = req.body || {};
+  const b = store.getBuildingsByAirport(airport.id).find(x => x.cellIndex === cellIndex);
+  if (!b) return res.status(404).json({ error: 'not_found', message: 'Объект не найден' });
+  const def = BUILDINGS[b.buildingId];
+  if (!def || !def.isRunway) return res.status(400).json({ error: 'not_runway', message: 'Ремонтировать можно только ВПП' });
+  if ((b.state || 'owned') !== 'owned') return res.status(400).json({ error: 'not_owned', message: 'Полоса сдана или продана' });
+  if (isUnderConstruction(b)) return res.status(400).json({ error: 'busy', message: 'Идут строительные работы' });
+
+  const currentTick = store.getTickCounter();
+  if (b.rwRepairEndsTick != null && currentTick < b.rwRepairEndsTick) {
+    return res.status(400).json({ error: 'already_repairing', message: 'Полоса уже на ремонте' });
+  }
+  const wear = b.rwWear || 0;
+  if (wear <= 0) return res.status(400).json({ error: 'no_wear', message: 'Полоса в идеальном состоянии' });
+
+  const cost = runwayRepairCost(def, wear);
+  if (airport.money < cost) {
+    return res.status(400).json({ error: 'no_money', message: `Не хватает средств: нужно ${cost.toLocaleString('ru-RU')} у.е.` });
+  }
+  const ticks = runwayRepairTicks(wear);
+  store.updateAirport(airport.id, { money: airport.money - cost });
+  store.updateBuildingAtCell(airport.id, cellIndex, { rwRepairEndsTick: currentTick + ticks });
+
+  res.json({ ...serializeAirport(store.getAirportById(airport.id)), _repair: { cost, ticks } });
 });
 
 app.post('/api/building/upgrade', auth, (req, res) => {
@@ -2503,6 +2563,27 @@ function runTick() {
     reputationPerTick = Math.round(reputationPerTick);
     const freshAirport = store.getAirportByUserId(airport.userId) || airport;
 
+    // --- Завершение ремонта ВПП ---
+    for (const b of store.getBuildingsByAirport(airport.id)) {
+      if (b.rwRepairEndsTick == null || currentTick < b.rwRepairEndsTick) continue;
+      store.updateBuildingAtCell(airport.id, b.cellIndex, { rwRepairEndsTick: null, rwWear: 0 });
+      const rdef = BUILDINGS[b.buildingId];
+      notifications.push(`✅ ${rdef ? rdef.name : 'ВПП'} отремонтирована — износ обнулён, пропускная способность восстановлена.`);
+    }
+
+    // --- Ветшание ВПП ---
+    // Полоса стареет и без работы: покрытие трескается, разметка стирается.
+    // Медленно (0.72% за игровые сутки), чтобы простаивающая полоса не
+    // превращалась в постоянный налог, но и не стояла вечно новой.
+    for (const b of store.getBuildingsByAirport(airport.id)) {
+      const rdef = BUILDINGS[b.buildingId];
+      if (!rdef || !rdef.isRunway) continue;
+      if ((b.state || 'owned') !== 'owned' || isUnderConstruction(b)) continue;
+      if (b.rwRepairEndsTick != null && currentTick < b.rwRepairEndsTick) continue; // на ремонте не ветшает
+      const aged = Math.min(1, (b.rwWear || 0) + RUNWAY_ECONOMY.AGING_PER_TICK);
+      if (aged !== (b.rwWear || 0)) store.updateBuildingAtCell(airport.id, b.cellIndex, { rwWear: aged });
+    }
+
     // --- Содержание аэропорта ---
     let upkeep = upkeepPerTick(airport.id);
     // Простой: если аэропорт неактивен, копим счётчик; при долгом простое расход растёт
@@ -2579,7 +2660,9 @@ function processAircraftTick(airport, currentTick, notifications) {
   let hangarRepairsLeft = totalHangarSlots(airport.id);
 
   // Выполнить посадку самолёта: начислить выручку, поднять износ, проверить поломку.
-  function landAircraft(ac, type) {
+  // runwayBroke — борт повредился при касании изношенной полосы (сверх обычного
+  // шанса поломки от собственного износа самолёта).
+  function landAircraft(ac, type, runwayBroke) {
     const isMvl = ac.flightType === 'mvl';
     const capacity = aircraftCapacity(type, ac.upgradeLevel || 1);
     // пассажиры = сколько реально увезли при вылете (из пула). Столько же прилетает обратно.
@@ -2611,7 +2694,7 @@ function processAircraftTick(airport, currentTick, notifications) {
     income += revenue;
 
     const newWear = Math.min(AIRCRAFT_ECONOMY.WEAR_MAX, (ac.wear || 0) + AIRCRAFT_ECONOMY.WEAR_PER_FLIGHT);
-    const broke = Math.random() < newWear * AIRCRAFT_ECONOMY.BREAKDOWN_CHANCE_PER_WEAR;
+    const broke = runwayBroke || Math.random() < newWear * AIRCRAFT_ECONOMY.BREAKDOWN_CHANCE_PER_WEAR;
 
     // накапливаем доход для ресурса списания (учитываем только положительную выручку)
     const newEarnings = (ac.totalEarnings || 0) + Math.max(0, revenue);
@@ -2642,7 +2725,9 @@ function processAircraftTick(airport, currentTick, notifications) {
       notifications.push(`🛑 ${type.name} выработал ресурс и списан (окупился 2×). Теперь его можно только продать.`);
     } else if (broke) {
       store.updateAircraft(ac.id, { status: 'broken' });
-      notifications.push(`🛠️ ${type.name} сломался после рейса (износ ${Math.round(newWear * 100)}%). Нужен ремонт.`);
+      notifications.push(runwayBroke
+        ? `🛠️ ${type.name} повредился при посадке — полоса изношена. Нужен ремонт борта и ВПП.`
+        : `🛠️ ${type.name} сломался после рейса (износ ${Math.round(newWear * 100)}%). Нужен ремонт.`);
     } else {
       notifications.push(`🛬 ${type.name} вернулся: ${pax} пасс., выручка ${revenue.toLocaleString('ru-RU')} у.е.`);
     }
@@ -2663,8 +2748,9 @@ function processAircraftTick(airport, currentTick, notifications) {
         const rw = pickRunwayForLanding(airport.id, aircraftSize(ac.typeId), currentTick, runwaysUsedThisTick);
         if (rw && standFree) {
           runwaysUsedThisTick.add(rw.cellIndex);
-          consumeRunwayLanding(airport.id, rw, currentTick);
-          landAircraft(ac, type);
+          const hit = consumeRunwayLanding(airport.id, rw, currentTick, aircraftSize(ac.typeId));
+          reputation -= hit.repLoss;
+          landAircraft(ac, type, hit.broke);
         } else {
           // нет полосы (занята, исчерпана квота или не тот размер) либо нет стоянки
           income -= type.idlePenaltyPerTick;
@@ -2680,8 +2766,9 @@ function processAircraftTick(airport, currentTick, notifications) {
       const rw = pickRunwayForLanding(airport.id, aircraftSize(ac.typeId), currentTick, runwaysUsedThisTick);
       if (rw && standFree) {
         runwaysUsedThisTick.add(rw.cellIndex);
-        consumeRunwayLanding(airport.id, rw, currentTick);
-        landAircraft(ac, type);
+        const hit = consumeRunwayLanding(airport.id, rw, currentTick, aircraftSize(ac.typeId));
+        reputation -= hit.repLoss;
+        landAircraft(ac, type, hit.broke);
       } else {
         income -= type.idlePenaltyPerTick;
         reputation -= type.idleRepPenaltyPerTick;
@@ -2837,15 +2924,25 @@ function processContractsTick(airport, currentTick, notifications) {
       const rw = stand ? pickRunwayForLanding(airport.id, w.size, currentTick, runwaysUsedThisTick) : null;
       if (stand && rw) {
         runwaysUsedThisTick.add(rw.cellIndex);
-        consumeRunwayLanding(airport.id, rw, currentTick);
+        const hit = consumeRunwayLanding(airport.id, rw, currentTick, w.size);
+        reputation -= hit.repLoss;
         contractPlaneSizes.push(w.size); // занимаем стоянку
         // Время обслуживания зависит от уровня доставшейся стоянки: чем выше
         // уровень, тем быстрее борт освободит место (30 мин на ур.1, 12 на ур.5).
-        const serviceMinutes = standServiceMinutes(stand.level);
+        let serviceMinutes = standServiceMinutes(stand.level);
+        // Повреждённый на изношенной полосе борт застревает: занимает стоянку
+        // дольше обычного, аэропорт платит авиакомпании компенсацию.
+        if (hit.broke) {
+          serviceMinutes = Math.round(serviceMinutes * RUNWAY_ECONOMY.CONTRACT_DAMAGE_STAND_MULT);
+          const compensation = Math.round((w.payPerArrival || 40) * RUNWAY_ECONOMY.CONTRACT_DAMAGE_COMPENSATION);
+          income -= compensation;
+          reputation -= APRON_ECONOMY.TURNAWAY_REPUTATION_HIT;
+          notifications.push(`🛠️ Борт «${w.airline}» повредился при посадке — полоса изношена. Компенсация ${compensation.toLocaleString('ru-RU')} у.е., стоянка занята вдвое дольше.`);
+        }
         apron.push({
           contractId: w.contractId, airline: w.airline,
           departsTick: currentTick + serviceMinutes,
-          standLevel: stand.level, standBuildingId: stand.buildingId,
+          standLevel: stand.level, standBuildingId: stand.buildingId, damaged: !!hit.broke,
           payPerArrival: w.payPerArrival, craft: 'plane', size: w.size, flightType: w.flightType || 'vvl',
         });
         income += w.payPerArrival;

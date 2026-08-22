@@ -195,6 +195,54 @@ function getFuelSupplier(id) {
 }
 
 // ==================== ПРИЁМ БОРТОВ (пропускная способность, Слой 1) ====================
+// ---------- Износ и ремонт ВПП ----------
+const RUNWAY_ECONOMY = {
+  // Износ считается долей от суточной квоты полосы, а не «столько-то за посадку».
+  // Иначе прокачанная полоса изнашивалась бы быстрее: через неё идёт больше
+  // бортов. При такой формуле любая полоса при полной загрузке стирается
+  // одинаково — 4% за игровые сутки, то есть до порога 10% около 2-3 суток.
+  FULL_LOAD_WEAR_PER_DAY: 0.04,
+  // Тяжёлый борт бьёт полосу сильнее лёгкого.
+  WEAR_BY_SIZE: { small: 0.8, medium: 1.0, large: 1.3 },
+  // Полоса ветшает и без работы: 0.0005% в минуту = 0.72% за игровые сутки.
+  AGING_PER_TICK: 0.000005,
+
+  // Ниже порога ничего не происходит: полоса считается исправной.
+  SAFE_WEAR: 0.10,
+  // Шанс поломки борта при посадке = (износ - порог) x этот множитель.
+  // При износе 100% выходит 5.4% на посадку, при 50% — 2.4%.
+  BREAKDOWN_CHANCE_PER_WEAR: 0.06,
+  // Потеря репутации за посадку на изношенную полосу = (износ - порог) x множитель.
+  // При 100% износа — 1.35 за посадку (для сравнения: разворот борта стоит 2).
+  REPUTATION_HIT_PER_WEAR: 1.5,
+  // Компенсация авиакомпании за повреждённый на посадке договорной борт,
+  // кратно оплате за прилёт. Плюс борт застревает на стоянке.
+  CONTRACT_DAMAGE_COMPENSATION: 3,
+  CONTRACT_DAMAGE_STAND_MULT: 2,   // во столько раз дольше занимает стоянку
+
+  // Ремонт: доля от цены полосы, как у самолётов (REPAIR_PCT_OF_PRICE 0.4).
+  REPAIR_PCT_OF_COST: 0.4,
+  // Длительность ремонта: 200 минут при полном износе, пропорционально.
+  REPAIR_TICKS_AT_FULL: 200,
+  // Во время ремонта пропускная способность падает на 70%.
+  REPAIR_CAPACITY_MULT: 0.3,
+};
+
+// Износ полосы за одну посадку борта размера size при суточной квоте capacity.
+function runwayWearPerLanding(capacity, size) {
+  if (!capacity || !isFinite(capacity)) return 0;
+  const sizeMult = RUNWAY_ECONOMY.WEAR_BY_SIZE[size] || 1;
+  return (RUNWAY_ECONOMY.FULL_LOAD_WEAR_PER_DAY / capacity) * sizeMult;
+}
+
+function runwayRepairCost(def, wear) {
+  return Math.max(500, Math.round(def.cost * RUNWAY_ECONOMY.REPAIR_PCT_OF_COST * (wear || 0)));
+}
+
+function runwayRepairTicks(wear) {
+  return Math.max(5, Math.round(RUNWAY_ECONOMY.REPAIR_TICKS_AT_FULL * (wear || 0)));
+}
+
 const APRON_ECONOMY = {
   HELIPAD_SLOTS_PER_LEVEL: 1,     // мест на вертолётке = уровень апгрейда (ур.1=1 ... ур.5=5)
   // Сколько самолёт стоит на земле (занимает стоянку) — по уровню стоянки.
@@ -794,6 +842,7 @@ module.exports = {
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
   standAcceptsSizes, aircraftSize, standServiceMinutes,
+  RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
