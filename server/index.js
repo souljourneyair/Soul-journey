@@ -2936,7 +2936,7 @@ function processContractsTick(airport, currentTick, notifications) {
           serviceMinutes = Math.round(serviceMinutes * RUNWAY_ECONOMY.CONTRACT_DAMAGE_STAND_MULT);
           const compensation = Math.round((w.payPerArrival || 40) * RUNWAY_ECONOMY.CONTRACT_DAMAGE_COMPENSATION);
           income -= compensation;
-          reputation -= APRON_ECONOMY.TURNAWAY_REPUTATION_HIT;
+          reputation -= RUNWAY_ECONOMY.CONTRACT_DAMAGE_REPUTATION_HIT;
           notifications.push(`🛠️ Борт «${w.airline}» повредился при посадке — полоса изношена. Компенсация ${compensation.toLocaleString('ru-RU')} у.е., стоянка занята вдвое дольше.`);
         }
         apron.push({
