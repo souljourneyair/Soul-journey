@@ -183,75 +183,91 @@ $('#logoRemoveBtn') && $('#logoRemoveBtn').addEventListener('click', async () =>
 });
 
 // ===== ФОНЫ ЭКРАНОВ =====
-function renderBgPreview(wrapId, bg) {
+// Фоны экранов лежат в папках public/uploads/screens/auth|game/.
+// Файлов может быть несколько — игра при загрузке страницы берёт случайный.
+let screenFiles = { auth: [], game: [] };
+
+function renderScreenList(screen, wrapId) {
   const wrap = $('#' + wrapId);
   if (!wrap) return;
-  if (!bg || !bg.url) {
-    wrap.innerHTML = '<span class="build-menu-hint">Фон не установлен.</span>';
+  const files = screenFiles[screen] || [];
+  if (!files.length) {
+    wrap.innerHTML = '<span class="build-menu-hint">Папка пуста — используется старый фон из настроек (если он был).</span>';
     return;
   }
-  if (bg.kind === 'video') {
-    wrap.innerHTML = `<video src="${bg.url}" autoplay loop muted playsinline style="height:120px;width:auto;max-width:260px;object-fit:cover;border-radius:6px;background:#0b0f14;"></video>`;
-  } else {
-    wrap.innerHTML = `<img src="${bg.url}" alt="Фон" style="height:120px;width:auto;max-width:260px;object-fit:cover;border-radius:6px;background:#0b0f14;" />`;
-  }
+  wrap.innerHTML = files.map(f => {
+    const name = decodeURIComponent(f.url.split('?')[0].split('/').pop());
+    const preview = f.kind === 'video'
+      ? `<video src="${f.url}" autoplay loop muted playsinline style="height:90px;width:auto;max-width:160px;object-fit:cover;border-radius:6px;background:#0b0f14;"></video>`
+      : `<img src="${f.url}" alt="" style="height:90px;width:auto;max-width:160px;object-fit:cover;border-radius:6px;background:#0b0f14;" />`;
+    return `<div style="display:inline-flex;flex-direction:column;gap:4px;margin:0 10px 10px 0;vertical-align:top;">
+        ${preview}
+        <span class="build-menu-hint" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(name)}</span>
+        <button class="btn-secondary btn-danger screen-file-remove" data-screen="${screen}" data-file="${escapeAttr(name)}">Удалить</button>
+      </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('.screen-file-remove').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        const res = await api('/api/admin/media/screen/remove', 'POST', {
+          screen: btn.dataset.screen, filename: btn.dataset.file,
+        });
+        screenFiles[btn.dataset.screen] = res.files;
+        renderScreenList(btn.dataset.screen, wrapId);
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  });
 }
 
 async function loadBackgroundSettings() {
   try {
-    const res = await fetch('/api/public-settings');
-    const s = await res.json();
-    renderBgPreview('authBgPreviewWrap', s.authBg);
-    renderBgPreview('gameBgPreviewWrap', s.gameBg);
+    const res = await api('/api/admin/media/screens');
+    screenFiles = res;
+    renderScreenList('auth', 'authBgPreviewWrap');
+    renderScreenList('game', 'gameBgPreviewWrap');
   } catch (err) { /* ignore */ }
 }
 
-function wireBgUpload(screen, uploadBtnId, fileInputId, removeBtnId, previewWrapId, msgId) {
-  const upBtn = $('#' + uploadBtnId), fileInput = $('#' + fileInputId), rmBtn = $('#' + removeBtnId);
-  if (upBtn && fileInput) {
-    upBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const isVideo = file.type.startsWith('video/');
-      const maxBytes = isVideo ? 10 * 1024 * 1024 : 8 * 1024 * 1024;
-      if (file.size > maxBytes) {
-        $('#' + msgId).textContent = isVideo
-          ? `Видео слишком большое (${(file.size/1024/1024).toFixed(1)} МБ). Максимум 10 МБ — сожмите видео.`
-          : `Картинка слишком большая (${(file.size/1024/1024).toFixed(1)} МБ). Максимум 8 МБ.`;
-        fileInput.value = '';
-        return;
-      }
-      $('#' + msgId).textContent = 'Загрузка…';
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const res = await api('/api/admin/background', 'POST', { screen, dataUrl: reader.result });
-          renderBgPreview(previewWrapId, { url: res.url, kind: res.kind });
-          $('#' + msgId).textContent = res.kind === 'video' ? 'Видео-фон загружен.' : 'Фон загружен.';
-        } catch (err) {
-          $('#' + msgId).textContent = err.message;
-        }
-        fileInput.value = '';
-      };
-      reader.onerror = () => { $('#' + msgId).textContent = 'Не удалось прочитать файл.'; fileInput.value = ''; };
-      reader.readAsDataURL(file);
-    });
-  }
-  if (rmBtn) {
-    rmBtn.addEventListener('click', async () => {
+function wireBgUpload(screen, uploadBtnId, fileInputId, previewWrapId, msgId) {
+  const upBtn = $('#' + uploadBtnId), fileInput = $('#' + fileInputId);
+  if (!upBtn || !fileInput) return;
+  upBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const isVideo = file.type.startsWith('video/');
+    const maxBytes = isVideo ? 10 * 1024 * 1024 : 8 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      $('#' + msgId).textContent = isVideo
+        ? `Видео слишком большое (${(file.size/1024/1024).toFixed(1)} МБ). Максимум 10 МБ — сожмите видео.`
+        : `Картинка слишком большая (${(file.size/1024/1024).toFixed(1)} МБ). Максимум 8 МБ.`;
+      fileInput.value = '';
+      return;
+    }
+    $('#' + msgId).textContent = 'Загрузка…';
+    const reader = new FileReader();
+    reader.onload = async () => {
       try {
-        await api('/api/admin/background/remove', 'POST', { screen });
-        renderBgPreview(previewWrapId, null);
-        $('#' + msgId).textContent = 'Фон убран.';
+        const res = await api('/api/admin/media/screen', 'POST', {
+          screen, dataUrl: reader.result, filename: file.name.replace(/\.[^.]+$/, ''),
+        });
+        screenFiles[screen] = res.files;
+        renderScreenList(screen, previewWrapId);
+        $('#' + msgId).textContent = isVideo ? 'Видео добавлено.' : 'Картинка добавлена.';
       } catch (err) {
         $('#' + msgId).textContent = err.message;
       }
-    });
-  }
+      fileInput.value = '';
+    };
+    reader.onerror = () => { $('#' + msgId).textContent = 'Не удалось прочитать файл.'; fileInput.value = ''; };
+    reader.readAsDataURL(file);
+  });
 }
-wireBgUpload('auth', 'authBgUploadBtn', 'authBgFileInput', 'authBgRemoveBtn', 'authBgPreviewWrap', 'authBgMsg');
-wireBgUpload('game', 'gameBgUploadBtn', 'gameBgFileInput', 'gameBgRemoveBtn', 'gameBgPreviewWrap', 'gameBgMsg');
+wireBgUpload('auth', 'authBgUploadBtn', 'authBgFileInput', 'authBgPreviewWrap', 'authBgMsg');
+wireBgUpload('game', 'gameBgUploadBtn', 'gameBgFileInput', 'gameBgPreviewWrap', 'gameBgMsg');
 
 // ===== PLAYERS LIST =====
 async function loadPlayers() {
@@ -588,7 +604,7 @@ function escapeAttr(s) {
 }
 
 // ===== GALLERY =====
-let galleryData = null; // { catalog, mediaLibrary, buildingSkins, buildingLabelStyles }
+let galleryData = null; // { catalog, mediaLibrary, buildingMedia, buildingLabelStyles }
 let selectedGalleryBuilding = null;
 let mediaPickerTargetLevel = null; // при выборе картинки из медиатеки — для какого уровня она предназначена
 
@@ -641,71 +657,137 @@ function selectGalleryBuilding(buildingId) {
 
 function renderGalleryDetail() {
   const def = galleryData.catalog[selectedGalleryBuilding];
-  const skins = galleryData.buildingSkins[selectedGalleryBuilding] || {};
+  const media = (galleryData.buildingMedia || {})[selectedGalleryBuilding] || { levels: {}, default: null };
   const currentName = galleryData.buildingNames[selectedGalleryBuilding] || def.name;
   const detail = $('#galleryDetail');
 
-  let levelsHtml = '';
-  for (let level = 1; level <= def.maxUpgradeLevel; level++) {
-    const url = skins[level];
-    levelsHtml += `
+  // Что реально покажется в игре на этом уровне (та же логика, что на сервере).
+  const resolve = (lvl) => {
+    if (media.levels && media.levels[lvl]) return media.levels[lvl];
+    const nums = Object.keys(media.levels || {}).map(Number).sort((a, b) => a - b);
+    if (nums.length) {
+      let best = null;
+      for (const n of nums) if (n <= lvl) best = n;
+      return media.levels[best != null ? best : nums[0]];
+    }
+    return media.default || null;
+  };
+
+  const card = (level, title, ownUrl, hint) => `
       <div class="gallery-level-card">
         <div class="gallery-level-preview" id="galleryPreview_${level}">
-          ${url ? `<img src="${url}" alt="">` : (BUILDING_ICONS[selectedGalleryBuilding] || '🏗️')}
+          ${ownUrl ? `<img src="${ownUrl}" alt="">` : (BUILDING_ICONS[selectedGalleryBuilding] || '🏗️')}
         </div>
         <div class="gallery-level-info">
-          <div class="gallery-level-title">${currentName} — уровень ${toRoman(level)}</div>
+          <div class="gallery-level-title">${title}</div>
+          ${hint ? `<div class="build-menu-hint">${hint}</div>` : ''}
           <div class="gallery-level-actions">
             <label class="btn-secondary" style="cursor:pointer;">
               Загрузить
               <input type="file" accept="image/*" data-level="${level}" class="gallery-upload-input">
             </label>
             <button class="btn-secondary gallery-pick-btn" data-level="${level}">Выбрать из медиатеки</button>
-            ${url ? `<button class="btn-secondary btn-danger gallery-clear-btn" data-level="${level}">Сбросить</button>` : ''}
+            ${ownUrl ? `<button class="btn-secondary btn-danger gallery-clear-btn" data-level="${level}">Удалить файл</button>` : ''}
           </div>
         </div>
       </div>
     `;
+
+  let levelsHtml = '';
+  for (let level = 1; level <= def.maxUpgradeLevel; level++) {
+    const own = media.levels ? media.levels[level] : null;
+    let hint = '';
+    if (!own) {
+      const inherited = resolve(level);
+      hint = inherited
+        ? `Своего файла нет — покажется <code>${inherited.split('?')[0].split('/').pop()}</code>`
+        : 'Файла нет — покажется стандартная иконка';
+    }
+    levelsHtml += card(level, `${currentName} — уровень ${toRoman(level)}`, own, hint);
   }
+  levelsHtml += card('default', 'Запасная картинка (default)', media.default,
+    'Используется для уровней, у которых нет ни своего файла, ни файла на уровень ниже');
 
   detail.innerHTML = `
     <h2>${currentName}</h2>
-    <div class="build-menu-hint" style="margin-bottom:16px;">Здесь настраиваются только картинки уровней. Название, описание и стиль текста — в разделе «Объекты».</div>
+    <div class="build-menu-hint" style="margin-bottom:8px;">
+      Файлы лежат в <code>public/uploads/buildings/${selectedGalleryBuilding}/</code> — можно класть их туда напрямую,
+      имя файла = номер уровня (<code>1.png</code>, <code>2.jpg</code>) или <code>default</code>.
+      Если уровень не нарисован, игра возьмёт картинку ближайшего меньшего уровня.
+    </div>
+    <div style="margin-bottom:16px;">
+      <button class="btn-secondary" id="galleryRescanBtn">Пересканировать папки</button>
+      <span class="build-menu-hint" id="galleryRescanMsg" style="margin-left:8px;"></span>
+    </div>
     ${levelsHtml}
   `;
 
+  $('#galleryRescanBtn').addEventListener('click', async () => {
+    try {
+      const data = await api('/api/admin/media/rescan', 'POST');
+      galleryData.buildingMedia = data.buildings;
+      $('#galleryRescanMsg').textContent = 'Папки перечитаны.';
+      renderGalleryDetail();
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
+
   detail.querySelectorAll('.gallery-upload-input').forEach(input => {
-    input.addEventListener('change', (e) => handleGalleryUpload(e, Number(input.dataset.level)));
+    input.addEventListener('change', (e) => handleGalleryUpload(e, input.dataset.level));
   });
   detail.querySelectorAll('.gallery-pick-btn').forEach(btn => {
-    btn.addEventListener('click', () => openMediaPicker(Number(btn.dataset.level)));
+    btn.addEventListener('click', () => openMediaPicker(btn.dataset.level));
   });
   detail.querySelectorAll('.gallery-clear-btn').forEach(btn => {
-    btn.addEventListener('click', () => assignSkin(Number(btn.dataset.level), null));
+    btn.addEventListener('click', () => removeBuildingLevel(btn.dataset.level));
   });
 }
 
+// Загрузка файла сразу в папку здания (в медиатеку он больше не попадает —
+// источник правды теперь файловая система).
 function handleGalleryUpload(event, level) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = async () => {
     try {
-      const asset = await api('/api/admin/gallery/upload', 'POST', { dataUrl: reader.result, filename: file.name });
-      galleryData.mediaLibrary.push(asset);
-      await assignSkin(level, asset.url);
+      const data = await api('/api/admin/media/building', 'POST', {
+        buildingId: selectedGalleryBuilding, level, dataUrl: reader.result,
+      });
+      galleryData.buildingMedia = data.buildings;
+      toast('Картинка сохранена');
+      renderGalleryDetail();
     } catch (err) {
       toast(err.message, true);
     }
   };
+  reader.onerror = () => toast('Не удалось прочитать файл', true);
   reader.readAsDataURL(file);
+  event.target.value = '';
 }
 
+// Копия картинки из медиатеки в папку здания.
 async function assignSkin(level, url) {
   try {
-    const data = await api('/api/admin/gallery/assign', 'POST', { buildingId: selectedGalleryBuilding, upgradeLevel: level, url });
-    galleryData.buildingSkins = data.buildingSkins;
-    toast(url ? 'Картинка назначена' : 'Сброшено на стандартную иконку');
+    const data = await api('/api/admin/media/building', 'POST', {
+      buildingId: selectedGalleryBuilding, level, sourceUrl: url,
+    });
+    galleryData.buildingMedia = data.buildings;
+    toast('Картинка сохранена');
+    renderGalleryDetail();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+async function removeBuildingLevel(level) {
+  try {
+    const data = await api('/api/admin/media/building/remove', 'POST', {
+      buildingId: selectedGalleryBuilding, level,
+    });
+    galleryData.buildingMedia = data.buildings;
+    toast('Файл удалён');
     renderGalleryDetail();
   } catch (err) {
     toast(err.message, true);

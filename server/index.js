@@ -1819,13 +1819,33 @@ app.post('/api/admin/media/rescan', auth, adminAuth, (req, res) => {
 });
 
 // Загрузить картинку конкретного уровня здания прямо в его папку.
+// Либо dataUrl (новый файл), либо sourceUrl (копия из медиатеки).
 app.post('/api/admin/media/building', auth, adminAuth, (req, res) => {
-  const { buildingId, level, dataUrl } = req.body || {};
+  const { buildingId, level, dataUrl, sourceUrl } = req.body || {};
   if (!BUILDINGS[buildingId]) return res.status(400).json({ error: 'unknown_building' });
   const lvl = String(level).toLowerCase();
   if (lvl !== 'default' && !/^[1-9]\d?$/.test(lvl)) {
     return res.status(400).json({ error: 'bad_level', message: 'Уровень — число или default' });
   }
+
+  // Вариант 1: копируем уже загруженный файл из медиатеки.
+  if (typeof sourceUrl === 'string' && sourceUrl) {
+    const rel = decodeURIComponent(sourceUrl.split('?')[0]);
+    if (!rel.startsWith('/uploads/')) return res.status(400).json({ error: 'bad_source' });
+    const src = path.join(__dirname, '..', 'public', rel);
+    const publicRoot = path.join(__dirname, '..', 'public', 'uploads');
+    if (!src.startsWith(publicRoot) || !fs.existsSync(src)) {
+      return res.status(400).json({ error: 'source_not_found', message: 'Исходный файл не найден' });
+    }
+    const ext = path.extname(src).slice(1).toLowerCase();
+    if (!mediaScan.IMAGE_EXT[ext]) return res.status(400).json({ error: 'unsupported_type' });
+    mediaScan.removeBuildingLevel(buildingId, lvl);
+    fs.copyFileSync(src, mediaScan.buildingFilePath(buildingId, lvl, ext));
+    mediaScan.rescan();
+    return res.json({ buildings: mediaScan.buildingsManifest() });
+  }
+
+  // Вариант 2: новый файл из формы.
   const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
   if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки' });
   const ext = ALLOWED_IMAGE_TYPES[match[1]];
