@@ -779,6 +779,9 @@ function renderGrid() {
       const damageOverlay = dmg.mark
         ? `<span class="cell-damage ${dmg.cls}" title="${escapeHtml(dmg.label)}">${dmg.mark}</span>`
         : '';
+      // класс на клетку — подсвечиваем рамку, чтобы повреждение было заметно
+      // даже боковым зрением при осмотре сетки
+      if (dmg.cls !== 'ok') cell.classList.add(`damage-${dmg.cls}`);
       cell.innerHTML = `
         <div class="cell-image-wrap">
           ${badge}

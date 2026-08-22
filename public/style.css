@@ -494,6 +494,11 @@ body {
 .swap-hint { font-size: 12px; color: var(--board-amber); font-family: var(--mono); }
 .cell.swap-selected .cell-image-wrap { border-color: var(--board-amber) !important; box-shadow: 0 0 0 2px var(--board-amber); }
 
+/* рамка клетки по состоянию объекта */
+.cell.damage-bad .cell-image-wrap { border-color: var(--board-amber); }
+.cell.damage-repairing .cell-image-wrap { border-color: var(--board-amber); }
+.cell.damage-ruined .cell-image-wrap { border-color: var(--red); }
+
 .cell.state-rented .cell-image-wrap { border-color: var(--green); }
 .cell.state-sold .cell-image-wrap { border-color: var(--red); opacity: 0.7; }
 .cell.state-listed .cell-image-wrap { border-color: var(--board-amber); }
@@ -740,13 +745,37 @@ body {
 }
 
 /* --- состояние объекта: повреждение, ремонт, разрушение --- */
+/* Значок состояния поверх картинки здания.
+   Лёгкий износ — маленькая метка в углу, чтобы не шуметь.
+   Требует ремонта / ремонт / разрушено — крупно по центру с затемнением,
+   иначе значок теряется на фотографии. */
 .cell-damage {
-  position: absolute; top: 4px; left: 4px; z-index: 3;
-  font-size: 18px; line-height: 1;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.8));
+  position: absolute; z-index: 3; line-height: 1;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9));
+  pointer-events: none;
 }
-.cell-damage.worn { font-size: 22px; color: var(--board-amber); opacity: 0.75; }
-.cell-damage.repairing, .cell-damage.ruined { font-size: 18px; }
+/* лёгкий износ: точка в углу */
+.cell-damage.worn {
+  top: 4px; left: 5px; font-size: 24px;
+  color: var(--board-amber); opacity: 0.8;
+}
+/* требует ремонта, ремонт, разрушено: во всю клетку */
+.cell-damage.bad, .cell-damage.repairing, .cell-damage.ruined {
+  inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: clamp(22px, 9vw, 46px);
+}
+.cell-damage.bad { background: rgba(10,13,17,0.42); }
+.cell-damage.repairing { background: rgba(10,13,17,0.42); }
+.cell-damage.ruined { background: rgba(120,20,20,0.42); }
+/* мигание, чтобы «требует ремонта» цепляло взгляд при осмотре аэропорта */
+.cell-damage.bad { animation: damagePulse 2.2s ease-in-out infinite; }
+@keyframes damagePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell-damage.bad { animation: none; }
+}
 .obj-damage { font-size: 12px; line-height: 1.4; font-family: var(--mono); }
 .obj-damage.worn { color: var(--text-dim); }
 .obj-damage.bad { color: var(--board-amber); }
