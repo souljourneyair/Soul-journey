@@ -739,7 +739,12 @@ function serializeAirport(airport) {
       const borts = airport.apronBorts || [];
       const heliUsed = borts.filter(b => (b.craft || 'heli') === 'heli').length;
       const planeContract = borts.filter(b => b.craft === 'plane').length;
-      const ownPlanes = store.getAircraftByAirport(airport.id).length;
+      // Считаем так же, как canPlaceAircraft: борт в рейсе ('flying') стоянку
+      // освобождает, а кружащий над аэропортом ('waiting') — нет, она за ним
+      // зарезервирована под посадку. Иначе счётчик расходился бы с игрой:
+      // показывал бы «мест нет», хотя поставить самолёт можно.
+      const ownPlanes = store.getAircraftByAirport(airport.id)
+        .filter(a => a.status !== 'flying').length;
       const stands = listStands(airport.id).length;
       return {
         heli: { used: heliUsed, total: totalApronSlots(airport.id) },       // вертолётные места
@@ -2487,7 +2492,10 @@ function processAircraftTick(airport, currentTick, notifications) {
 
     if (ac.status === 'flying') {
       if (currentTick >= ac.flightEndsTick) {
-        const standFree = canPlaceAircraft(airport.id, aircraftSize(ac.typeId));
+        // ac.id исключаем для симметрии с веткой waiting: сейчас статус ещё
+        // 'flying' и в подсчёт он не попадает, но так проверка не сломается,
+        // если порядок присвоения статуса когда-нибудь изменится.
+        const standFree = canPlaceAircraft(airport.id, aircraftSize(ac.typeId), ac.id);
         if (landingsThisTick < runways && standFree) {
           landingsThisTick++;
           landAircraft(ac, type);
@@ -2499,7 +2507,10 @@ function processAircraftTick(airport, currentTick, notifications) {
         }
       }
     } else if (ac.status === 'waiting') {
-      const standFree = canPlaceAircraft(airport.id, aircraftSize(ac.typeId));
+      // excludeAircraftId обязателен: борт уже числится занимающим свою стоянку
+      // (waiting входит в «стоит на земле»), и без исключения себя он просил бы
+      // вторую стоянку — то есть не сел бы никогда и кружил, теряя деньги.
+      const standFree = canPlaceAircraft(airport.id, aircraftSize(ac.typeId), ac.id);
       if (landingsThisTick < runways && standFree) {
         landingsThisTick++;
         landAircraft(ac, type);
