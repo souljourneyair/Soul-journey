@@ -98,17 +98,56 @@ function adminAuth(req, res, next) {
 }
 
 // ---------- auth routes ----------
+// ---------- правила для логинов ----------
+const USERNAME_MIN = 3;
+const USERNAME_MAX = 20;
+// Буквы (латиница и кириллица), цифры, дефис и подчёркивание. Пробелы и
+// спецсимволы запрещены: их не видно в списках и легко подделать чужой логин.
+const USERNAME_ALLOWED = /^[A-Za-zА-Яа-яЁё0-9_-]+$/;
+// Логины, которыми можно выдать себя за администрацию игры.
+const RESERVED_USERNAMES = [
+  'admin', 'administrator', 'админ', 'администратор', 'модератор', 'moderator',
+  'support', 'поддержка', 'system', 'система', 'souljourney', 'soul_journey',
+];
+
+// Проверка логина. Возвращает { error, message } или null, если всё в порядке.
+function validateUsername(raw) {
+  const username = String(raw == null ? '' : raw).trim();
+  if (username.length < USERNAME_MIN || username.length > USERNAME_MAX) {
+    return { error: 'invalid_username', message: `Логин от ${USERNAME_MIN} до ${USERNAME_MAX} символов` };
+  }
+  if (!USERNAME_ALLOWED.test(username)) {
+    return { error: 'invalid_username', message: 'В логине можно использовать буквы, цифры, дефис и подчёркивание' };
+  }
+  if (RESERVED_USERNAMES.includes(store.normalizeUsername(username))) {
+    return { error: 'reserved_username', message: 'Этот логин зарезервирован, выберите другой' };
+  }
+  return null;
+}
+
 app.post('/api/register', (req, res) => {
   const { username, password } = req.body || {};
-  if (!username || !password || username.length < 3 || password.length < 4) {
-    return res.status(400).json({ error: 'invalid_input', message: 'Логин от 3 символов, пароль от 4 символов' });
+  const cleanName = String(username == null ? '' : username).trim();
+
+  const bad = validateUsername(cleanName);
+  if (bad) return res.status(400).json(bad);
+  if (!password || password.length < 4) {
+    return res.status(400).json({ error: 'invalid_input', message: 'Пароль от 4 символов' });
   }
-  if (store.findUserByUsername(username)) {
-    return res.status(409).json({ error: 'username_taken', message: 'Такой логин уже занят' });
+  // Сравнение без учёта регистра: если есть «Vasya», логин «vasya» занят.
+  const existing = store.findUserByUsername(cleanName);
+  if (existing) {
+    return res.status(409).json({
+      error: 'username_taken',
+      message: store.normalizeUsername(existing.username) === store.normalizeUsername(cleanName)
+        && existing.username !== cleanName
+        ? `Логин занят: уже есть игрок «${existing.username}». Регистр букв значения не имеет.`
+        : 'Такой логин уже занят',
+    });
   }
 
   const hash = bcrypt.hashSync(password, 10);
-  const user = store.createUser(username, hash);
+  const user = store.createUser(cleanName, hash);
   res.json({ token: user.token, userId: user.id, username: user.username, isAdmin: false });
 });
 
@@ -1672,17 +1711,18 @@ app.post('/api/admin/players/:username/ban', auth, adminAuth, (req, res) => {
   if (target.isAdmin) return res.status(400).json({ error: 'cannot_ban_admin', message: 'Нельзя забанить администратора' });
 
   const bannedUntil = duration === 'forever' ? 'forever' : Date.now() + BAN_DURATIONS[duration];
-  store.setUserBan(req.params.username, bannedUntil);
+  store.setUserBan(target.username, bannedUntil);
   closeSocketsForToken(target.token); // выкидываем из активной сессии немедленно
 
-  res.json({ username: req.params.username, bannedUntil });
+  // отдаём настоящее написание логина, а не то, что пришло в адресе
+  res.json({ username: target.username, bannedUntil });
 });
 
 app.post('/api/admin/players/:username/unban', auth, adminAuth, (req, res) => {
   const target = store.findUserByUsername(req.params.username);
   if (!target) return res.status(404).json({ error: 'user_not_found' });
-  store.setUserBan(req.params.username, null);
-  res.json({ username: req.params.username, bannedUntil: null });
+  store.setUserBan(target.username, null);
+  res.json({ username: target.username, bannedUntil: null });
 });
 
 // ---------- Галерея: медиатека, скины зданий по (тип, уровень), стили текста ----------
@@ -2770,6 +2810,15 @@ setInterval(runTick, CONFIG.TICK_MS);
 const PORT = process.env.PORT || 3000;
 
 ensureSuperuser();
+
+// Логины теперь сравниваются без учёта регистра. Если в базе остались пары
+// вроде «Vasya»/«vasya», заведённые раньше, войти сможет только первый из них —
+// предупреждаем администратора, чтобы он переименовал или удалил лишний.
+const caseDuplicates = store.findCaseDuplicateUsernames();
+for (const names of caseDuplicates) {
+  console.warn(`[внимание] Логины различаются только регистром: ${names.join(', ')}. ` +
+    `Войти сможет только «${names[0]}» — переименуйте или удалите остальные.`);
+}
 
 server.listen(PORT, () => {
   console.log(`Soul Journey server running on http://localhost:${PORT}`);
