@@ -399,7 +399,7 @@ const BUILDINGS = {
   helipad: {
     id: 'helipad', name: 'Вертолётная стоянка', minLevel: 0,
     cost: 2500, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 300, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, nonRentable: true, reputation: 0, xp: 300, removable: true, maxUpgradeLevel: 5,
     starter: true,
     desc: 'Источник дохода — мелкие вертолётные чартеры. Обычное здание: можно строить, улучшать, сдавать, продавать и сносить.',
   },
@@ -438,7 +438,7 @@ const BUILDINGS = {
   stand_small: {
     id: 'stand_small', name: 'Малая стоянка ВС', minLevel: 4,
     cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 700, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, nonRentable: true, reputation: 0, xp: 700, removable: true, maxUpgradeLevel: 5,
     standSize: 'small',   // вмещает маленькие самолёты
     aircraftSlots: 1,
     desc: 'Стоянка для маленького самолёта. Одно место под базирование или приём борта.',
@@ -446,7 +446,7 @@ const BUILDINGS = {
   stand_medium: {
     id: 'stand_medium', name: 'Средняя стоянка ВС', minLevel: 6,
     cost: 14000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 1700, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, nonRentable: true, reputation: 0, xp: 1700, removable: true, maxUpgradeLevel: 5,
     standSize: 'medium',  // вмещает средние; с ур.3 — ещё и маленькие
     aircraftSlots: 1,
     desc: 'Стоянка для среднего (узкофюзеляжного) самолёта. После апгрейда до 3 уровня вмещает также маленькие самолёты.',
@@ -454,7 +454,7 @@ const BUILDINGS = {
   stand_large: {
     id: 'stand_large', name: 'Большая стоянка ВС', minLevel: 8,
     cost: 32000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 3600, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, nonRentable: true, reputation: 0, xp: 3600, removable: true, maxUpgradeLevel: 5,
     standSize: 'large',   // вмещает большие; с ур.3 — ещё средние и маленькие
     aircraftSlots: 1,
     desc: 'Стоянка для большого (широкофюзеляжного) самолёта. После апгрейда до 3 уровня вмещает также средние и маленькие самолёты.',
