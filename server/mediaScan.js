@@ -14,14 +14,17 @@ const path = require('path');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const BUILDINGS_DIR = path.join(PUBLIC_DIR, 'uploads', 'buildings');
 const SCREENS_DIR = path.join(PUBLIC_DIR, 'uploads', 'screens');
+const LOGO_DIR = path.join(PUBLIC_DIR, 'uploads', 'logo');
 const SCREENS = ['auth', 'game'];
+// Логотип: основной и необязательный компактный для узких экранов.
+const LOGO_VARIANTS = ['default', 'small'];
 
 const IMAGE_EXT = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, svg: 1 };
 const VIDEO_EXT = { mp4: 1, webm: 1, ogv: 1, ogg: 1 };
 
 const RESCAN_INTERVAL_MS = 30000; // авто-пересканирование раз в 30 сек
 
-let cache = { buildings: {}, screens: { auth: [], game: [] }, scannedAt: 0 };
+let cache = { buildings: {}, screens: { auth: [], game: [] }, logo: { default: null, small: null }, scannedAt: 0 };
 let knownBuildingIds = [];
 
 function extOf(file) {
@@ -39,6 +42,7 @@ function ensureDirs(buildingIds) {
   for (const screen of SCREENS) {
     fs.mkdirSync(path.join(SCREENS_DIR, screen), { recursive: true });
   }
+  fs.mkdirSync(LOGO_DIR, { recursive: true });
 }
 
 // ?v=<mtime> — чтобы браузер не показывал старую картинку после замены файла.
@@ -96,8 +100,28 @@ function scanScreens() {
   return out;
 }
 
+// Логотип. Основной файл — default.<ext>, компактный (необязательный) —
+// small.<ext>. Если default нет, берём первую картинку в папке: так логотип
+// заработает, даже если файл назвали как попало.
+function scanLogo() {
+  const out = { default: null, small: null };
+  let files;
+  try { files = fs.readdirSync(LOGO_DIR).sort(); } catch (e) { return out; }
+  let firstAny = null;
+  for (const file of files) {
+    if (!IMAGE_EXT[extOf(file)]) continue;
+    const base = path.basename(file, path.extname(file)).toLowerCase();
+    const url = urlFor('logo', file, path.join(LOGO_DIR, file));
+    if (base === 'default') out.default = url;
+    else if (base === 'small') out.small = url;
+    else if (!firstAny) firstAny = url;
+  }
+  if (!out.default) out.default = firstAny;
+  return out;
+}
+
 function rescan() {
-  cache = { buildings: scanBuildings(), screens: scanScreens(), scannedAt: Date.now() };
+  cache = { buildings: scanBuildings(), screens: scanScreens(), logo: scanLogo(), scannedAt: Date.now() };
   return cache;
 }
 
@@ -144,6 +168,40 @@ function listScreen(screen) {
   return (cache.screens[screen] || []).slice();
 }
 
+// { default, small } — null, если файла нет.
+function getLogo() {
+  return { default: cache.logo.default || null, small: cache.logo.small || null };
+}
+
+function listLogoFiles() {
+  let files = [];
+  try { files = fs.readdirSync(LOGO_DIR).sort(); } catch (e) { return []; }
+  return files.filter(f => IMAGE_EXT[extOf(f)]).map(f => ({
+    name: f,
+    variant: ['default', 'small'].includes(path.basename(f, path.extname(f)).toLowerCase())
+      ? path.basename(f, path.extname(f)).toLowerCase() : 'прочее',
+    url: urlFor('logo', f, path.join(LOGO_DIR, f)),
+  }));
+}
+
+function logoFilePath(variant, ext) {
+  return path.join(LOGO_DIR, `${variant}.${ext}`);
+}
+
+// Удалить все расширения одного варианта (default.png, default.svg, ...).
+function removeLogoVariant(variant) {
+  const target = String(variant).toLowerCase();
+  let files = [];
+  try { files = fs.readdirSync(LOGO_DIR); } catch (e) { return 0; }
+  let removed = 0;
+  for (const file of files) {
+    if (!IMAGE_EXT[extOf(file)]) continue;
+    if (path.basename(file, path.extname(file)).toLowerCase() !== target) continue;
+    try { fs.unlinkSync(path.join(LOGO_DIR, file)); removed++; } catch (e) { /* уже нет */ }
+  }
+  return removed;
+}
+
 // Куда писать файл при загрузке через админку.
 function buildingFilePath(buildingId, level, ext) {
   return path.join(BUILDINGS_DIR, buildingId, `${level}.${ext}`);
@@ -176,9 +234,10 @@ function removeScreenFile(screen, filename) {
 }
 
 module.exports = {
-  SCREENS, IMAGE_EXT, VIDEO_EXT,
+  SCREENS, LOGO_VARIANTS, IMAGE_EXT, VIDEO_EXT,
   init, rescan, buildingsManifest, resolveBuilding,
   pickScreenBackground, listScreen,
+  getLogo, listLogoFiles, logoFilePath, removeLogoVariant,
   buildingFilePath, screenFilePath, removeBuildingLevel, removeScreenFile,
   scannedAt: () => cache.scannedAt,
 };

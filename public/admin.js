@@ -113,8 +113,8 @@ function switchView(view) {
 // ===== НАСТРОЙКИ: ЛОГОТИП =====
 async function loadLogoSettings() {
   try {
-    const s = await api('/api/settings');
-    renderLogoPreview(s.logoUrl);
+    const res = await api('/api/admin/media/logo');
+    renderLogoSlots(res.current);
   } catch (err) { /* ignore */ }
 }
 
@@ -148,39 +148,67 @@ $('#gameplaySaveBtn') && $('#gameplaySaveBtn').addEventListener('click', async (
   }
 });
 
-function renderLogoPreview(url) {
+// Логотип лежит в public/uploads/logo/: default.* — основной, small.* —
+// необязательный компактный для узких экранов.
+function renderLogoSlots(current) {
   const wrap = $('#logoPreviewWrap');
   if (!wrap) return;
-  wrap.innerHTML = url
-    ? `<img src="${url}" alt="Логотип" style="height:64px;width:auto;max-width:200px;object-fit:contain;border-radius:6px;background:#0b0f14;padding:6px;" />`
-    : '<span class="build-menu-hint">Логотип не установлен.</span>';
-}
+  const slot = (variant, title, hint, url) => `
+    <div style="display:inline-block;vertical-align:top;margin:0 20px 12px 0;">
+      <div class="build-menu-hint" style="margin-bottom:6px;">${title}</div>
+      <div style="min-height:70px;">
+        ${url
+          ? `<img src="${url}" alt="" style="height:64px;width:auto;max-width:200px;object-fit:contain;border-radius:6px;background:#0b0f14;padding:6px;" />`
+          : '<span class="build-menu-hint">не установлен</span>'}
+      </div>
+      <div class="build-menu-hint" style="max-width:220px;margin:4px 0 6px;">${hint}</div>
+      <input type="file" accept="image/*" class="logo-file" data-variant="${variant}" style="display:none;" />
+      <button class="btn-secondary logo-upload" data-variant="${variant}">Загрузить</button>
+      ${url ? `<button class="btn-secondary btn-danger logo-remove" data-variant="${variant}">Удалить</button>` : ''}
+    </div>`;
 
-$('#logoUploadBtn') && $('#logoUploadBtn').addEventListener('click', () => $('#logoFileInput').click());
-$('#logoFileInput') && $('#logoFileInput').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = async () => {
-    try {
-      const res = await api('/api/admin/logo', 'POST', { dataUrl: reader.result });
-      renderLogoPreview(res.logoUrl);
-      $('#logoMsg').textContent = 'Логотип загружен. Игроки увидят его в шапке.';
-    } catch (err) {
-      $('#logoMsg').textContent = err.message;
-    }
-  };
-  reader.readAsDataURL(file);
-});
-$('#logoRemoveBtn') && $('#logoRemoveBtn').addEventListener('click', async () => {
-  try {
-    await api('/api/admin/logo/remove', 'POST');
-    renderLogoPreview(null);
-    $('#logoMsg').textContent = 'Логотип убран.';
-  } catch (err) {
-    $('#logoMsg').textContent = err.message;
-  }
-});
+  wrap.innerHTML =
+    slot('default', 'ОСНОВНОЙ', 'Показывается в шапке игры.', current.default) +
+    slot('small', 'КОМПАКТНЫЙ (необязательно)', 'Подставляется на экранах уже 640 px. Если не задан, везде основной.', current.small);
+
+  wrap.querySelectorAll('.logo-upload').forEach(btn => {
+    btn.addEventListener('click', () => {
+      wrap.querySelector(`.logo-file[data-variant="${btn.dataset.variant}"]`).click();
+    });
+  });
+  wrap.querySelectorAll('.logo-file').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const res = await api('/api/admin/media/logo', 'POST', {
+            variant: input.dataset.variant, dataUrl: reader.result,
+          });
+          renderLogoSlots(res.current);
+          $('#logoMsg').textContent = 'Логотип сохранён. Игроки увидят его в шапке.';
+        } catch (err) {
+          $('#logoMsg').textContent = err.message;
+        }
+      };
+      reader.onerror = () => { $('#logoMsg').textContent = 'Не удалось прочитать файл.'; };
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    });
+  });
+  wrap.querySelectorAll('.logo-remove').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        const res = await api('/api/admin/media/logo/remove', 'POST', { variant: btn.dataset.variant });
+        renderLogoSlots(res.current);
+        $('#logoMsg').textContent = 'Файл удалён.';
+      } catch (err) {
+        $('#logoMsg').textContent = err.message;
+      }
+    });
+  });
+}
 
 // ===== ФОНЫ ЭКРАНОВ =====
 // Фоны экранов лежат в папках public/uploads/screens/auth|game/.

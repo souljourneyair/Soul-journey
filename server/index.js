@@ -1937,6 +1937,39 @@ app.post('/api/admin/media/screen', auth, adminAuth, (req, res) => {
   res.json({ files: mediaScan.listScreen(screen) });
 });
 
+// Логотип: список / загрузка варианта / удаление.
+app.get('/api/admin/media/logo', auth, adminAuth, (req, res) => {
+  res.json({ files: mediaScan.listLogoFiles(), current: mediaScan.getLogo() });
+});
+
+app.post('/api/admin/media/logo', auth, adminAuth, (req, res) => {
+  const { variant, dataUrl } = req.body || {};
+  const v = String(variant || 'default').toLowerCase();
+  if (!mediaScan.LOGO_VARIANTS.includes(v)) {
+    return res.status(400).json({ error: 'bad_variant', message: 'Вариант — default или small' });
+  }
+  const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки' });
+  const ext = ALLOWED_IMAGE_TYPES[match[1]];
+  if (!ext) return res.status(400).json({ error: 'unsupported_type', message: 'PNG, JPEG, GIF, WEBP или SVG' });
+  const buffer = Buffer.from(match[2], 'base64');
+  if (buffer.length > MAX_UPLOAD_BYTES) return res.status(400).json({ error: 'file_too_large', message: 'Максимум 5MB' });
+
+  mediaScan.removeLogoVariant(v);  // прежний файл этого варианта мог быть другого формата
+  fs.writeFileSync(mediaScan.logoFilePath(v, ext), buffer);
+  mediaScan.rescan();
+  res.json({ files: mediaScan.listLogoFiles(), current: mediaScan.getLogo() });
+});
+
+app.post('/api/admin/media/logo/remove', auth, adminAuth, (req, res) => {
+  const { variant } = req.body || {};
+  const v = String(variant || 'default').toLowerCase();
+  if (!mediaScan.LOGO_VARIANTS.includes(v)) return res.status(400).json({ error: 'bad_variant' });
+  const removed = mediaScan.removeLogoVariant(v);
+  mediaScan.rescan();
+  res.json({ removed, files: mediaScan.listLogoFiles(), current: mediaScan.getLogo() });
+});
+
 app.post('/api/admin/media/screen/remove', auth, adminAuth, (req, res) => {
   const { screen, filename } = req.body || {};
   if (!mediaScan.SCREENS.includes(screen)) return res.status(400).json({ error: 'bad_screen' });
@@ -1948,7 +1981,11 @@ app.post('/api/admin/media/screen/remove', auth, adminAuth, (req, res) => {
 // Публичные настройки игры (логотип) — доступны всем залогиненным.
 app.get('/api/settings', auth, (req, res) => {
   const s = store.getSettings();
-  res.json({ logoUrl: s.logoUrl || null });
+  const logo = mediaScan.getLogo();
+  res.json({
+    logoUrl: logo.default || s.logoUrl || null,   // из папки uploads/logo/, иначе старая настройка
+    logoSmallUrl: logo.small || null,             // компактный вариант для узких экранов
+  });
 });
 
 // Публичные визуальные настройки — доступны БЕЗ авторизации (нужны на входном экране).
@@ -1958,8 +1995,10 @@ app.get('/api/public-settings', (req, res) => {
   // если пусто — старый фон из настроек.
   const authFolder = mediaScan.pickScreenBackground('auth');
   const gameFolder = mediaScan.pickScreenBackground('game');
+  const logo = mediaScan.getLogo();
   res.json({
-    logoUrl: s.logoUrl || null,
+    logoUrl: logo.default || s.logoUrl || null,
+    logoSmallUrl: logo.small || null,
     authBg: authFolder || (s.authBgUrl ? { url: s.authBgUrl, kind: s.authBgKind || 'image' } : null),
     gameBg: gameFolder || (s.gameBgUrl ? { url: s.gameBgUrl, kind: s.gameBgKind || 'image' } : null),
   });

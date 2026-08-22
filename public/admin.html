@@ -92,11 +92,9 @@
   <main class="gallery-main hidden" id="settingsView">
     <div class="gallery-upload">
       <div class="panel-title">ЛОГОТИП ИГРЫ</div>
-      <p class="build-menu-hint">Логотип отображается в шапке слева от названия игры. Виден всем игрокам. PNG, JPEG, GIF, WEBP или SVG, до 5 МБ.</p>
+      <p class="build-menu-hint">Логотип отображается в шапке слева от названия игры. Виден всем игрокам. PNG, JPEG, GIF, WEBP или SVG, до 5 МБ.<br>
+      Файлы лежат в <code>public/uploads/logo/</code>: <code>default.*</code> — основной, <code>small.*</code> — компактный для узких экранов.</p>
       <div id="logoPreviewWrap" style="margin:12px 0;"></div>
-      <input type="file" id="logoFileInput" accept="image/*" style="display:none;" />
-      <button class="btn-primary" id="logoUploadBtn">Загрузить логотип</button>
-      <button class="btn-secondary btn-danger" id="logoRemoveBtn">Убрать логотип</button>
       <div class="build-menu-hint" id="logoMsg" style="margin-top:8px;"></div>
     </div>
 

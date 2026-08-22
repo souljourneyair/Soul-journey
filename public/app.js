@@ -291,15 +291,20 @@ function applyBackground(elementId, bg) {
   }
 }
 
-// Загрузка логотипа игры (общий, задаётся админом)
+// Загрузка логотипа игры (общий, задаётся админом).
+// Файлы лежат в public/uploads/logo/: default.* — основной, small.* —
+// необязательный компактный, он подставляется на узких экранах.
 async function loadGameLogo() {
   try {
     const s = await api('/api/settings');
     const logo = $('#gameLogo');
-    if (logo && s.logoUrl) {
-      logo.src = s.logoUrl;
+    if (!logo) return;
+    const narrow = window.matchMedia('(max-width: 640px)').matches;
+    const url = (narrow && s.logoSmallUrl) ? s.logoSmallUrl : s.logoUrl;
+    if (url) {
+      logo.src = url;
       logo.classList.remove('hidden');
-    } else if (logo) {
+    } else {
       logo.classList.add('hidden');
     }
   } catch (err) { /* логотип необязателен */ }

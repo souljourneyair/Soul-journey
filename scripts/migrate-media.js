@@ -16,6 +16,7 @@ const PUBLIC_DIR = path.join(ROOT, 'public');
 const DATA_FILE = path.join(ROOT, 'data.json');
 const BUILDINGS_DIR = path.join(PUBLIC_DIR, 'uploads', 'buildings');
 const SCREENS_DIR = path.join(PUBLIC_DIR, 'uploads', 'screens');
+const LOGO_DIR = path.join(PUBLIC_DIR, 'uploads', 'logo');
 
 const clean = process.argv.includes('--clean');
 
@@ -69,7 +70,20 @@ for (const screen of ['auth', 'game']) {
   copiedBg++;
 }
 
-console.log(`\nСкинов скопировано: ${copiedSkins}, не найдено: ${missingSkins}. Фонов: ${copiedBg}.`);
+// Логотип: settings.logoUrl -> uploads/logo/default.<ext>
+let copiedLogo = 0;
+{
+  const src = sourcePathFromUrl(data.settings ? data.settings.logoUrl : null);
+  if (src) {
+    fs.mkdirSync(LOGO_DIR, { recursive: true });
+    const ext = path.extname(src).slice(1).toLowerCase();
+    fs.copyFileSync(src, path.join(LOGO_DIR, `default.${ext}`));
+    console.log(`  + logo/default.${ext}`);
+    copiedLogo++;
+  }
+}
+
+console.log(`\nСкинов скопировано: ${copiedSkins}, не найдено: ${missingSkins}. Фонов: ${copiedBg}. Логотипов: ${copiedLogo}.`);
 
 if (clean) {
   const backup = DATA_FILE + '.bak-' + Date.now();
@@ -78,6 +92,7 @@ if (clean) {
   if (data.settings) {
     delete data.settings.authBgUrl; delete data.settings.authBgKind;
     delete data.settings.gameBgUrl; delete data.settings.gameBgKind;
+    delete data.settings.logoUrl;
   }
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
   console.log(`data.json очищен. Бэкап: ${path.basename(backup)}`);
