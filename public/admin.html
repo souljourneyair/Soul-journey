@@ -119,6 +119,34 @@
     </div>
 
     <div class="gallery-upload" style="margin-top:20px;">
+      <div class="panel-title">ЧРЕЗВЫЧАЙНЫЕ ПРОИСШЕСТВИЯ</div>
+      <p class="build-menu-hint">
+        Случайные ЧС происходят сами примерно раз в игровые сутки, но не чаще одного за 720 игровых минут.
+        Здесь можно вызвать событие вручную — сразу или с задержкой — и отключить случайные ЧС целиком.
+      </p>
+      <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px; max-width:420px;">
+        <label style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="disastersEnabled" />
+          <span class="build-menu-hint">Случайные происшествия включены</span>
+        </label>
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span class="build-menu-hint">Кому</span>
+          <select id="disasterTarget" class="admin-input"></select>
+        </label>
+        <label style="display:flex; flex-direction:column; gap:4px;">
+          <span class="build-menu-hint">Задержка, игровых минут (0 — сразу)</span>
+          <input type="number" id="disasterDelay" min="0" step="1" value="0" class="admin-input" />
+        </label>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          <button class="btn-secondary disaster-btn" data-kind="flood">🌊 Наводнение</button>
+          <button class="btn-secondary disaster-btn" data-kind="earthquake">🌋 Землетрясение</button>
+          <button class="btn-secondary disaster-btn" data-kind="storm">🧲 Магнитная буря</button>
+        </div>
+        <div class="build-menu-hint" id="disasterMsg"></div>
+      </div>
+    </div>
+
+    <div class="gallery-upload" style="margin-top:20px;">
       <div class="panel-title">НАСТРОЙКИ ГЕЙМПЛЕЯ</div>
       <p class="build-menu-hint">Цены на нефть и золото влияют на рыночную цену авиатоплива для всех игроков. Выше нефть/золото — дороже топливо (в пределах ±30% от базы поставщика).</p>
       <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px; max-width:320px;">

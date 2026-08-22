@@ -16,12 +16,14 @@ const {
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
+  DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
   PASSENGER_ECONOMY, terminalThroughput,
 } = require('./gameData');
 const mediaScan = require('./mediaScan');
+const disasters = require('./disasters');
 
 // Картинки зданий и фоны экранов лежат в папках (см. docs/media-folders.md).
 // init создаёт папку под каждое здание и делает первый скан.
@@ -567,7 +569,13 @@ function towerInterval(airportId) {
     const effective = mult > 0 ? iv / mult : APRON_ECONOMY.TOWER_INTERVAL_NONE;
     if (effective < best) best = effective;
   }
-  return Math.max(1, Math.round(best / working.length));
+  let result = best / working.length;
+  // Магнитная буря: помехи растягивают интервал втрое.
+  const ap = store.getAirportById(airportId);
+  if (disasters.stormActive(ap, store.getTickCounter())) {
+    result *= DISASTER_ECONOMY.STORM.TOWER_INTERVAL_MULT;
+  }
+  return Math.max(1, Math.round(result));
 }
 
 // Есть ли построенная диспетчерская вышка (обязательна для полётов своих самолётов).
@@ -712,19 +720,23 @@ function runwayUsed(b, capacity, currentTick) {
 // Все рабочие ВПП аэропорта с текущей загрузкой.
 function listRunways(airportId, currentTick) {
   const buildings = store.getBuildingsByAirport(airportId);
+  const stormNow = disasters.stormActive(store.getAirportById(airportId), currentTick);
   const out = [];
   for (const b of buildings) {
     const def = BUILDINGS[b.buildingId];
     if (!def || !def.isRunway) continue;
     if ((b.state || 'owned') === 'sold' || b.state === 'rented') continue;
     if (isUnderConstruction(b)) continue;
+    if (b.ruined) continue;   // разрушенная полоса не принимает
     const level = b.upgradeLevel || 1;
     const baseCapacity = runwayCapacity(def, level);
     // во время ремонта полоса принимает на 70% меньше бортов
     const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
-    const capacity = repairing
-      ? Math.max(1, Math.round(baseCapacity * RUNWAY_ECONOMY.REPAIR_CAPACITY_MULT))
-      : baseCapacity;
+    // Повреждение режет пропускную способность, ремонт — тоже, магнитная буря
+    // добавляет помехи сверху.
+    let capacity = baseCapacity * damageMultiplier(b.wear || 0, repairing);
+    if (stormNow) capacity *= DISASTER_ECONOMY.STORM.RUNWAY_CAPACITY_MULT;
+    capacity = Math.max(1, Math.round(capacity));
     out.push({
       cellIndex: b.cellIndex, buildingId: def.id, name: def.name, level,
       capacity, baseCapacity, repairing,
@@ -905,6 +917,10 @@ function serializeAirport(airport) {
       repairCost: r.wear > 0 ? runwayRepairCost(BUILDINGS[r.buildingId], r.wear) : 0,
     })),
     repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
+    // происшествия, которые игрок ещё не видел (показываются модальным окном)
+    pendingDisasters: airport.pendingDisasters || [],
+    stormTicksLeft: airport.stormEndsTick
+      ? Math.max(0, airport.stormEndsTick - store.getTickCounter()) : 0,
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
     canFlyMvl: canFlyMvl(airport.id),                    // можно ли выполнять МВЛ-рейсы
@@ -1562,6 +1578,14 @@ app.post('/api/building/swap', auth, (req, res) => {
 
 // Ремонт здания: обнуляет повреждение. Пока идут работы объект действует
 // на 30% (но не хуже, чем уже был от повреждения) — см. damageMultiplier.
+// Игрок увидел окно происшествия — убираем из очереди показа.
+app.post('/api/disasters/ack', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  store.updateAirport(airport.id, { pendingDisasters: [] });
+  res.json(serializeAirport(store.getAirportById(airport.id)));
+});
+
 app.post('/api/building/repair', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
@@ -2152,6 +2176,7 @@ app.get('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
     oilPrice: s.oilPrice != null ? s.oilPrice : 70,
     goldPrice: s.goldPrice != null ? s.goldPrice : 2000,
     fuelMarketMult: s.fuelMarketMult != null ? s.fuelMarketMult : 1.0,
+    disastersEnabled: s.disastersEnabled !== false,
   });
 });
 
@@ -2172,6 +2197,47 @@ app.post('/api/admin/damage-building', auth, adminAuth, (req, res) => {
   if (wear !== undefined) patch.wear = Math.min(1, Math.max(0, Number(wear) || 0));
   store.updateBuildingAtCell(airport.id, cellIndex, patch);
   res.json({ ok: true, cellIndex, ...patch });
+});
+
+// Вызвать происшествие вручную: у конкретного игрока или у всех сразу.
+app.post('/api/admin/disaster', auth, adminAuth, (req, res) => {
+  const { kind, username, all } = req.body || {};
+  if (!disasters.DISASTER_KINDS.includes(kind)) {
+    return res.status(400).json({ error: 'bad_kind', message: 'Неизвестный вид происшествия' });
+  }
+  const currentTick = store.getTickCounter();
+  const targets = [];
+  if (all) {
+    targets.push(...store.getAllAirports());
+  } else {
+    const user = store.findUserByUsername(username);
+    if (!user) return res.status(404).json({ error: 'no_user', message: 'Игрок не найден' });
+    const ap = store.getAirportByUserId(user.id);
+    if (!ap) return res.status(404).json({ error: 'no_airport', message: 'У игрока нет аэропорта' });
+    targets.push(ap);
+  }
+  const delay = Math.max(0, Number(req.body.delayTicks) || 0);
+  if (delay > 0) {
+    // отложенный вызов: сработает в тике, когда придёт время
+    const queue = store.getSettings().scheduledDisasters || [];
+    queue.push({ kind, atTick: currentTick + delay, airportIds: targets.map(a => a.id) });
+    store.setSetting('scheduledDisasters', queue);
+    return res.json({ ok: true, kind, scheduled: true, atTick: currentTick + delay, count: targets.length });
+  }
+
+  const applied = [];
+  for (const ap of targets) {
+    const r = disasters.trigger(store, ap, kind, currentTick);
+    if (r) applied.push({ airportId: ap.id, details: r.details });
+  }
+  res.json({ ok: true, kind, count: applied.length, applied });
+});
+
+// Включить или выключить случайные происшествия целиком.
+app.post('/api/admin/disasters-enabled', auth, adminAuth, (req, res) => {
+  const { enabled } = req.body || {};
+  store.setSetting('disastersEnabled', !!enabled);
+  res.json({ ok: true, enabled: !!enabled });
 });
 
 app.post('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
@@ -2664,6 +2730,27 @@ function runTick() {
     incomePerTick = Math.round(incomePerTick);
     reputationPerTick = Math.round(reputationPerTick);
     const freshAirport = store.getAirportByUserId(airport.userId) || airport;
+
+    // --- Отложенные происшествия, назначенные админом ---
+    const sched = (store.getSettings().scheduledDisasters || []).filter(x => x && x.atTick != null);
+    if (sched.length) {
+      const due = sched.filter(x => currentTick >= x.atTick && (x.airportIds || []).includes(airport.id));
+      for (const item of due) disasters.trigger(store, freshAirport, item.kind, currentTick);
+      // вычищаем отработавшие записи целиком, когда время прошло для всех
+      const rest = sched.filter(x => currentTick < x.atTick);
+      if (rest.length !== sched.length) store.setSetting('scheduledDisasters', rest);
+    }
+
+    // --- Чрезвычайные происшествия ---
+    // Розыгрыш идёт всегда, даже когда игрок не в сети: он увидит модальное
+    // окно при следующем заходе. Защитный интервал не даёт событиям копиться.
+    const settingsNow = store.getSettings();
+    disasters.rollRandom(store, freshAirport, currentTick, settingsNow);
+    // окончание магнитной бури
+    if (freshAirport.stormEndsTick != null && currentTick >= freshAirport.stormEndsTick) {
+      store.updateAirport(airport.id, { stormEndsTick: null });
+      notifications.push('🧲 Магнитная буря улеглась — вышка и полосы работают в обычном режиме.');
+    }
 
     // --- Завершение ремонта ---
     for (const b of store.getBuildingsByAirport(airport.id)) {

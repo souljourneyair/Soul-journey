@@ -425,6 +425,7 @@ function bumpStat(el) {
 }
 
 function renderAll() {
+  checkPendingDisasters();
   renderStats();
   renderRepairAllBar();
   renderObjectsTable();
@@ -2428,6 +2429,23 @@ const EVENT_TEXTS = {
     ],
   },
 };
+
+// Показ очереди происшествий: игрок заходит и первым делом узнаёт, что
+// случилось, пока его не было. Окно блокирующее — закрывается только кнопкой.
+let eventModalShown = false;
+async function checkPendingDisasters() {
+  const pending = STATE.pendingDisasters || [];
+  if (!pending.length || eventModalShown) return;
+  eventModalShown = true;
+  // если событий несколько — показываем последнее, детали собираем со всех
+  const last = pending[pending.length - 1];
+  const details = pending.flatMap(p => p.details || []);
+  showEventModal(last.kind, details);
+  try {
+    STATE = await api('/api/disasters/ack', 'POST', {});
+  } catch (err) { /* не критично: покажем снова при следующем заходе */ }
+  eventModalShown = false;
+}
 
 function showEventModal(kind, details) {
   const cfg = EVENT_TEXTS[kind] || EVENT_TEXTS.earthquake;

@@ -107,7 +107,7 @@ function switchView(view) {
   $('#settingsView').classList.toggle('hidden', view !== 'settings');
   if (view === 'gallery' && !galleryData) loadGallery();
   if (view === 'objects') loadObjectsSection();
-  if (view === 'settings') { loadLogoSettings(); loadGameplaySettings(); loadBackgroundSettings(); }
+  if (view === 'settings') { loadLogoSettings(); loadGameplaySettings(); loadBackgroundSettings(); loadDisasterPanel(); }
 }
 
 // ===== НАСТРОЙКИ: ЛОГОТИП =====
@@ -953,3 +953,51 @@ function toRoman(n) {
 
 // ===== INIT =====
 boot();
+
+
+// ---------- Чрезвычайные происшествия ----------
+// Заполняем список игроков и вешаем кнопки вызова.
+async function loadDisasterPanel() {
+  const sel = $('#disasterTarget');
+  if (!sel) return;
+  try {
+    const data = await api('/api/admin/players');
+    const players = data.players || data || [];
+    sel.innerHTML = '<option value="__all__">Всем игрокам</option>' +
+      players.map(p => `<option value="${escapeAttr(p.username)}">${escapeHtml(p.username)}</option>`).join('');
+  } catch (err) { /* список необязателен */ }
+  try {
+    const s = await api('/api/admin/gameplay-settings');
+    const cb = $('#disastersEnabled');
+    if (cb) cb.checked = s.disastersEnabled !== false;
+  } catch (err) { /* по умолчанию включено */ }
+}
+
+$('#disastersEnabled')?.addEventListener('change', async (e) => {
+  try {
+    await api('/api/admin/disasters-enabled', 'POST', { enabled: e.target.checked });
+    $('#disasterMsg').textContent = e.target.checked
+      ? 'Случайные происшествия включены.'
+      : 'Случайные происшествия выключены — только ручной вызов.';
+  } catch (err) {
+    $('#disasterMsg').textContent = err.message;
+  }
+});
+
+document.querySelectorAll('.disaster-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const kind = btn.dataset.kind;
+    const target = $('#disasterTarget').value;
+    const delay = Number($('#disasterDelay').value) || 0;
+    const body = { kind, delayTicks: delay };
+    if (target === '__all__') body.all = true; else body.username = target;
+    try {
+      const r = await api('/api/admin/disaster', 'POST', body);
+      $('#disasterMsg').textContent = delay > 0
+        ? `Запланировано через ${delay} мин (аэропортов: ${r.count ?? '—'}).`
+        : `Событие применено. Аэропортов задето: ${r.count}.`;
+    } catch (err) {
+      $('#disasterMsg').textContent = err.message;
+    }
+  });
+});

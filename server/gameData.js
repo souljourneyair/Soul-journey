@@ -308,6 +308,49 @@ function ruinedDemolishCost(def) {
   return Math.round(def.cost * DAMAGE_ECONOMY.DEMOLISH_RUINED_PCT);
 }
 
+// ---------- Чрезвычайные происшествия ----------
+// Заход 2: мягкие и обратимые события. Разрушительные (метеорит, пожар,
+// птицы) добавляются отдельно, когда станет видно, как игра переживает эти.
+const DISASTER_ECONOMY = {
+  // Включатель случайных ЧС целиком (админ может выключить).
+  RANDOM_ENABLED: true,
+  // Не чаще одного происшествия за это время — чтобы за ночь не накопилось
+  // три подряд и игрок не вернулся к руинам без объяснений.
+  GLOBAL_COOLDOWN_TICKS: 720,
+  // Среднее время между событиями каждого вида, в игровых минутах.
+  // Вместе выходит примерно одно происшествие за игровые сутки.
+  MEAN_INTERVAL: {
+    storm: 2880,        // магнитная буря — раз в 2 игровых суток
+    flood: 5760,        // наводнение — раз в 4 суток
+    earthquake: 7200,   // землетрясение — раз в 5 суток
+  },
+
+  // --- Наводнение: бьёт по ВПП и стоянкам, но не по всем сразу ---
+  FLOOD: {
+    TARGETS: ['runway', 'stand'],
+    SHARE_MIN: 0.3, SHARE_MAX: 0.7,   // какая доля подходящих объектов страдает
+    DAMAGE_MIN: 0.05, DAMAGE_MAX: 0.50,
+    // У грунтовой полосы (малая ВПП) размывает сильнее — так в описании.
+    SMALL_RUNWAY_EXTRA: 1.8,
+  },
+
+  // --- Землетрясение: трясёт любые здания ---
+  EARTHQUAKE: {
+    SHARE_MIN: 0.2, SHARE_MAX: 0.5,
+    DAMAGE_MIN: 0.05, DAMAGE_MAX: 0.45,
+  },
+
+  // --- Магнитная буря: временные помехи, ничего не ломает ---
+  STORM: {
+    DURATION_MIN: 120, DURATION_MAX: 240,  // 2-4 игровых часа
+    TOWER_INTERVAL_MULT: 3,   // вышка пропускает втрое меньше
+    RUNWAY_CAPACITY_MULT: 0.5, // полоса принимает вдвое меньше
+    // вертолётные площадки работают как обычно
+  },
+};
+
+const DISASTER_KINDS = ['storm', 'flood', 'earthquake'];
+
 const APRON_ECONOMY = {
   HELIPAD_SLOTS_PER_LEVEL: 1,     // мест на вертолётке = уровень апгрейда (ур.1=1 ... ур.5=5)
   // Сколько самолёт стоит на земле (занимает стоянку) — по уровню стоянки.
@@ -909,6 +952,7 @@ module.exports = {
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
+  DISASTER_ECONOMY, DISASTER_KINDS,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
