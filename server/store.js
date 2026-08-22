@@ -144,9 +144,32 @@ function createUser(username, passwordHash) {
   return user;
 }
 
+// Логины сравниваем без учёта регистра и крайних пробелов: «Vasya», «vasya»
+// и « VASYA » — один и тот же аккаунт. В data.json при этом хранится
+// написание, которое ввёл игрок: оно показывается в интерфейсе и таблице
+// рекордов, меняется только правило сравнения.
+function normalizeUsername(username) {
+  return String(username == null ? '' : username).trim().toLowerCase();
+}
+
 function findUserByUsername(username) {
   const data = load();
-  return data.users.find(u => u.username === username) || null;
+  const key = normalizeUsername(username);
+  if (!key) return null;
+  return data.users.find(u => normalizeUsername(u.username) === key) || null;
+}
+
+// Логины, различающиеся только регистром (могли завестись до того, как
+// сравнение стало нечувствительным). Возвращает [[логин, логин], ...].
+function findCaseDuplicateUsernames() {
+  const data = load();
+  const byKey = new Map();
+  for (const u of data.users) {
+    const key = normalizeUsername(u.username);
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(u.username);
+  }
+  return [...byKey.values()].filter(names => names.length > 1);
 }
 
 function findUserByToken(token) {
@@ -161,7 +184,8 @@ function findUserById(id) {
 
 function setUserPassword(username, passwordHash) {
   const data = load();
-  const user = data.users.find(u => u.username === username);
+  const key = normalizeUsername(username);
+  const user = data.users.find(u => normalizeUsername(u.username) === key);
   if (!user) return null;
   user.passwordHash = passwordHash;
   save(data);
@@ -175,7 +199,8 @@ function getAllUsers() {
 
 function setUserAdmin(username, isAdmin) {
   const data = load();
-  const user = data.users.find(u => u.username === username);
+  const key = normalizeUsername(username);
+  const user = data.users.find(u => normalizeUsername(u.username) === key);
   if (!user) return null;
   user.isAdmin = isAdmin;
   save(data);
@@ -184,7 +209,8 @@ function setUserAdmin(username, isAdmin) {
 
 function setUserBan(username, bannedUntil) {
   const data = load();
-  const user = data.users.find(u => u.username === username);
+  const key = normalizeUsername(username);
+  const user = data.users.find(u => normalizeUsername(u.username) === key);
   if (!user) return null;
   user.bannedUntil = bannedUntil; // null | 'forever' | timestamp(ms)
   save(data);
@@ -621,6 +647,7 @@ function getLeaderboard(limit = 50) {
 
 module.exports = {
   createUser, findUserByUsername, findUserByToken, findUserById, setUserPassword,
+  normalizeUsername, findCaseDuplicateUsernames,
   getAllUsers, setUserAdmin, setUserBan, isBanActive, deleteUser,
   createAirport, getAirportByUserId, getAirportById, updateAirport, getAllAirports,
   addBuilding, getBuildingsByAirport, findBuildingAtCell, updateBuildingAtCell, removeBuildingAtCell, removeAllBuildings, swapCells,

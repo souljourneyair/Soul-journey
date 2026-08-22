@@ -56,13 +56,23 @@ function scanBuildings() {
     try { files = fs.readdirSync(dir); } catch (e) { continue; }
 
     const levels = {};
+    const seen = {};       // уровень -> имя файла, чтобы поймать дубли
     let fallback = null;
     for (const file of files) {
       if (!IMAGE_EXT[extOf(file)]) continue;
       const base = path.basename(file, path.extname(file)).toLowerCase();
       const url = urlFor(`buildings/${id}`, file, path.join(dir, file));
       if (base === 'default') { fallback = url; continue; }
-      if (/^\d+$/.test(base)) levels[Number(base)] = url;
+      if (/^\d+$/.test(base)) {
+        // Два файла на один уровень (1.png и 1.webp) — какой победит, зависит от
+        // порядка чтения папки. Предупреждаем: лишний нужно удалить.
+        if (seen[base]) {
+          console.warn(`[внимание] ${id}: на уровень ${base} приходится больше одного файла ` +
+            `(${seen[base]}, ${file}). Показан будет ${file} — удалите лишний.`);
+        }
+        seen[base] = file;
+        levels[Number(base)] = url;
+      }
       // всё прочее игнорируем молча — можно держать в папке исходники
     }
     if (fallback || Object.keys(levels).length) out[id] = { levels, default: fallback };

@@ -719,3 +719,12 @@ body {
   .stat-value { font-size: 14px; }
   .topboard-brand span { display: none; } /* оставляем только "ПУТЕШЕСТВИЕ" на самых узких экранах */
 }
+
+/* Подсказка под полем формы (правила логина и т.п.) */
+.form-hint {
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin: -6px 0 4px;
+}

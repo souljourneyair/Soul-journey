@@ -22,14 +22,15 @@
     </div>
 
     <form id="loginForm" class="auth-form">
-      <label>Логин<input type="text" id="loginUsername" required autocomplete="username"></label>
+      <label>Логин<input type="text" id="loginUsername" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
       <label>Пароль<input type="password" id="loginPassword" required autocomplete="current-password"></label>
       <button type="submit" class="btn-primary">Войти</button>
       <div class="form-msg" id="loginMsg"></div>
     </form>
 
     <form id="registerForm" class="auth-form hidden">
-      <label>Логин<input type="text" id="regUsername" required minlength="3"></label>
+      <label>Логин<input type="text" id="regUsername" required minlength="3" maxlength="20" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
+      <div class="form-hint">От 3 до 20 символов: буквы, цифры, дефис и подчёркивание. Регистр при входе значения не имеет.</div>
       <label>Пароль<input type="password" id="regPassword" required minlength="4"></label>
       <button type="submit" class="btn-primary">Создать аккаунт</button>
       <div class="form-msg" id="regMsg"></div>
