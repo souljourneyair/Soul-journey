@@ -2040,7 +2040,9 @@ function renderFleetCard(ac) {
   card.className = 'fleet-card' + (ac.decommissioned ? ' decommissioned' : '');
 
   const statusLabels = {
-    idle: '<span class="fleet-status idle">На стоянке</span>',
+    idle: ac.serviceLeft > 0
+      ? `<span class="fleet-status servicing">Обслуживание · готов через ${ac.serviceLeft} мин</span>`
+      : '<span class="fleet-status idle">На стоянке · готов к вылету</span>',
     flying: `<span class="fleet-status flying">В рейсе ${ac.flightType === 'mvl' ? 'МВЛ' : 'ВВЛ'} · осталось ${ac.ticksLeft} мин</span>`,
     waiting: '<span class="fleet-status waiting">Кружит — нет ВПП!</span>',
     broken: '<span class="fleet-status broken">Сломан — нужен ремонт</span>',
@@ -2062,7 +2064,11 @@ function renderFleetCard(ac) {
     const autoLabel = ac.auto ? '⏸ Выкл. авто' : '▶ Авто-рейсы';
     actions += `<button class="btn-secondary ${ac.auto ? 'auto-on' : ''}" data-act="auto" data-id="${ac.id}">${autoLabel}</button>`;
     if (ac.status === 'idle') {
-      if (!STATE.hasTower) {
+      if (ac.serviceLeft > 0) {
+        // борт обслуживают после рейса — вылет пока невозможен
+        const lvl = ac.standLevel ? ` (стоянка ур.${ac.standLevel})` : '';
+        actions += `<span class="fleet-locked">Обслуживание${lvl} — ещё ${ac.serviceLeft} мин</span>`;
+      } else if (!STATE.hasTower) {
         // без вышки полёты невозможны
         actions += `<span class="fleet-locked">Нужна вышка для полётов</span>`;
       } else {

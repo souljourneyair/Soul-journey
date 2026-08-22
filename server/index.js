@@ -709,6 +709,9 @@ function serializeAircraft(airportId) {
       nextCapacity: (a.upgradeLevel || 1) < (t.maxUpgradeLevel || 3)
         ? aircraftCapacity(t, (a.upgradeLevel || 1) + 1) : null,
       ticksLeft: a.status === 'flying' && a.flightEndsTick ? Math.max(0, a.flightEndsTick - nowTick) : 0,
+      // сколько минут борт ещё обслуживают после посадки (0 — готов к вылету)
+      serviceLeft: a.readyAtTick ? Math.max(0, a.readyAtTick - nowTick) : 0,
+      standLevel: a.standLevel || null,
       buyoutPrice: a.ownership === 'lease' ? buyoutPrice(t, a.wear || 0) : null,
       resalePrice: a.ownership === 'owned' ? resalePrice(t, a.wear || 0) : null,
       leasePerTick: a.ownership === 'lease' ? t.leasePerTick : null,
@@ -1999,6 +2002,29 @@ function canPlaceContractPlane(airportId, newSize, ownSizes, contractSizes) {
   return placeContractPlane(airportId, newSize, ownSizes, contractSizes) !== null;
 }
 
+// Какая стоянка достанется своему борту при посадке. Нужен уровень стоянки:
+// от него зависит, сколько борт будет обслуживаться после рейса.
+// Считаем той же раскладкой, что и canPlaceAircraft, чтобы ответы совпадали.
+function standForOwnAircraft(airportId, ac) {
+  const stands = listStands(airportId);
+  const groundedOwn = store.getAircraftByAirport(airportId)
+    .filter(a => a.id !== ac.id && a.status !== 'flying')
+    .map(a => aircraftSize(a.typeId));
+  const airport = store.getAirportById(airportId);
+  const contractPlanes = airport && airport.apronBorts
+    ? airport.apronBorts.filter(b => b.craft === 'plane').map(b => b.size)
+    : [];
+  const toPlace = [...groundedOwn, ...contractPlanes, aircraftSize(ac.typeId)];
+  const assignment = assignStands(stands, toPlace);
+  if (!assignment) return null;
+  return stands[assignment[toPlace.length - 1]];
+}
+
+// Обслуживание завершено — борт готов к вылету?
+function isAircraftServiced(ac, currentTick) {
+  return !ac.readyAtTick || currentTick >= ac.readyAtTick;
+}
+
 function aircraftCtx(req, res) {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) { res.status(404).json({ error: 'no_airport' }); return null; }
@@ -2092,6 +2118,11 @@ app.post('/api/aircraft/fly', auth, (req, res) => {
   const ac = store.getAircraftById(aircraftId);
   if (!ac || ac.airportId !== airport.id) return res.status(404).json({ error: 'no_aircraft' });
   if (ac.status !== 'idle') return res.status(400).json({ error: 'busy', message: 'Самолёт не готов к вылету' });
+  const nowTick = store.getTickCounter();
+  if (!isAircraftServiced(ac, nowTick)) {
+    const left = ac.readyAtTick - nowTick;
+    return res.status(400).json({ error: 'servicing', message: `Борт на обслуживании — готов через ${left} мин` });
+  }
   if (ac.decommissioned) return res.status(400).json({ error: 'decommissioned', message: 'Самолёт списан (выработал ресурс). Его можно только продать.' });
 
   // Вышка обязательна для полётов
@@ -2114,7 +2145,6 @@ app.post('/api/aircraft/fly', auth, (req, res) => {
     }
   }
 
-  const nowTick = store.getTickCounter();
   // МВЛ летит дольше (дальше) — растягиваем рейс
   const flightTicks = flight === 'mvl' ? Math.round(type.flightTicks * 1.5) : type.flightTicks;
 
@@ -2484,10 +2514,18 @@ function processAircraftTick(airport, currentTick, notifications) {
     // прибывшие пассажиры проходят через терминал (очередь на выход)
     if (pax > 0) enqueuePax(airport.id, pax, isMvl ? 'mvl' : 'vvl', revPerPax, currentTick);
 
+    // Обслуживание после посадки: борт занимает стоянку и не может вылететь,
+    // пока его не обслужат. Время — то же, что у договорных бортов, и зависит
+    // от уровня доставшейся стоянки (ур.1 — 30 мин, ур.5 — 12).
+    const stand = standForOwnAircraft(airport.id, ac);
+    const serviceMinutes = standServiceMinutes(stand ? stand.level : 1);
+
     store.updateAircraft(ac.id, {
       status: 'idle',
       flightEndsTick: null,
       flightPax: null,
+      readyAtTick: currentTick + serviceMinutes,
+      standLevel: stand ? stand.level : null,
       wear: newWear,
       totalEarnings: newEarnings,
       decommissioned: nowDecommissioned,
@@ -2562,6 +2600,8 @@ function processAircraftTick(airport, currentTick, notifications) {
       if (!ac.auto) continue;
       if (ac.status !== 'idle') continue;
       if (ac.decommissioned) continue;
+      // ещё обслуживается после прошлого рейса — вылет только после готовности
+      if (!isAircraftServiced(ac, currentTick)) continue;
       const type = AIRCRAFT_TYPES[ac.typeId];
       // авто-рейс ВВЛ: берём пассажиров из ВВЛ-пула
       const capacity = aircraftCapacity(type, ac.upgradeLevel || 1);
