@@ -19,6 +19,11 @@ const {
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
   PASSENGER_ECONOMY, terminalThroughput,
 } = require('./gameData');
+const mediaScan = require('./mediaScan');
+
+// Картинки зданий и фоны экранов лежат в папках (см. docs/media-folders.md).
+// init создаёт папку под каждое здание и делает первый скан.
+mediaScan.init(Object.keys(BUILDINGS));
 
 const app = express();
 app.use(express.json({ limit: '30mb' })); // 30mb: видео-фон до 10MB в base64 (~13.5MB) + запас
@@ -761,7 +766,9 @@ function serializeAirport(airport) {
     buildLimits: BUILD_LIMITS,
     botEconomy: BOT_ECONOMY,
     upgradeEconomy: UPGRADE_ECONOMY,
-    buildingSkins: store.getBuildingSkins(),
+    // картинки зданий из папок uploads/buildings/<id>/ — источник правды
+    buildingMedia: mediaScan.buildingsManifest(),
+    buildingSkins: store.getBuildingSkins(), // устарело, снести после миграции
     buildingLabelStyles: store.getBuildingLabelStyles(),
     buildingNames: store.getBuildingNames(),
     buildingDescriptions: store.getBuildingDescriptions(),
@@ -1694,6 +1701,7 @@ app.get('/api/admin/gallery', auth, adminAuth, (req, res) => {
     catalog: BUILDINGS,
     buildLimits: BUILD_LIMITS,
     mediaLibrary: store.getMediaLibrary(),
+    buildingMedia: mediaScan.buildingsManifest(),
     buildingSkins: store.getBuildingSkins(),
     buildingLabelStyles: store.getBuildingLabelStyles(),
     buildingNames: store.getBuildingNames(),
@@ -1803,6 +1811,80 @@ app.post('/api/admin/background/remove', auth, adminAuth, (req, res) => {
   res.json({ screen, url: null });
 });
 
+// ---------- Медиа-папки: картинки зданий по уровням и фоны экранов ----------
+// Пересканировать папки вручную (после заливки файлов мимо админки — по SFTP/git).
+app.post('/api/admin/media/rescan', auth, adminAuth, (req, res) => {
+  mediaScan.rescan();
+  res.json({ buildings: mediaScan.buildingsManifest(), scannedAt: mediaScan.scannedAt() });
+});
+
+// Загрузить картинку конкретного уровня здания прямо в его папку.
+app.post('/api/admin/media/building', auth, adminAuth, (req, res) => {
+  const { buildingId, level, dataUrl } = req.body || {};
+  if (!BUILDINGS[buildingId]) return res.status(400).json({ error: 'unknown_building' });
+  const lvl = String(level).toLowerCase();
+  if (lvl !== 'default' && !/^[1-9]\d?$/.test(lvl)) {
+    return res.status(400).json({ error: 'bad_level', message: 'Уровень — число или default' });
+  }
+  const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки' });
+  const ext = ALLOWED_IMAGE_TYPES[match[1]];
+  if (!ext) return res.status(400).json({ error: 'unsupported_type', message: 'PNG, JPEG, GIF, WEBP или SVG' });
+  const buffer = Buffer.from(match[2], 'base64');
+  if (buffer.length > MAX_UPLOAD_BYTES) return res.status(400).json({ error: 'file_too_large', message: 'Максимум 5MB' });
+
+  mediaScan.removeBuildingLevel(buildingId, lvl); // убираем прежний файл этого уровня (мог быть другой формат)
+  fs.writeFileSync(mediaScan.buildingFilePath(buildingId, lvl, ext), buffer);
+  mediaScan.rescan();
+  res.json({ buildings: mediaScan.buildingsManifest() });
+});
+
+app.post('/api/admin/media/building/remove', auth, adminAuth, (req, res) => {
+  const { buildingId, level } = req.body || {};
+  if (!BUILDINGS[buildingId]) return res.status(400).json({ error: 'unknown_building' });
+  const removed = mediaScan.removeBuildingLevel(buildingId, String(level).toLowerCase());
+  mediaScan.rescan();
+  res.json({ removed, buildings: mediaScan.buildingsManifest() });
+});
+
+// Фоны экранов: список / добавление / удаление файла.
+app.get('/api/admin/media/screens', auth, adminAuth, (req, res) => {
+  res.json({ auth: mediaScan.listScreen('auth'), game: mediaScan.listScreen('game') });
+});
+
+app.post('/api/admin/media/screen', auth, adminAuth, (req, res) => {
+  const { screen, dataUrl, filename } = req.body || {};
+  if (!mediaScan.SCREENS.includes(screen)) return res.status(400).json({ error: 'bad_screen' });
+  const match = typeof dataUrl === 'string' && dataUrl.match(/^data:([a-zA-Z0-9\/+.-]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'invalid_data', message: 'Ожидается data URL (base64)' });
+  const buffer = Buffer.from(match[2], 'base64');
+
+  let ext;
+  if (ALLOWED_IMAGE_TYPES[match[1]]) {
+    ext = ALLOWED_IMAGE_TYPES[match[1]];
+    if (buffer.length > MAX_BG_IMAGE_BYTES) return res.status(400).json({ error: 'file_too_large', message: `Картинка — максимум ${Math.round(MAX_BG_IMAGE_BYTES/1024/1024)} МБ` });
+  } else if (ALLOWED_VIDEO_TYPES[match[1]]) {
+    ext = ALLOWED_VIDEO_TYPES[match[1]];
+    if (buffer.length > MAX_BG_VIDEO_BYTES) return res.status(400).json({ error: 'file_too_large', message: `Видео — максимум ${Math.round(MAX_BG_VIDEO_BYTES/1024/1024)} МБ` });
+  } else {
+    return res.status(400).json({ error: 'unsupported_type', message: 'Картинка (PNG/JPEG/GIF/WEBP) или видео (MP4/WEBM/OGG)' });
+  }
+
+  const base = String(filename || 'bg').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'bg';
+  const safeName = `${base}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+  fs.writeFileSync(mediaScan.screenFilePath(screen, safeName), buffer);
+  mediaScan.rescan();
+  res.json({ files: mediaScan.listScreen(screen) });
+});
+
+app.post('/api/admin/media/screen/remove', auth, adminAuth, (req, res) => {
+  const { screen, filename } = req.body || {};
+  if (!mediaScan.SCREENS.includes(screen)) return res.status(400).json({ error: 'bad_screen' });
+  mediaScan.removeScreenFile(screen, filename);
+  mediaScan.rescan();
+  res.json({ files: mediaScan.listScreen(screen) });
+});
+
 // Публичные настройки игры (логотип) — доступны всем залогиненным.
 app.get('/api/settings', auth, (req, res) => {
   const s = store.getSettings();
@@ -1812,10 +1894,14 @@ app.get('/api/settings', auth, (req, res) => {
 // Публичные визуальные настройки — доступны БЕЗ авторизации (нужны на входном экране).
 app.get('/api/public-settings', (req, res) => {
   const s = store.getSettings();
+  // Сначала папка uploads/screens/<screen>/ (случайный файл из лежащих там),
+  // если пусто — старый фон из настроек.
+  const authFolder = mediaScan.pickScreenBackground('auth');
+  const gameFolder = mediaScan.pickScreenBackground('game');
   res.json({
     logoUrl: s.logoUrl || null,
-    authBg: s.authBgUrl ? { url: s.authBgUrl, kind: s.authBgKind || 'image' } : null,
-    gameBg: s.gameBgUrl ? { url: s.gameBgUrl, kind: s.gameBgKind || 'image' } : null,
+    authBg: authFolder || (s.authBgUrl ? { url: s.authBgUrl, kind: s.authBgKind || 'image' } : null),
+    gameBg: gameFolder || (s.gameBgUrl ? { url: s.gameBgUrl, kind: s.gameBgKind || 'image' } : null),
   });
 });
 

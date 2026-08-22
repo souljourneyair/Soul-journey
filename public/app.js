@@ -43,6 +43,24 @@ function constructionProgress(b) {
   return done / b.constructionTotal;
 }
 
+// Картинка здания из папок uploads/buildings/<id>/ (см. docs/media-folders.md).
+// Точный уровень → ближайший меньший → самый младший → default → null (эмодзи).
+// Логика повторяет resolveBuilding в server/mediaScan.js — правится парой.
+function resolveBuildingImage(buildingId, level) {
+  const entry = STATE.buildingMedia && STATE.buildingMedia[buildingId];
+  if (!entry) return null;
+  const lvl = Number(level) || 1;
+  const levels = entry.levels || {};
+  if (levels[lvl]) return levels[lvl];
+  const nums = Object.keys(levels).map(Number).sort((a, b) => a - b);
+  if (nums.length) {
+    let best = null;
+    for (const n of nums) if (n <= lvl) best = n;
+    return levels[best != null ? best : nums[0]];
+  }
+  return entry.default || null;
+}
+
 const BUILDING_ICONS = {
   admin: '🏢', helipad: '🚁', tower: '📡', runway_small: '🛬', terminal_a: '🏬',
   fuel_depot: '⛽', airline_office: '✈️', stand_small: '🅿️', stand_medium: '🅿️', stand_large: '🅿️', hangar: '🔧', runway_full: '🛫',
@@ -625,7 +643,7 @@ function renderBuildingRow(building, tbody, indent) {
   const levelSuffix = building.maxUpgradeLevel > 1 ? ` ${toRoman(level)}` : '';
   const name = baseName + levelSuffix;
 
-  const globalSkin = STATE.buildingSkins?.[building.buildingId]?.[level];
+  const globalSkin = resolveBuildingImage(building.buildingId, level);
   const iconValue = building.customIcon || globalSkin || BUILDING_ICONS[building.buildingId] || '🏗️';
   const photoHtml = /^https?:\/\/|^data:image|^\/uploads\//.test(iconValue)
     ? `<img src="${iconValue}" alt="" class="obj-photo-img">`
@@ -728,7 +746,7 @@ function renderGrid() {
         workingOverlay = `<div class="cell-progress">${progressRing(prog, 48)}</div>`;
       }
 
-      const globalSkin = STATE.buildingSkins?.[building.buildingId]?.[building.upgradeLevel];
+      const globalSkin = resolveBuildingImage(building.buildingId, building.upgradeLevel);
       const iconValue = building.customIcon || globalSkin || BUILDING_ICONS[building.buildingId] || '🏗️';
       const iconHtml = /^https?:\/\/|^data:image|^\/uploads\//.test(iconValue)
         ? `<img src="${iconValue}" alt="" class="cell-icon-img">`
