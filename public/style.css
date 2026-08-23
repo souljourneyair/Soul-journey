@@ -562,6 +562,10 @@ body {
 .stat-value.stat-negative { color: var(--red) !important; }
 /* очередь бортов при свободных местах — предупреждение, а не ошибка */
 .stat-value.stat-warn { color: var(--board-amber) !important; }
+/* половинки счётчика мест красятся отдельно: заполненные вертолётные площадки
+   не должны красить стоянки самолётов, которые свободны */
+.apron-full { color: var(--red); }
+.apron-queue { color: var(--board-amber); }
 
 /* ===== EXCHANGE (биржа аренды) ===== */
 .exchange-view { display: flex; flex-direction: column; gap: 10px; }

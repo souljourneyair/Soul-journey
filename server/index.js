@@ -966,9 +966,17 @@ function serializeAirport(airport) {
       const ownPlanes = store.getAircraftByAirport(airport.id)
         .filter(a => a.status !== 'flying').length;
       const stands = listStands(airport.id).length;
+      // Занятость берём из фактической раскладки: она считает по тем же
+      // стоянкам, что и total. Раньше total брался из рабочих стоянок (без
+      // повреждённых, сданных и разрушенных), а used — из всех бортов подряд,
+      // и счётчик показывал «3/2» с вечным красным при свободных местах.
+      const occupied = occupiedStands(airport.id);
+      const planeUsed = occupied.length
+        ? Math.min(occupied.length, stands)
+        : Math.min(planeContract + ownPlanes, stands);
       return {
-        heli: { used: heliUsed, total: totalApronSlots(airport.id) },       // вертолётные места
-        plane: { used: planeContract + ownPlanes, total: stands },          // стоянки (свои + договорные)
+        heli: { used: Math.min(heliUsed, totalApronSlots(airport.id)), total: totalApronSlots(airport.id) },
+        plane: { used: planeUsed, total: stands },                          // стоянки (свои + договорные)
         // для обратной совместимости старое поле — вертолётные места
         used: heliUsed, total: totalApronSlots(airport.id),
       };
