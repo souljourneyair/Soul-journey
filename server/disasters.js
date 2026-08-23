@@ -9,7 +9,7 @@
 // магнитная буря. Разрушительные (метеорит, пожар, птицы) добавятся отдельно.
 
 const {
-  BUILDINGS, DISASTER_ECONOMY, DISASTER_KINDS,
+  BUILDINGS, DISASTER_ECONOMY, DISASTER_KINDS, levelFromXp,
   buildingInvestedValue, lossCompensation, fireFine,
   AIRCRAFT_TYPES, aircraftSize,
 } = require('./gameData');
@@ -30,6 +30,11 @@ function pickShare(items, shareMin, shareMax) {
   }
   return out;
 }
+
+// Здания, которые нельзя уничтожить целиком: без админздания аэропорт
+// перестаёт работать, а игрок с пустым счётом не сможет его отстроить и
+// застрянет. Повреждать его можно, сносить — нет.
+const INDESTRUCTIBLE = ['admin'];
 
 // Объекты, по которым может ударить событие: только свои, целые, не в работах.
 function damageableBuildings(store, airportId, filterFn) {
@@ -120,7 +125,8 @@ function runFire(store, airport, currentTick) {
   const b = targets[Math.floor(Math.random() * targets.length)];
   const def = BUILDINGS[b.buildingId];
   const level = b.upgradeLevel || 1;
-  const protectedByStation = hasFireStation(store, airport.id);
+  // админздание горит, но не дотла — иначе аэропорт может встать намертво
+  const protectedByStation = hasFireStation(store, airport.id) || INDESTRUCTIBLE.includes(b.buildingId);
   const details = [];
   let charge = 0;
 
@@ -223,7 +229,12 @@ function runMeteor(store, airport, currentTick) {
       details.push('Крупный метеорит упал рядом с аэропортом — постройки не задеты');
       return { kind: 'meteor', details };
     }
-    const b = targets[Math.floor(Math.random() * targets.length)];
+    const destroyable = targets.filter(t => !INDESTRUCTIBLE.includes(t.buildingId));
+    if (!destroyable.length) {
+      details.push('Крупный метеорит упал на пустыре — постройки не задеты');
+      return { kind: 'meteor', details };
+    }
+    const b = destroyable[Math.floor(Math.random() * destroyable.length)];
     const def = BUILDINGS[b.buildingId];
     const comp = lossCompensation(def, b.upgradeLevel || 1);
     store.removeBuildingAtCell(airport.id, b.cellIndex);
@@ -316,6 +327,14 @@ function trigger(store, airport, kind, currentTick) {
   return result;
 }
 
+// Доступно ли происшествие такого вида на текущем уровне аэропорта.
+function allowedAtLevel(kind, level) {
+  const min = DISASTER_ECONOMY.DESTRUCTIVE_KINDS.includes(kind)
+    ? DISASTER_ECONOMY.MIN_LEVEL.destructive
+    : DISASTER_ECONOMY.MIN_LEVEL.mild;
+  return level >= min;
+}
+
 // Случайный розыгрыш на каждом тике для одного аэропорта.
 function rollRandom(store, airport, currentTick, settings) {
   if (settings && settings.disastersEnabled === false) return null;
@@ -324,7 +343,9 @@ function rollRandom(store, airport, currentTick, settings) {
   const last = airport.lastDisasterTick || 0;
   if (currentTick - last < DISASTER_ECONOMY.GLOBAL_COOLDOWN_TICKS) return null;
 
+  const level = levelFromXp(airport.xp || 0);
   for (const kind of DISASTER_KINDS) {
+    if (!allowedAtLevel(kind, level)) continue;
     const mean = DISASTER_ECONOMY.MEAN_INTERVAL[kind];
     if (!mean) continue;
     if (Math.random() < 1 / mean) {
@@ -341,4 +362,7 @@ function stormActive(airport, currentTick) {
   return airport && airport.stormEndsTick != null && currentTick < airport.stormEndsTick;
 }
 
-module.exports = { trigger, rollRandom, stormActive, forecastMeteor, meteorDue, DISASTER_KINDS };
+module.exports = {
+  trigger, rollRandom, stormActive, forecastMeteor, meteorDue,
+  allowedAtLevel, DISASTER_KINDS,
+};
