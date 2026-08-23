@@ -3113,11 +3113,34 @@ function processContractsTick(airport, currentTick, notifications) {
   let waiting = (fresh.waitingBorts || []).slice();  // в очереди
   const totalSlots = totalApronSlots(airport.id);
 
+  // Стоянка сломалась под бортом: новые борта на неё не встают, а тот, что
+  // уже стоит, её освобождает. Договорной борт улетает сразу — он всё равно
+  // собирался в рейс. Свой самолёт уходит сам, если включён авто-режим;
+  // если рейсов у него больше нет, остаётся на месте и стоянка числится
+  // занятой сверх вместимости.
+  const blockedCells = new Set(
+    store.getBuildingsByAirport(airport.id)
+      .filter(b => BUILDINGS[b.buildingId] && BUILDINGS[b.buildingId].standSize)
+      .filter(b => !b.ruined && (b.wear || 0) >= DAMAGE_ECONOMY.WRENCH_WEAR)
+      .map(b => b.cellIndex));
+  if (blockedCells.size) {
+    for (const b of apron) {
+      if (b.craft !== 'plane') continue;
+      if (b.standCell == null || !blockedCells.has(b.standCell)) continue;
+      if (currentTick >= b.departsTick) continue;   // и так уже улетает
+      b.departsTick = currentTick;                  // выпускаем досрочно
+      b.earlyRelease = true;
+    }
+  }
+
   // 1) Вылеты со стоянки — борт увозит вылетающих пассажиров из пула,
   //    аэропорт получает комиссию (20%) с их билетов. Освобождаем место.
   const departed = apron.filter(b => currentTick >= b.departsTick);
   apron = apron.filter(b => currentTick < b.departsTick);
   for (const b of departed) {
+    if (b.earlyRelease) {
+      notifications.push(`✈️ Борт «${b.airline}» вылетел досрочно — стоянка вышла из строя и закрыта до ремонта.`);
+    }
     // тип пула по борту: вертолёт → heli, самолёт → flightType (vvl/mvl)
     const poolType = b.craft === 'heli' ? 'heli' : (b.flightType === 'mvl' ? 'mvl' : 'vvl');
     // сколько борт может увезти (по размеру), берём из очереди на вылет
@@ -3231,7 +3254,8 @@ function processContractsTick(airport, currentTick, notifications) {
         apron.push({
           contractId: w.contractId, airline: w.airline,
           departsTick: currentTick + serviceMinutes,
-          standLevel: stand.level, standBuildingId: stand.buildingId, damaged: !!hit.broke,
+          standLevel: stand.level, standBuildingId: stand.buildingId,
+          standCell: stand.cellIndex, damaged: !!hit.broke,
           payPerArrival: w.payPerArrival, craft: 'plane', size: w.size, flightType: w.flightType || 'vvl',
         });
         income += w.payPerArrival;
