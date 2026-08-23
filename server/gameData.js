@@ -755,7 +755,7 @@ const BUILDINGS = {
   },
   fire_station: {
     id: 'fire_station', name: 'Пожарная часть', minLevel: 5,
-    cost: 7000, income: 8, reputation: 2, xp: 800, removable: true, maxUpgradeLevel: 3,
+    cost: 7000, income: 8, reputation: 2, xp: 800, removable: true, nonRentable: true, maxUpgradeLevel: 3,
     hidden: true,
     desc: 'Требуется для сертификации крупных ВПП.',
   },

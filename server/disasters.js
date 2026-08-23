@@ -134,7 +134,7 @@ function runFire(store, airport, currentTick) {
     // выгорело дотла: остались развалины, платим штраф и компенсацию
     store.updateBuildingAtCell(airport.id, b.cellIndex, { ruined: true, wear: 1 });
     charge = fireFine(def, level);
-    details.push(`${def.name} выгорел дотла — пожарной части в аэропорту нет`);
+    details.push(`Объект «${def.name}» уничтожен огнём — пожарной части в аэропорту нет`);
     details.push(`Штраф и компенсация: ${charge.toLocaleString('ru-RU')} у.е.`);
   } else {
     // пожар потушен, но повреждения случайные
@@ -144,11 +144,11 @@ function runFire(store, airport, currentTick) {
     if (!isApron && dmg > cfg.RUIN_THRESHOLD) {
       store.updateBuildingAtCell(airport.id, b.cellIndex, { ruined: true, wear: 1 });
       charge = lossCompensation(def, level);
-      details.push(`${def.name}: выгорел на ${Math.round(dmg * 100)}% — восстановлению не подлежит`);
+      details.push(`Объект «${def.name}» выгорел на ${Math.round(dmg * 100)}% — восстановлению не подлежит`);
       details.push(`Компенсация: ${charge.toLocaleString('ru-RU')} у.е.`);
     } else {
       const r = addWear(store, airport.id, b, dmg);
-      details.push(`${def.name}: пожар потушен, повреждение ${Math.round(r.before * 100)}% → ${Math.round(r.after * 100)}%`);
+      details.push(`«${def.name}»: пожар потушен, повреждение ${Math.round(r.before * 100)}% → ${Math.round(r.after * 100)}%`);
     }
   }
 
