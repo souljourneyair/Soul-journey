@@ -388,6 +388,31 @@ function contractCraftCapacity(craft, size) {
   return 8;
 }
 
+// Терминалы аэропорта с их пропускной способностью. Каждый обслуживает
+// собственную очередь: раньше очередь была общей и «размазывалась» суммарной
+// пропускной способностью, из-за чего нельзя было сказать, сколько пассажиров
+// у конкретного терминала.
+function listTerminals(airportId, lineType) {
+  const cur = store.getTickCounter();
+  return store.getBuildingsByAirport(airportId)
+    .filter(b => {
+      const def = BUILDINGS[b.buildingId];
+      if (!def || !def.terminalClass) return false;
+      if (lineType && def.lineType !== lineType) return false;
+      if (b.ruined || (b.state || 'owned') !== 'owned' || isUnderConstruction(b)) return false;
+      return true;
+    })
+    .map(b => {
+      const def = BUILDINGS[b.buildingId];
+      const repairing = b.repairEndsTick != null && cur < b.repairEndsTick;
+      const base = terminalThroughput(b.buildingId, b.upgradeLevel || 1);
+      return {
+        cellIndex: b.cellIndex, buildingId: b.buildingId, line: def.lineType,
+        capacity: Math.max(1, Math.round(base * damageMultiplier(capacityWear(b), repairing))),
+      };
+    });
+}
+
 // Обработка очередей пассажиров в терминалах за тик.
 // Каждый тип (vvl/mvl) обслуживается своей пропускной способностью (пасс/мин).
 function processTerminalsTick(airport, currentTick, notifications) {
@@ -399,9 +424,18 @@ function processTerminalsTick(airport, currentTick, notifications) {
   let anyLost = false;
   let served = 0; // обслужено пассажиров за тик (для общего счётчика)
 
+  const servedByCell = {};   // сколько обслужил каждый терминал за тик
   for (const lineType of ['vvl', 'mvl']) {
-    let capacity = terminalCapacity(airport.id, lineType);
-    const groups = queue.filter(g => g.type === lineType).sort((a, b) => a.sinceTick - b.sinceTick);
+    const terminals = listTerminals(airport.id, lineType);
+    if (!terminals.length) continue;
+    for (const term of terminals) {
+    let capacity = term.capacity;
+    // группы, закреплённые за этим терминалом; без привязки (старые данные)
+    // достаются первому терминалу нужного типа
+    const groups = queue
+      .filter(g => g.type === lineType && (g.termCell === term.cellIndex
+        || (g.termCell == null && term === terminals[0])))
+      .sort((a, b) => a.sinceTick - b.sinceTick);
     for (const g of groups) {
       if (g.count <= 0) continue;
       const waited = currentTick - g.sinceTick;
@@ -418,12 +452,14 @@ function processTerminalsTick(airport, currentTick, notifications) {
       capacity -= serve;
       g.count -= serve;
       served += serve;
+      servedByCell[term.cellIndex] = (servedByCell[term.cellIndex] || 0) + serve;
 
       // штраф за недовольных (зона 30мин-2ч)
       if (waited >= PASSENGER_ECONOMY.WAIT_OK_MINUTES) {
         reputation -= serve * PASSENGER_ECONOMY.UNHAPPY_REP_PENALTY;
         income -= Math.round(serve * (g.ticket || 0) * PASSENGER_ECONOMY.UNHAPPY_TICKET_REFUND);
       }
+    }
     }
   }
 
@@ -435,7 +471,16 @@ function processTerminalsTick(airport, currentTick, notifications) {
 
   queue = queue.filter(g => g.count > 0);
   const patch = { termQueue: queue };
-  if (served > 0) patch.paxServed = (airport.paxServed || 0) + served;
+  if (served > 0) {
+    patch.paxServed = (airport.paxServed || 0) + served;
+    patch.paxProcessed = (airport.paxProcessed || 0) + served;   // только терминалы
+    const stats = { ...(airport.termStats || {}) };
+    for (const [cell, n] of Object.entries(servedByCell)) {
+      const st = stats[cell] || { arrived: 0, served: 0, departed: 0 };
+      stats[cell] = { ...st, served: st.served + n };
+    }
+    patch.termStats = stats;
+  }
   store.updateAirport(airport.id, patch);
   return { income, reputation };
 }
@@ -445,8 +490,32 @@ function enqueuePax(airportId, count, lineType, ticket, currentTick) {
   if (count <= 0) return;
   const fresh = store.getAirportById(airportId);
   const queue = (fresh.termQueue || []).slice();
-  queue.push({ count, sinceTick: currentTick, type: lineType, ticket });
-  store.updateAirport(airportId, { termQueue: queue });
+
+  // Группу закрепляем за конкретным терминалом — за тем, у кого сейчас меньше
+  // всего народу относительно его пропускной способности. Так очередь
+  // распределяется по-настоящему, а не считается общей кучей.
+  const terminals = listTerminals(airportId, lineType);
+  let termCell = null;
+  if (terminals.length) {
+    const load = {};
+    for (const g of queue) {
+      if (g.termCell == null) continue;
+      load[g.termCell] = (load[g.termCell] || 0) + g.count;
+    }
+    terminals.sort((a, b) =>
+      ((load[a.cellIndex] || 0) / a.capacity) - ((load[b.cellIndex] || 0) / b.capacity));
+    termCell = terminals[0].cellIndex;
+  }
+
+  queue.push({ count, sinceTick: currentTick, type: lineType, ticket, termCell });
+
+  // счётчик «прилетело» у этого терминала
+  const stats = { ...(fresh.termStats || {}) };
+  if (termCell != null) {
+    const st = stats[termCell] || { arrived: 0, served: 0, departed: 0 };
+    stats[termCell] = { ...st, arrived: st.arrived + count };
+  }
+  store.updateAirport(airportId, { termQueue: queue, termStats: stats });
 }
 
 // Взять пассажиров из пула нужного типа (для загрузки рейса). Возвращает сколько взято.
@@ -457,7 +526,25 @@ function drawFromPool(airportId, lineType, want) {
   const avail = Math.floor(pool[key] || 0);
   const taken = Math.min(avail, want);
   pool[key] = (pool[key] || 0) - taken;
-  store.updateAirport(airportId, { paxPool: pool });
+
+  // Улетевших разносим по терминалам того же направления пропорционально
+  // пропускной способности: вылетающие проходят через них же.
+  const stats = { ...(fresh.termStats || {}) };
+  if (taken > 0 && key !== 'heli') {
+    const terminals = listTerminals(airportId, key);
+    const totalCap = terminals.reduce((a, t) => a + t.capacity, 0);
+    let left = taken;
+    terminals.forEach((t, i) => {
+      const share = i === terminals.length - 1
+        ? left
+        : Math.round(taken * (t.capacity / (totalCap || 1)));
+      left -= share;
+      if (share <= 0) return;
+      const st = stats[t.cellIndex] || { arrived: 0, served: 0, departed: 0 };
+      stats[t.cellIndex] = { ...st, departed: st.departed + share };
+    });
+  }
+  store.updateAirport(airportId, { paxPool: pool, termStats: stats });
   return taken;
 }
 
@@ -1040,6 +1127,14 @@ function serializeAirport(airport) {
     paxServed: airport.paxServed || 0,
     terminalCapacity: { vvl: terminalCapacity(airport.id, 'vvl'), mvl: terminalCapacity(airport.id, 'mvl') },
     termQueue: (airport.termQueue || []).reduce((sum, g) => sum + g.count, 0),
+    paxProcessed: airport.paxProcessed || 0,   // обработано терминалами
+    // по каждому терминалу: прилетело, обработано, улетело, сейчас в очереди
+    terminalLoad: listTerminals(airport.id).map(t => {
+      const st = (airport.termStats || {})[t.cellIndex] || { arrived: 0, served: 0, departed: 0 };
+      const queued = (airport.termQueue || [])
+        .filter(g => g.termCell === t.cellIndex).reduce((a, g) => a + g.count, 0);
+      return { ...t, arrived: st.arrived, served: st.served, departed: st.departed, queued };
+    }),
     money: airport.money,
     reputation: airport.reputation,
     xp: airport.xp,

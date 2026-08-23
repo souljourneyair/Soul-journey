@@ -824,3 +824,6 @@ body.modal-open { overflow: hidden; }
 .acc-condition.bad .acc-condition-label, .acc-condition.repairing .acc-condition-label { color: var(--board-amber); }
 .acc-condition.ruined { border-left-color: var(--red); background: rgba(248,113,113,0.12); }
 .acc-condition.ruined .acc-condition-label { color: var(--red); font-weight: 700; }
+
+/* очередь у терминала — выделяем, когда есть кого ждать */
+.term-queue { color: var(--board-amber); }

@@ -492,12 +492,16 @@ function renderStats() {
   // пассажиры: общая сумма всех обслуженных (улетевшие+прилетевшие, верт.+самолёты)
   const paxWrap = $('#statPaxWrap');
   if (paxWrap) {
-    const served = STATE.paxServed || 0;
+    // В шапке — только обработанные терминалами. Полный итог вместе
+    // с улетевшими переехал в панель здания администрации.
+    const processed = STATE.paxProcessed || 0;
     const queue = STATE.termQueue || 0;
     const el = $('#statPax');
-    el.textContent = served.toLocaleString('ru-RU');
+    el.textContent = processed.toLocaleString('ru-RU');
     el.classList.toggle('stat-negative', queue > 0);
-    el.title = queue > 0 ? `В очереди терминала: ${queue}` : 'Всего обслужено пассажиров';
+    el.title = queue > 0
+      ? `Обработано терминалами. Сейчас в очереди: ${queue}`
+      : 'Обработано терминалами';
   }
   bumpStat($('#statMoney'));
 
@@ -1195,15 +1199,29 @@ function renderBuildingPanel(cellIndex, container) {
     // Здание администрации — центр управления аэропортом: сюда переехали из
     // шапки уровень и общие расходы, там они занимали место и обновлялись
     // каждый тик, хотя нужны не постоянно.
+    // Терминал — свои счётчики пассажиров: у каждого терминала собственная
+    // очередь, а не доля от общей.
+    let termInfo = '';
+    const tl = (STATE.terminalLoad || []).find(t => t.cellIndex === cellIndex);
+    if (tl) {
+      termInfo =
+        `<span>Пропускная способность: ${tl.capacity} пасс/мин (${tl.line.toUpperCase()})</span>` +
+        `<span>Прилетело: ${tl.arrived.toLocaleString('ru-RU')} · обработано ${tl.served.toLocaleString('ru-RU')}</span>` +
+        `<span>Вылетает: ${tl.departed.toLocaleString('ru-RU')}</span>` +
+        `<span${tl.queued > 0 ? ' class="term-queue"' : ''}>В очереди: ${tl.queued.toLocaleString('ru-RU')}</span>`;
+    }
+
     let adminInfo = '';
     if (building.buildingId === 'admin') {
       const xpLeft = STATE.level >= 10 ? 0 : Math.max(0, (STATE.xpForNextLevel || 0) - (STATE.xp || 0));
       adminInfo =
         `<span>Уровень аэропорта: ${STATE.level}${STATE.level >= 10 ? ' (максимум)' : ` · до следующего ${xpLeft.toLocaleString('ru-RU')} XP`}</span>` +
         `<span>Содержание аэропорта: −${Math.round(STATE.upkeepPerTick || 0)}/мин</span>` +
-        `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>`;
+        `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>` +
+        `<span>Пассажиров за всё время: ${(STATE.paxServed || 0).toLocaleString('ru-RU')}</span>` +
+        `<span>Из них обработано терминалами: ${(STATE.paxProcessed || 0).toLocaleString('ru-RU')}</span>`;
     }
-    statsHtml = `${incomeLine}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
+    statsHtml = `${incomeLine}${termInfo}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
   } else if (state === 'listed') {
     statsHtml = `<span>На бирже — дохода нет, ждём ботов</span>`;
   } else if (state === 'rented') {
