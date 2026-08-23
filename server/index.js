@@ -186,12 +186,15 @@ function upkeepPerTick(airportId) {
     if (!def) continue;
     if ((b.state || 'owned') === 'sold') continue;
     const level = b.upgradeLevel || 1;
-    // Обслуживающая инфраструктура (ВПП, стоянки, вертолётки, ангар) не приносит
-    // пассивного дохода → содержание только базовое, без доли от стоимости.
-    const perBuilding = def.infrastructure
-      ? CONFIG.UPKEEP_BASE_PER_BUILDING
-      : CONFIG.UPKEEP_BASE_PER_BUILDING + (def.cost || 0) * CONFIG.UPKEEP_COST_RATE;
-    const upgradeMult = def.infrastructure ? 1 : (1 + (level - 1) * CONFIG.UPKEEP_UPGRADE_RATE);
+    // Содержание считается одинаково для всех зданий: фиксированная часть плюс
+    // доля от стоимости, и растёт с уровнем апгрейда. У обслуживающих зданий
+    // своя ставка (UPKEEP_INFRA_COST_RATE) — раньше они платили только
+    // фиксированные 2/мин и не дорожали вовсе, потому что апгрейд им ничего
+    // не давал. Теперь он даёт пропускную способность и вместимость, значит
+    // и обслуживать прокачанный объект дороже.
+    const costRate = def.infrastructure ? CONFIG.UPKEEP_INFRA_COST_RATE : CONFIG.UPKEEP_COST_RATE;
+    const perBuilding = CONFIG.UPKEEP_BASE_PER_BUILDING + (def.cost || 0) * costRate;
+    const upgradeMult = 1 + (level - 1) * CONFIG.UPKEEP_UPGRADE_RATE;
     upkeep += perBuilding * upgradeMult;
   }
   return upkeep;
