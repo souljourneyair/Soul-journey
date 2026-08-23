@@ -1009,6 +1009,20 @@ function serializeAirport(airport) {
     meteorTicksLeft: airport.meteorAtTick
       ? Math.max(0, airport.meteorAtTick - store.getTickCounter()) : 0,
     meteorBig: !!airport.meteorBig,
+    // вклад каждой вышки: свой интервал по уровню и общий по аэропорту
+    towerLoad: (() => {
+      const cur = store.getTickCounter();
+      return store.getBuildingsByAirport(airport.id)
+        .filter(b => b.buildingId === 'tower' && !b.ruined
+          && (b.state || 'owned') === 'owned' && !isUnderConstruction(b))
+        .map(b => {
+          const lvl = b.upgradeLevel || 1;
+          const own = APRON_ECONOMY.TOWER_INTERVAL_BY_LEVEL[lvl - 1] || APRON_ECONOMY.TOWER_INTERVAL_BY_LEVEL[0];
+          const repairing = b.repairEndsTick != null && cur < b.repairEndsTick;
+          const mult = damageMultiplier(capacityWear(b), repairing);
+          return { cellIndex: b.cellIndex, level: lvl, ownInterval: Math.round(mult > 0 ? own / mult : own) };
+        });
+    })(),
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
     canFlyMvl: canFlyMvl(airport.id),                    // можно ли выполнять МВЛ-рейсы

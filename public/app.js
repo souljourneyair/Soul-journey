@@ -437,7 +437,9 @@ function renderStats() {
   const moneyEl = $('#statMoney');
   moneyEl.textContent = Math.floor(STATE.money).toLocaleString('ru-RU');
   moneyEl.classList.toggle('stat-negative', STATE.money < 0); // долг — красным
-  $('#statLevel').textContent = STATE.level;
+  // уровень и общие расходы переехали в панель здания администрации
+  const levelEl = $('#statLevel');
+  if (levelEl) levelEl.textContent = STATE.level;
   $('#statRep').textContent = Math.floor(STATE.reputation);
   const upkeepEl = $('#statUpkeep');
   if (upkeepEl) upkeepEl.textContent = '−' + Math.round(STATE.upkeepPerTick || 0);
@@ -1189,7 +1191,19 @@ function renderBuildingPanel(cellIndex, container) {
     const incomeLine = isInfra
       ? `<span>${infraStatusText(building)}</span>`
       : `<span>Доход: +${Math.round(def.income * upgradeMult(building.upgradeLevel))}/мин</span>`;
-    statsHtml = `${incomeLine}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
+
+    // Здание администрации — центр управления аэропортом: сюда переехали из
+    // шапки уровень и общие расходы, там они занимали место и обновлялись
+    // каждый тик, хотя нужны не постоянно.
+    let adminInfo = '';
+    if (building.buildingId === 'admin') {
+      const xpLeft = STATE.level >= 10 ? 0 : Math.max(0, (STATE.xpForNextLevel || 0) - (STATE.xp || 0));
+      adminInfo =
+        `<span>Уровень аэропорта: ${STATE.level}${STATE.level >= 10 ? ' (максимум)' : ` · до следующего ${xpLeft.toLocaleString('ru-RU')} XP`}</span>` +
+        `<span>Содержание аэропорта: −${Math.round(STATE.upkeepPerTick || 0)}/мин</span>` +
+        `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>`;
+    }
+    statsHtml = `${incomeLine}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
   } else if (state === 'listed') {
     statsHtml = `<span>На бирже — дохода нет, ждём ботов</span>`;
   } else if (state === 'rented') {
@@ -1342,8 +1356,18 @@ function infraStatusText(building) {
     return o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`;
   }
   if (id === 'tower') {
-    const iv = STATE.towerInterval;
-    return iv ? `📡 Интервал между операциями: ${iv} мин` : '📡 Работает';
+    const t = (STATE.towerLoad || []).find(x => x.cellIndex === building.cellIndex);
+    const common = STATE.towerInterval;
+    const queue = STATE.apronWaiting || 0;
+    if (!t) return common ? `📡 Интервал: ${common} мин` : '📡 Работает';
+    const towers = (STATE.towerLoad || []).length;
+    // Очередь в игре одна на весь аэропорт: вышки работают сообща, их
+    // интервалы складываются в общий. Делить очередь «по вышкам» пришлось бы
+    // выдуманным правилом, поэтому показываем её как есть.
+    const parts = [`📡 Своя ур.${t.level}: ${t.ownInterval} мин`];
+    if (towers > 1) parts.push(`вместе: ${common} мин`);
+    parts.push(queue > 0 ? `в очереди: ${queue}` : 'очереди нет');
+    return parts.join(' · ');
   }
   if (id === 'hangar') return '🔧 Готов к ремонту';
   if (id.startsWith('stand')) {

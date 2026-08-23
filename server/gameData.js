@@ -658,7 +658,7 @@ const BUILDINGS = {
   },
   tower: {
     id: 'tower', name: 'Диспетчерская вышка', minLevel: 2,
-    cost: 8000, income: 40, reputation: 0, xp: 1200, removable: true, nonRentable: true, maxUpgradeLevel: 5,
+    cost: 8000, income: 0, reputation: 0, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     desc: 'Задаёт интервал между операциями на каждой ВПП: без вышки 20 мин, ур.1 — 15, ур.2 — 12, ур.3 — 9, ур.4 — 6, ур.5 — 4 мин. Интервал действует на каждую полосу отдельно, поэтому вторая и третья ВПП добавляют пропускной способности. Несколько вышек делят интервал между собой. Обязательна для полётов своих самолётов.',
   },
   runway_small: {
@@ -755,7 +755,7 @@ const BUILDINGS = {
   },
   fire_station: {
     id: 'fire_station', name: 'Пожарная часть', minLevel: 5,
-    cost: 7000, income: 8, reputation: 2, xp: 800, removable: true, nonRentable: true, maxUpgradeLevel: 3,
+    cost: 7000, income: 0, reputation: 2, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3,
     hidden: true,
     desc: 'Требуется для сертификации крупных ВПП.',
   },
