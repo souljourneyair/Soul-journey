@@ -561,7 +561,9 @@ function capacityWear(b) {
 // крупные борта первыми, каждому наименее избыточная стоянка. Раньше клиент
 // раскидывал общее число по порядку клеток и мог показать занятой не ту.
 function occupiedStands(airportId) {
-  const stands = listStands(airportId);
+  // включаем повреждённые: борт, стоявший там до поломки, остаётся на месте,
+  // и стоянка должна показываться занятой, а не «свободной»
+  const stands = listStands(airportId, true);
   const airport = store.getAirportById(airportId);
   const ownSizes = store.getAircraftByAirport(airportId)
     .filter(a => a.status !== 'flying')
@@ -689,7 +691,7 @@ function totalAircraftSlots(airportId) {
 
 // Список стоянок аэропорта с их вместимостью по размерам (для привязки самолётов).
 // Возвращает массив { id, standSize, level, accepts: [...размеры] } по одному на место.
-function listStands(airportId) {
+function listStands(airportId, includeDamaged) {
   const buildings = store.getBuildingsByAirport(airportId);
   const stands = [];
   for (const b of buildings) {
@@ -700,8 +702,10 @@ function listStands(airportId) {
     if (isUnderConstruction(b)) continue;
     if (b.ruined) continue;
     // Стоянка — одно место, дробить его нельзя, поэтому правило простое:
-    // при повреждении от половины и выше борт на неё не встаёт.
-    if ((b.wear || 0) >= DAMAGE_ECONOMY.WRENCH_WEAR) continue;
+    // при повреждении от половины и выше НОВЫЙ борт на неё не встаёт.
+    // Но борт, который уже там стоит, никуда не девается: для показа
+    // занятости такие стоянки нужны, поэтому includeDamaged их оставляет.
+    if (!includeDamaged && (b.wear || 0) >= DAMAGE_ECONOMY.WRENCH_WEAR) continue;
     stands.push({
       buildingId: b.buildingId,
       standSize: def.standSize,
@@ -970,10 +974,10 @@ function serializeAirport(airport) {
       // стоянкам, что и total. Раньше total брался из рабочих стоянок (без
       // повреждённых, сданных и разрушенных), а used — из всех бортов подряд,
       // и счётчик показывал «3/2» с вечным красным при свободных местах.
-      const occupied = occupiedStands(airport.id);
-      const planeUsed = occupied.length
-        ? Math.min(occupied.length, stands)
-        : Math.min(planeContract + ownPlanes, stands);
+      // Занятость НЕ обрезаем по вместимости: если стоянка сломалась под
+      // стоящим бортом, мест меньше, чем занято, и игрок должен это видеть
+      // («3/2» красным), а не думать, что всё в порядке.
+      const planeUsed = planeContract + ownPlanes;
       return {
         heli: { used: Math.min(heliUsed, totalApronSlots(airport.id)), total: totalApronSlots(airport.id) },
         plane: { used: planeUsed, total: stands },                          // стоянки (свои + договорные)

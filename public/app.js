@@ -1316,7 +1316,7 @@ function slotOccupancyOf(building) {
   if (id.startsWith('stand')) {
     const total = slotCapacityOf(building);
     const used = (STATE.standLoad || []).filter(x => x.cellIndex === building.cellIndex).length;
-    return { used: Math.min(used, total), total };
+    return { used, total };
   }
 
   return { used: 0, total: slotCapacityOf(building) };
@@ -2518,7 +2518,8 @@ function damageEffectText(building, def) {
     parts.push(`мест ${Math.max(1, Math.floor(base * mult))} из ${base}`);
   }
   if (def.standSize) {
-    parts.push(w >= 0.5 ? 'борт не принимает' : 'принимает борт');
+    // Борт, стоявший до поломки, остаётся; закрыт только приём новых.
+    parts.push(w >= 0.5 ? 'новые борта не принимает' : 'принимает борт');
   }
   if (building.buildingId === 'tower') parts.push(`интервал +${Math.round((1 / mult - 1) * 100)}%`);
   if (def.isRunway) parts.push(`пропускная −${lostPct}%`);
