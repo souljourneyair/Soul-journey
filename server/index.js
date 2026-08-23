@@ -921,6 +921,10 @@ function serializeAirport(airport) {
     pendingDisasters: airport.pendingDisasters || [],
     stormTicksLeft: airport.stormEndsTick
       ? Math.max(0, airport.stormEndsTick - store.getTickCounter()) : 0,
+    // объявленный, но ещё не упавший метеорит
+    meteorTicksLeft: airport.meteorAtTick
+      ? Math.max(0, airport.meteorAtTick - store.getTickCounter()) : 0,
+    meteorBig: !!airport.meteorBig,
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
     canFlyMvl: canFlyMvl(airport.id),                    // можно ли выполнять МВЛ-рейсы
@@ -2745,7 +2749,16 @@ function runTick() {
     // Розыгрыш идёт всегда, даже когда игрок не в сети: он увидит модальное
     // окно при следующем заходе. Защитный интервал не даёт событиям копиться.
     const settingsNow = store.getSettings();
-    disasters.rollRandom(store, freshAirport, currentTick, settingsNow);
+    // объявленный метеорит: время пришло — падает
+    if (disasters.meteorDue(freshAirport, currentTick)) {
+      store.updateAirport(airport.id, { meteorAtTick: null, meteorBig: null });
+      disasters.trigger(store, store.getAirportById(airport.id), 'meteor', currentTick);
+    } else {
+      const rolled = disasters.rollRandom(store, freshAirport, currentTick, settingsNow);
+      // прогноз метеорита показываем уведомлением, а не окном: окно будет,
+      // когда он действительно упадёт
+      if (rolled && rolled.notify) notifications.push(rolled.notify);
+    }
     // окончание магнитной бури
     if (freshAirport.stormEndsTick != null && currentTick >= freshAirport.stormEndsTick) {
       store.updateAirport(airport.id, { stormEndsTick: null });

@@ -149,7 +149,7 @@ function runFire(store, airport, currentTick) {
   // Борта, стоявшие на сгоревшей стоянке, гибнут вместе с ней.
   if ((def.standSize || b.buildingId === 'helipad') && !protectedByStation) {
     const lost = burnAircraftAt(store, airport, b, details);
-    charge -= lost.payout;   // договорная компания платит аэропорту за свой борт
+    charge += lost.payout;   // за чужой сгоревший борт платит аэропорт: его вина
   }
 
   if (charge !== 0) {
@@ -159,8 +159,9 @@ function runFire(store, airport, currentTick) {
   return { kind: 'fire', details };
 }
 
-// Гибель бортов на сгоревшей стоянке. Свой самолёт теряется, за договорной
-// авиакомпания платит аэропорту четырёхкратную оплату за прилёт.
+// Гибель бортов на сгоревшей стоянке. Свой самолёт теряется безвозвратно,
+// а за сгоревший договорной борт аэропорт возмещает авиакомпании четырёхкратную
+// оплату за прилёт: борт сгорел на его территории и по его вине.
 function burnAircraftAt(store, airport, building, details) {
   let payout = 0;
   const cfg = DISASTER_ECONOMY.FIRE;
@@ -179,9 +180,35 @@ function burnAircraftAt(store, airport, building, details) {
     store.updateAirport(airport.id, {
       apronBorts: (airport.apronBorts || []).filter(x => x !== bort),
     });
-    details.push(`Борт «${bort.airline}» сгорел на стоянке — компания выплатила ${payout.toLocaleString('ru-RU')} у.е.`);
+    details.push(`Борт «${bort.airline}» сгорел на стоянке — аэропорт возместил компании ${payout.toLocaleString('ru-RU')} у.е.`);
   }
   return { payout };
+}
+
+// Прогноз метеорита: событие не бьёт сразу, а объявляется заранее. Повлиять
+// на исход игрок не может — это стихия, — но хотя бы узнаёт о ней и понимает,
+// откуда взялись убытки, когда вернётся в игру.
+function forecastMeteor(store, airport, currentTick) {
+  const cfg = DISASTER_ECONOMY.METEOR;
+  const lead = Math.round(rnd(cfg.FORECAST_LEAD_MIN, cfg.FORECAST_LEAD_MAX));
+  const big = Math.random() < cfg.BIG_CHANCE;
+  store.updateAirport(airport.id, {
+    meteorAtTick: currentTick + lead,
+    meteorBig: big,
+    lastDisasterTick: currentTick,   // прогноз тоже занимает защитный интервал
+  });
+  return {
+    kind: 'meteor_forecast',
+    lead,
+    notify: big
+      ? `☄️ Обсерватория предупреждает: к аэропорту приближается крупный метеорит. Расчётное время падения — через ${lead} мин.`
+      : `☄️ Обсерватория предупреждает: через ${lead} мин ожидается метеоритный дождь.`,
+  };
+}
+
+// Настало ли время объявленного метеорита.
+function meteorDue(airport, currentTick) {
+  return airport && airport.meteorAtTick != null && currentTick >= airport.meteorAtTick;
 }
 
 // Метеорит: либо один крупный (промах или снос здания), либо дождь мелких.
@@ -301,6 +328,8 @@ function rollRandom(store, airport, currentTick, settings) {
     const mean = DISASTER_ECONOMY.MEAN_INTERVAL[kind];
     if (!mean) continue;
     if (Math.random() < 1 / mean) {
+      // метеорит объявляется заранее, остальные события бьют сразу
+      if (kind === 'meteor') return forecastMeteor(store, airport, currentTick);
       return trigger(store, airport, kind, currentTick);
     }
   }
@@ -312,4 +341,4 @@ function stormActive(airport, currentTick) {
   return airport && airport.stormEndsTick != null && currentTick < airport.stormEndsTick;
 }
 
-module.exports = { trigger, rollRandom, stormActive, DISASTER_KINDS };
+module.exports = { trigger, rollRandom, stormActive, forecastMeteor, meteorDue, DISASTER_KINDS };
