@@ -560,6 +560,8 @@ body {
 .bankrupt-actions { display: flex; flex-direction: column; gap: 10px; }
 .bankrupt-actions button { width: 100%; margin: 0; }
 .stat-value.stat-negative { color: var(--red) !important; }
+/* очередь бортов при свободных местах — предупреждение, а не ошибка */
+.stat-value.stat-warn { color: var(--board-amber) !important; }
 
 /* ===== EXCHANGE (биржа аренды) ===== */
 .exchange-view { display: flex; flex-direction: column; gap: 10px; }

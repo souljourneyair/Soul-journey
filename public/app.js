@@ -453,12 +453,32 @@ function renderStats() {
     const s = STATE.apronSlots;
     const wait = STATE.apronWaiting || 0;
     // показываем вертолётные места и стоянки самолётов раздельно
+    let text;
+    let full = false;
     if (s.heli && s.plane) {
-      apronEl.textContent = `🚁${s.heli.used}/${s.heli.total} ✈${s.plane.used}/${s.plane.total}`;
+      text = `🚁${s.heli.used}/${s.heli.total} ✈${s.plane.used}/${s.plane.total}`;
+      full = (s.heli.total > 0 && s.heli.used >= s.heli.total)
+          || (s.plane.total > 0 && s.plane.used >= s.plane.total);
     } else {
-      apronEl.textContent = `${s.used}/${s.total}`;
+      text = `${s.used}/${s.total}`;
+      full = s.total > 0 && s.used >= s.total;
     }
-    apronEl.classList.toggle('stat-negative', wait > 0);
+    // Очередь показываем отдельно: борт может ждать и при свободных местах —
+    // если нет стоянки его размера, нет подходящей ВПП, исчерпана суточная
+    // квота полосы или не вышел интервал вышки.
+    if (wait > 0) text += ` ⏳${wait}`;
+    apronEl.textContent = text;
+
+    // Красный — только когда мест действительно нет. Раньше он загорался от
+    // самого факта очереди, и счётчик выглядел переполненным при свободных
+    // стоянках.
+    apronEl.classList.toggle('stat-negative', full);
+    apronEl.classList.toggle('stat-warn', !full && wait > 0);
+    apronEl.title = wait > 0
+      ? (full
+          ? `${wait} борт(ов) в очереди: мест нет`
+          : `${wait} борт(ов) в очереди, хотя места есть — не подходит размер стоянки или ВПП, занята полоса либо не вышел интервал вышки`)
+      : 'Занято мест: вертолётных / самолётных';
   }
   // топливо: показываем запас/вместимость, скрываем если склада нет
   const fuelWrap = $('#statFuelWrap');
