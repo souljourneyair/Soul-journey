@@ -304,6 +304,26 @@ function damageRepairTicks(wear) {
   return Math.max(5, Math.round(DAMAGE_ECONOMY.REPAIR_TICKS_AT_FULL * (wear || 0)));
 }
 
+// Сколько игрок вложил в объект: цена постройки плюс КУПЛЕННЫЕ апгрейды.
+// Возможные, но не сделанные апгрейды не считаем — иначе сгоревшее здание
+// первого уровня обходилось бы как пятого.
+function buildingInvestedValue(def, level) {
+  let total = def.cost || 0;
+  for (let l = 2; l <= (level || 1); l++) total += upgradeCost(def, l);
+  return Math.round(total);
+}
+
+// Компенсация «за персонал» при полной потере объекта.
+function lossCompensation(def, level) {
+  return Math.round(buildingInvestedValue(def, level) * DISASTER_ECONOMY.COMPENSATION_PCT);
+}
+
+// Полный счёт за сгоревшее здание при отсутствии пожарной части.
+function fireFine(def, level) {
+  const invested = buildingInvestedValue(def, level);
+  return Math.round(invested * DISASTER_ECONOMY.FIRE.FINE_MULT) + lossCompensation(def, level);
+}
+
 function ruinedDemolishCost(def) {
   return Math.round(def.cost * DAMAGE_ECONOMY.DEMOLISH_RUINED_PCT);
 }
@@ -323,7 +343,15 @@ const DISASTER_ECONOMY = {
     storm: 2880,        // магнитная буря — раз в 2 игровых суток
     flood: 5760,        // наводнение — раз в 4 суток
     earthquake: 7200,   // землетрясение — раз в 5 суток
+    birds: 4320,        // птицы — раз в 3 суток
+    fire: 8640,         // пожар — раз в 6 суток
+    meteor: 14400,      // метеорит — раз в 10 суток, самое редкое
   },
+
+  // Компенсация «за персонал и арендаторов» — доля от вложенного в объект.
+  // Начисляется при полной потере здания (пожар без пожарной части, прямое
+  // попадание метеорита). Крупный терминал обходится дороже кафе.
+  COMPENSATION_PCT: 0.25,
 
   // --- Наводнение: бьёт по ВПП и стоянкам, но не по всем сразу ---
   FLOOD: {
@@ -340,6 +368,45 @@ const DISASTER_ECONOMY = {
     DAMAGE_MIN: 0.05, DAMAGE_MAX: 0.45,
   },
 
+  // --- Пожар ---
+  FIRE: {
+    // Без пожарной части здание выгорает дотла: остаются развалины, а игрок
+    // платит штраф в двойном размере вложенного плюс компенсацию. Пожарная
+    // часть стоит 7000 — дешёвая страховка от катастрофы, в этом и выбор.
+    FINE_MULT: 2,
+    // С пожарной частью пожар тушат, но повреждения случайные.
+    DAMAGE_MIN: 0.10, DAMAGE_MAX: 1.0,
+    // Выгорело больше этого — ремонту не подлежит, только снос.
+    RUIN_THRESHOLD: 0.70,
+    // Вертолётки и стоянки горят слабее: там нечему полыхать.
+    APRON_DAMAGE_MAX: 0.50,
+    // Самолёт: повреждение в этих пределах чинится, свыше — списывается.
+    AIRCRAFT_REPAIRABLE_MAX: 0.10,
+    // Договорная компания платит аэропорту за сгоревший борт, кратно оплате.
+    CONTRACT_AIRCRAFT_PAYOUT: 4,
+  },
+
+  // --- Метеорит ---
+  METEOR: {
+    // Доля случаев, когда падает один крупный (иначе — дождь мелких).
+    BIG_CHANCE: 0.4,
+    // Крупный может промахнуться и упасть рядом, никого не задев.
+    BIG_MISS_CHANCE: 0.45,
+    // Мелкие: сколько объектов задето и насколько.
+    SHOWER_SHARE_MIN: 0.15, SHOWER_SHARE_MAX: 0.4,
+    SHOWER_DAMAGE_MIN: 0.05, SHOWER_DAMAGE_MAX: 0.35,
+  },
+
+  // --- Птицы на взлёте ---
+  BIRDS: {
+    // Лёгкое столкновение — борт продолжает рейс.
+    MINOR_CHANCE: 0.55,
+    // Серьёзное — возврат в аэропорт и ремонт.
+    DAMAGE_MIN: 0.15, DAMAGE_MAX: 0.60,
+    // Договорная компания оплачивает аэропорту ремонт своего борта.
+    CONTRACT_REPAIR_PAYOUT: 3,
+  },
+
   // --- Магнитная буря: временные помехи, ничего не ломает ---
   STORM: {
     DURATION_MIN: 120, DURATION_MAX: 240,  // 2-4 игровых часа
@@ -349,7 +416,7 @@ const DISASTER_ECONOMY = {
   },
 };
 
-const DISASTER_KINDS = ['storm', 'flood', 'earthquake'];
+const DISASTER_KINDS = ['storm', 'flood', 'earthquake', 'birds', 'fire', 'meteor'];
 
 const APRON_ECONOMY = {
   HELIPAD_SLOTS_PER_LEVEL: 1,     // мест на вертолётке = уровень апгрейда (ур.1=1 ... ур.5=5)
@@ -952,7 +1019,7 @@ module.exports = {
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
-  DISASTER_ECONOMY, DISASTER_KINDS,
+  DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,

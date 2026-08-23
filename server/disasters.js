@@ -10,6 +10,8 @@
 
 const {
   BUILDINGS, DISASTER_ECONOMY, DISASTER_KINDS,
+  buildingInvestedValue, lossCompensation, fireFine,
+  AIRCRAFT_TYPES, aircraftSize,
 } = require('./gameData');
 
 function rnd(min, max) {
@@ -101,7 +103,172 @@ function runStorm(store, airport, currentTick) {
   };
 }
 
-const RUNNERS = { flood: runFlood, earthquake: runEarthquake, storm: runStorm };
+// Есть ли работающая пожарная часть — от неё зависит, потушат пожар или нет.
+function hasFireStation(store, airportId) {
+  return store.getBuildingsByAirport(airportId).some(b =>
+    b.buildingId === 'fire_station' && !b.ruined
+    && (b.state || 'owned') === 'owned' && b.constructionEndsTick == null);
+}
+
+// Пожар. Без пожарной части здание выгорает дотла и игрок платит по счёту;
+// с пожарной частью огонь тушат, но повреждения случайные.
+function runFire(store, airport, currentTick) {
+  const cfg = DISASTER_ECONOMY.FIRE;
+  const targets = damageableBuildings(store, airport.id);
+  if (!targets.length) return null;
+
+  const b = targets[Math.floor(Math.random() * targets.length)];
+  const def = BUILDINGS[b.buildingId];
+  const level = b.upgradeLevel || 1;
+  const protectedByStation = hasFireStation(store, airport.id);
+  const details = [];
+  let charge = 0;
+
+  if (!protectedByStation) {
+    // выгорело дотла: остались развалины, платим штраф и компенсацию
+    store.updateBuildingAtCell(airport.id, b.cellIndex, { ruined: true, wear: 1 });
+    charge = fireFine(def, level);
+    details.push(`${def.name} выгорел дотла — пожарной части в аэропорту нет`);
+    details.push(`Штраф и компенсация: ${charge.toLocaleString('ru-RU')} у.е.`);
+  } else {
+    // пожар потушен, но повреждения случайные
+    const isApron = def.standSize || b.buildingId === 'helipad';
+    const max = isApron ? cfg.APRON_DAMAGE_MAX : cfg.DAMAGE_MAX;
+    const dmg = rnd(cfg.DAMAGE_MIN, max);
+    if (!isApron && dmg > cfg.RUIN_THRESHOLD) {
+      store.updateBuildingAtCell(airport.id, b.cellIndex, { ruined: true, wear: 1 });
+      charge = lossCompensation(def, level);
+      details.push(`${def.name}: выгорел на ${Math.round(dmg * 100)}% — восстановлению не подлежит`);
+      details.push(`Компенсация: ${charge.toLocaleString('ru-RU')} у.е.`);
+    } else {
+      const r = addWear(store, airport.id, b, dmg);
+      details.push(`${def.name}: пожар потушен, повреждение ${Math.round(r.before * 100)}% → ${Math.round(r.after * 100)}%`);
+    }
+  }
+
+  // Борта, стоявшие на сгоревшей стоянке, гибнут вместе с ней.
+  if ((def.standSize || b.buildingId === 'helipad') && !protectedByStation) {
+    const lost = burnAircraftAt(store, airport, b, details);
+    charge -= lost.payout;   // договорная компания платит аэропорту за свой борт
+  }
+
+  if (charge !== 0) {
+    const fresh = store.getAirportById(airport.id);
+    store.updateAirport(airport.id, { money: fresh.money - charge });
+  }
+  return { kind: 'fire', details };
+}
+
+// Гибель бортов на сгоревшей стоянке. Свой самолёт теряется, за договорной
+// авиакомпания платит аэропорту четырёхкратную оплату за прилёт.
+function burnAircraftAt(store, airport, building, details) {
+  let payout = 0;
+  const cfg = DISASTER_ECONOMY.FIRE;
+  const fleet = store.getAircraftByAirport(airport.id)
+    .filter(a => a.status !== 'flying' && !a.decommissioned);
+  if (fleet.length && Math.random() < 0.5) {
+    const ac = fleet[Math.floor(Math.random() * fleet.length)];
+    const type = AIRCRAFT_TYPES[ac.typeId];
+    store.updateAircraft(ac.id, { decommissioned: true, status: 'broken', auto: false });
+    details.push(`${type ? type.name : 'Самолёт'} сгорел на стоянке и списан`);
+  }
+  const apron = (airport.apronBorts || []).filter(x => x.craft === 'plane');
+  if (apron.length) {
+    const bort = apron[Math.floor(Math.random() * apron.length)];
+    payout = Math.round((bort.payPerArrival || 40) * cfg.CONTRACT_AIRCRAFT_PAYOUT);
+    store.updateAirport(airport.id, {
+      apronBorts: (airport.apronBorts || []).filter(x => x !== bort),
+    });
+    details.push(`Борт «${bort.airline}» сгорел на стоянке — компания выплатила ${payout.toLocaleString('ru-RU')} у.е.`);
+  }
+  return { payout };
+}
+
+// Метеорит: либо один крупный (промах или снос здания), либо дождь мелких.
+function runMeteor(store, airport, currentTick) {
+  const cfg = DISASTER_ECONOMY.METEOR;
+  const targets = damageableBuildings(store, airport.id);
+  if (!targets.length) return null;
+  const details = [];
+
+  if (Math.random() < cfg.BIG_CHANCE) {
+    if (Math.random() < cfg.BIG_MISS_CHANCE) {
+      details.push('Крупный метеорит упал рядом с аэропортом — постройки не задеты');
+      return { kind: 'meteor', details };
+    }
+    const b = targets[Math.floor(Math.random() * targets.length)];
+    const def = BUILDINGS[b.buildingId];
+    const comp = lossCompensation(def, b.upgradeLevel || 1);
+    store.removeBuildingAtCell(airport.id, b.cellIndex);
+    const fresh = store.getAirportById(airport.id);
+    store.updateAirport(airport.id, { money: fresh.money - comp });
+    details.push(`Прямое попадание в объект «${def.name}» — здание уничтожено, клетка свободна`);
+    details.push(`Компенсация: ${comp.toLocaleString('ru-RU')} у.е.`);
+    return { kind: 'meteor', details };
+  }
+
+  const hit = pickShare(targets, cfg.SHOWER_SHARE_MIN, cfg.SHOWER_SHARE_MAX);
+  for (const b of hit) {
+    const def = BUILDINGS[b.buildingId];
+    const r = addWear(store, airport.id, b, rnd(cfg.SHOWER_DAMAGE_MIN, cfg.SHOWER_DAMAGE_MAX));
+    details.push(`${def.name}: повреждение ${Math.round(r.before * 100)}% → ${Math.round(r.after * 100)}%`);
+  }
+  if (!details.length) details.push('Мелкие метеориты выпали на пустыре — обошлось');
+  return { kind: 'meteor', details };
+}
+
+// Птицы на взлёте. Лёгкое столкновение борт переживает, серьёзное отправляет
+// его на ремонт. За договорной борт авиакомпания платит аэропорту.
+function runBirds(store, airport, currentTick) {
+  const cfg = DISASTER_ECONOMY.BIRDS;
+  const details = [];
+  const flying = store.getAircraftByAirport(airport.id)
+    .filter(a => a.status === 'flying' && !a.decommissioned);
+  const apron = (airport.apronBorts || []).filter(x => x.craft === 'plane');
+
+  // предпочитаем свой борт в воздухе, иначе договорной на стоянке
+  if (flying.length) {
+    const ac = flying[Math.floor(Math.random() * flying.length)];
+    const type = AIRCRAFT_TYPES[ac.typeId];
+    if (Math.random() < cfg.MINOR_CHANCE) {
+      details.push(`${type ? type.name : 'Борт'} столкнулся с птицами на взлёте — повреждения незначительные, рейс продолжается`);
+    } else {
+      const dmg = rnd(cfg.DAMAGE_MIN, cfg.DAMAGE_MAX);
+      const newWear = Math.min(1, (ac.wear || 0) + dmg);
+      store.updateAircraft(ac.id, {
+        status: 'broken', wear: newWear, flightEndsTick: null, flightPax: null, auto: false,
+      });
+      details.push(`${type ? type.name : 'Борт'} принял стаю птиц в двигатель — экстренная посадка, износ ${Math.round(newWear * 100)}%`);
+      details.push('Рейс прерван, борт нужно ремонтировать в ангаре');
+    }
+    return { kind: 'birds', details };
+  }
+
+  if (apron.length) {
+    const bort = apron[Math.floor(Math.random() * apron.length)];
+    if (Math.random() < cfg.MINOR_CHANCE) {
+      details.push(`Борт «${bort.airline}» задел птиц на взлёте — обошлось, рейс продолжен`);
+    } else {
+      const payout = Math.round((bort.payPerArrival || 40) * cfg.CONTRACT_REPAIR_PAYOUT);
+      const fresh = store.getAirportById(airport.id);
+      store.updateAirport(airport.id, {
+        money: fresh.money + payout,
+        apronBorts: (fresh.apronBorts || []).map(x =>
+          x === bort ? { ...x, departsTick: currentTick + 60, damaged: true } : x),
+      });
+      details.push(`Борт «${bort.airline}» вернулся после столкновения с птицами — ремонт в вашем ангаре`);
+      details.push(`Авиакомпания оплатила ремонт: ${payout.toLocaleString('ru-RU')} у.е.`);
+    }
+    return { kind: 'birds', details };
+  }
+
+  return null;   // взлетать некому
+}
+
+const RUNNERS = {
+  flood: runFlood, earthquake: runEarthquake, storm: runStorm,
+  fire: runFire, meteor: runMeteor, birds: runBirds,
+};
 
 // Запустить конкретное событие. Возвращает запись о происшествии или null,
 // если бить оказалось не по чему.
