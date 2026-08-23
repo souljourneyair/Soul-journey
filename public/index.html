@@ -155,22 +155,7 @@
     </aside>
   </main>
 
-  <!-- ===== МОДАЛКА ЧРЕЗВЫЧАЙНОГО ПРОИСШЕСТВИЯ ===== -->
-<div id="eventModal" class="modal hidden">
-  <div class="modal-card board-frame event-modal-card">
-    <div class="board-header">
-      <span class="board-title" id="eventModalTitle">ПРОИСШЕСТВИЕ</span>
-    </div>
-    <div class="building-modal-body">
-      <div class="event-modal-icon" id="eventModalIcon">⚠️</div>
-      <p class="event-modal-text" id="eventModalText"></p>
-      <ul class="event-modal-list hidden" id="eventModalList"></ul>
-      <button class="btn-primary" id="eventModalOk">Понятно</button>
-    </div>
-  </div>
-</div>
-
-<div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden"></div>
 </div>
 
 <!-- ===== ЭКРАН БАНКРОТСТВА (game over) ===== -->
@@ -367,5 +352,20 @@
 </div>
 
 <script src="app.js"></script>
+<!-- ===== МОДАЛКА ЧРЕЗВЫЧАЙНОГО ПРОИСШЕСТВИЯ ===== -->
+<div id="eventModal" class="modal hidden">
+  <div class="modal-card board-frame event-modal-card">
+    <div class="board-header">
+      <span class="board-title" id="eventModalTitle">ПРОИСШЕСТВИЕ</span>
+    </div>
+    <div class="building-modal-body">
+      <div class="event-modal-icon" id="eventModalIcon">⚠️</div>
+      <p class="event-modal-text" id="eventModalText"></p>
+      <ul class="event-modal-list hidden" id="eventModalList"></ul>
+      <button class="btn-primary" id="eventModalOk">Понятно</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

@@ -1354,7 +1354,10 @@ async function repairBuilding(cellIndex) {
   }
 }
 
-$('#eventModalOk')?.addEventListener('click', () => $('#eventModal').classList.add('hidden'));
+$('#eventModalOk')?.addEventListener('click', () => {
+  $('#eventModal').classList.add('hidden');
+  document.body.classList.remove('modal-open');
+});
 $('#repairAllBtn')?.addEventListener('click', repairAll);
 
 // Кнопка общего ремонта: показываем только с нужного уровня и только когда
@@ -2471,6 +2474,7 @@ function showEventModal(kind, details) {
     list.classList.add('hidden');
   }
   $('#eventModal').classList.remove('hidden');
+  document.body.classList.add('modal-open');
 }
 
 // Что именно теряется из-за повреждения — чтобы процент не был абстракцией.
