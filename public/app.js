@@ -1354,10 +1354,23 @@ async function repairBuilding(cellIndex) {
   }
 }
 
-$('#eventModalOk')?.addEventListener('click', () => {
-  $('#eventModal').classList.add('hidden');
-  document.body.classList.remove('modal-open');
+// Закрытие окна происшествия. Подписываемся на документ, а не на саму кнопку:
+// при подписке напрямую обработчик молча не навешивался бы, окажись разметка
+// ниже подключения скрипта — кнопка выглядела бы рабочей, но не нажималась.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#eventModalOk')) return;
+  closeEventModal();
 });
+// Enter и Escape тоже закрывают: окно блокирующее, из него нужен быстрый выход.
+document.addEventListener('keydown', (e) => {
+  if ($('#eventModal')?.classList.contains('hidden')) return;
+  if (e.key === 'Enter' || e.key === 'Escape') closeEventModal();
+});
+
+function closeEventModal() {
+  $('#eventModal')?.classList.add('hidden');
+  document.body.classList.remove('modal-open');
+}
 $('#repairAllBtn')?.addEventListener('click', repairAll);
 
 // Кнопка общего ремонта: показываем только с нужного уровня и только когда
