@@ -664,7 +664,7 @@ const BUILDINGS = {
   runway_small: {
     id: 'runway_small', name: 'Малая ВПП', minLevel: 3,
     cost: 12000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 1600, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, reputation: 0, xp: 1600, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     isRunway: true, lineType: 'vvl',
     upgradeCostMult: 0.2,
     accepts: ['small'],                              // только малые самолёты
@@ -733,7 +733,7 @@ const BUILDINGS = {
   runway_full: {
     id: 'runway_full', name: 'Средняя ВПП', minLevel: 5,
     cost: 45000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 4600, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, reputation: 0, xp: 4600, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     isRunway: true, lineType: 'both',
     upgradeCostMult: 0.2,
     accepts: ['small', 'medium'],
@@ -780,7 +780,7 @@ const BUILDINGS = {
   runway_big: {
     id: 'runway_big', name: 'Большая ВПП', minLevel: 8,
     cost: 90000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 8000, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, reputation: 0, xp: 8000, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     isRunway: true, lineType: 'both',
     upgradeCostMult: 0.2,
     accepts: ['small', 'medium', 'large'],
