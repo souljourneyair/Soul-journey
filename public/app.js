@@ -437,7 +437,8 @@ function renderStats() {
   const moneyEl = $('#statMoney');
   moneyEl.textContent = Math.floor(STATE.money).toLocaleString('ru-RU');
   moneyEl.classList.toggle('stat-negative', STATE.money < 0); // долг — красным
-  // уровень и общие расходы переехали в панель здания администрации
+  // Уровень есть и в шапке (коротким числом), и в панели администрации
+  // (развёрнуто, с остатком опыта до следующего). Общие расходы — только там.
   const levelEl = $('#statLevel');
   if (levelEl) levelEl.textContent = STATE.level;
   $('#statRep').textContent = Math.floor(STATE.reputation);
