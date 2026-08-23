@@ -1289,26 +1289,23 @@ function slotCapacityOf(building) {
 // Возвращает { used, total } для данного здания.
 function slotOccupancyOf(building) {
   const id = building.buildingId;
-  // группа зданий того же "класса мест"
-  let sameType, totalUsed;
+
+  // Вертолётные площадки: сервер помнит, на какую именно площадку сел борт,
+  // поэтому берём готовую занятость, а не распределяем общее число по порядку.
+  // Вертолёт садится на любую свободную площадку, не обязательно на первую.
   if (id === 'helipad') {
-    sameType = STATE.buildings.filter(b => b.buildingId === 'helipad' && (b.state || 'owned') !== 'sold' && (b.state) !== 'rented' && !b.constructionType);
-    totalUsed = STATE.apronSlots?.heli?.used || 0;
-  } else if (id.startsWith('stand')) {
-    sameType = STATE.buildings.filter(b => b.buildingId?.startsWith('stand') && (b.state || 'owned') !== 'sold' && (b.state) !== 'rented' && !b.constructionType);
-    totalUsed = STATE.apronSlots?.plane?.used || 0;
-  } else {
+    const pad = (STATE.helipadLoad || []).find(p => p.cellIndex === building.cellIndex);
+    if (pad) return { used: pad.used, total: pad.capacity };
     return { used: 0, total: slotCapacityOf(building) };
   }
-  // сортируем по cellIndex и раскидываем занятые места по порядку
-  sameType.sort((a, b) => a.cellIndex - b.cellIndex);
-  let remaining = totalUsed;
-  for (const b of sameType) {
-    const cap = slotCapacityOf(b);
-    const used = Math.min(cap, remaining);
-    remaining -= used;
-    if (b.cellIndex === building.cellIndex) return { used, total: cap };
+
+  // Стоянки ВС: одно место на стоянку, привязка борта известна с сервера.
+  if (id.startsWith('stand')) {
+    const total = slotCapacityOf(building);
+    const used = (STATE.standLoad || []).filter(x => x.cellIndex === building.cellIndex).length;
+    return { used: Math.min(used, total), total };
   }
+
   return { used: 0, total: slotCapacityOf(building) };
 }
 

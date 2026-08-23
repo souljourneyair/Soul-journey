@@ -710,8 +710,10 @@ body {
   .objects-row td { padding: 8px 10px; }
   .objects-table thead th { padding: 8px 10px; }
 
-  /* --- модалки на весь экран по ширине --- */
-  .modal { padding: 12px; align-items: flex-end; }
+  /* --- модалки на весь экран по ширине, но по центру ---
+     Раньше стояло align-items: flex-end, и окно прижималось к низу экрана:
+     на длинной странице игрок его просто не замечал. --- */
+  .modal { padding: 12px; align-items: center; }
   .modal-card, .building-modal, .cell-modal, .territory-modal {
     width: 100%; max-width: 100%; max-height: 85vh;
   }

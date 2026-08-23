@@ -544,9 +544,76 @@ function totalApronSlots(airportId) {
     const base = (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
     const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
     // Округляем вниз, но целая площадка всегда принимает хотя бы один борт.
-    slots += Math.max(1, Math.floor(base * damageMultiplier(b.wear || 0, repairing)));
+    slots += Math.max(1, Math.floor(base * damageMultiplier(capacityWear(b), repairing)));
   }
   return slots;
+}
+
+// Износ, ощутимый для вместимости. Ветшание идёт непрерывно, и без этого
+// порога площадка ур.5 сразу после постройки показывала бы 4 места вместо 5:
+// округление вниз съедало место из-за десятых долей процента.
+function capacityWear(b) {
+  const w = b.wear || 0;
+  return w < DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR ? 0 : w;
+}
+
+// Какие стоянки ВС сейчас заняты. Раскладка та же, что при проверке места:
+// крупные борта первыми, каждому наименее избыточная стоянка. Раньше клиент
+// раскидывал общее число по порядку клеток и мог показать занятой не ту.
+function occupiedStands(airportId) {
+  const stands = listStands(airportId);
+  const airport = store.getAirportById(airportId);
+  const ownSizes = store.getAircraftByAirport(airportId)
+    .filter(a => a.status !== 'flying')
+    .map(a => aircraftSize(a.typeId));
+  const contractSizes = ((airport && airport.apronBorts) || [])
+    .filter(b => b.craft === 'plane').map(b => b.size);
+  const toPlace = [...ownSizes, ...contractSizes];
+  if (!toPlace.length) return [];
+  const assignment = assignStands(stands, toPlace);
+  if (!assignment) return [];
+  return assignment
+    .filter(i => i >= 0 && stands[i])
+    .map((i, n) => ({ cellIndex: stands[i].cellIndex, size: toPlace[n] }));
+}
+
+// Вертолётные площадки с вместимостью и текущей занятостью.
+// Занятость считается по фактической привязке борта к площадке (padCell),
+// а не распределением по порядку: борт садится на любую свободную.
+function listHelipads(airportId) {
+  const currentTick = store.getTickCounter();
+  const airport = store.getAirportById(airportId);
+  const borts = (airport && airport.apronBorts) || [];
+  const out = [];
+  for (const b of store.getBuildingsByAirport(airportId)) {
+    if (b.buildingId !== 'helipad') continue;
+    if ((b.state || 'owned') === 'sold' || b.state === 'rented') continue;
+    if (isUnderConstruction(b) || b.ruined) continue;
+    const base = (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
+    const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
+    const capacity = Math.max(1, Math.floor(base * damageMultiplier(capacityWear(b), repairing)));
+    const used = borts.filter(x => (x.craft || 'heli') === 'heli' && x.padCell === b.cellIndex).length;
+    out.push({ cellIndex: b.cellIndex, level: b.upgradeLevel || 1, capacity, used });
+  }
+  return out;
+}
+
+// Выбрать площадку для прилетающего вертолёта: любую, где есть место.
+// Не «сначала первая, потом вторая» — борт может сесть на любую свободную.
+//
+// currentApron — борта, которые уже стоят ИЛИ сели в этом же тике. Считать
+// занятость по сохранённым данным нельзя: борта текущего тика туда ещё не
+// записаны, и на площадку с пятью местами садилось шесть.
+function pickHelipad(airportId, currentApron) {
+  const pads = listHelipads(airportId);
+  const used = {};
+  for (const b of currentApron || []) {
+    if ((b.craft || 'heli') !== 'heli' || b.padCell == null) continue;
+    used[b.padCell] = (used[b.padCell] || 0) + 1;
+  }
+  const free = pads.filter(p => (used[p.cellIndex] || 0) < p.capacity);
+  if (!free.length) return null;
+  return free[Math.floor(Math.random() * free.length)];
 }
 
 // Минимальный интервал между операциями (мин) с учётом вышек.
@@ -734,7 +801,7 @@ function listRunways(airportId, currentTick) {
     const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
     // Повреждение режет пропускную способность, ремонт — тоже, магнитная буря
     // добавляет помехи сверху.
-    let capacity = baseCapacity * damageMultiplier(b.wear || 0, repairing);
+    let capacity = baseCapacity * damageMultiplier(capacityWear(b), repairing);
     if (stormNow) capacity *= DISASTER_ECONOMY.STORM.RUNWAY_CAPACITY_MULT;
     capacity = Math.max(1, Math.round(capacity));
     out.push({
@@ -916,6 +983,11 @@ function serializeAirport(airport) {
       repairTicksLeft: r.repairEndsTick ? Math.max(0, r.repairEndsTick - store.getTickCounter()) : 0,
       repairCost: r.wear > 0 ? runwayRepairCost(BUILDINGS[r.buildingId], r.wear) : 0,
     })),
+    // занятость каждой вертолётной площадки отдельно
+    helipadLoad: listHelipads(airport.id),
+    // какие стоянки ВС заняты: раскладка считается по размерам бортов,
+    // а не по порядку клеток, поэтому отдаём фактическую привязку
+    standLoad: occupiedStands(airport.id),
     repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
     // происшествия, которые игрок ещё не видел (показываются модальным окном)
     pendingDisasters: airport.pendingDisasters || [],
@@ -3095,11 +3167,14 @@ function processContractsTick(airport, currentTick, notifications) {
   for (const w of waiting) {
     const craft = w.craft || 'heli';
     if (craft === 'heli') {
-      if (heliFree > 0) {
+      // берём конкретную площадку, чтобы счётчик показывал занятость по ней
+      const pad = pickHelipad(airport.id, apron);
+      if (pad) {
         heliFree--;
         apron.push({
           contractId: w.contractId, airline: w.airline,
           departsTick: currentTick + APRON_ECONOMY.HELI_STAND_MINUTES,
+          padCell: pad.cellIndex,
           payPerArrival: w.payPerArrival, craft: 'heli', size: null, flightType: 'vvl',
         });
         income += w.payPerArrival;

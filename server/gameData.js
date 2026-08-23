@@ -652,7 +652,7 @@ const BUILDINGS = {
   helipad: {
     id: 'helipad', name: 'Вертолётная стоянка', minLevel: 0,
     cost: 2500, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, nonRentable: true, reputation: 0, xp: 300, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, reputation: 0, xp: 300, removable: true, maxUpgradeLevel: 5,
     starter: true,
     desc: 'Источник дохода — мелкие вертолётные чартеры. Обычное здание: можно строить, улучшать, сдавать, продавать и сносить.',
   },
