@@ -123,6 +123,7 @@
       <div class="left-menu-title">МЕНЮ</div>
       <button id="territoryBtn" class="left-menu-btn">🗺 Территория а/п</button>
       <button id="fleetBtn" class="left-menu-btn">✈ Авиапарк</button>
+      <button id="scheduleBtn" class="left-menu-btn">🕐 Расписание</button>
       <button id="envelopeBtn" class="left-menu-btn envelope-btn hidden">✉ Договоры<span id="envelopeBadge" class="envelope-badge hidden">0</span></button>
       <button id="createAirlineBtn" class="left-menu-btn hidden">🏢 Создать АК</button>
       <button id="leaderboardBtn" class="left-menu-btn">🏆 Рейтинг</button>
@@ -251,6 +252,28 @@
       <div id="fuelSuppliers" class="fuel-suppliers"></div>
     </div>
     <button id="closeFuel" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА РАСПИСАНИЯ ПРИЛЁТОВ ===== -->
+<div id="scheduleModal" class="modal hidden">
+  <div class="modal-card board-frame schedule-modal">
+    <div class="board-header">
+      <span class="board-title">РАСПИСАНИЕ ПРИЛЁТОВ</span>
+      <span class="board-sub" id="scheduleSub">ТАБЛО</span>
+    </div>
+    <div class="schedule-wrap">
+      <table class="schedule-table">
+        <thead>
+          <tr>
+            <th>АК</th><th>Борт</th><th>Прилёт</th><th>На борту</th><th>Осталось</th><th>Статус</th>
+          </tr>
+        </thead>
+        <tbody id="scheduleBody"></tbody>
+      </table>
+      <div class="build-menu-hint hidden" id="scheduleEmpty">Прилётов пока нет — заключите договор.</div>
+    </div>
+    <button class="btn-secondary" id="closeSchedule">Закрыть</button>
   </div>
 </div>
 

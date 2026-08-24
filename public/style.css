@@ -827,3 +827,25 @@ body.modal-open { overflow: hidden; }
 
 /* очередь у терминала — выделяем, когда есть кого ждать */
 .term-queue { color: var(--board-amber); }
+
+/* --- табло расписания прилётов --- */
+.schedule-modal { width: 720px; max-width: 96vw; }
+.schedule-wrap { max-height: 60vh; overflow-y: auto; margin-bottom: 12px; }
+.schedule-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.schedule-table th {
+  text-align: left; padding: 8px 10px; position: sticky; top: 0;
+  background: var(--panel, #131820); color: var(--text-dim);
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.5px;
+  text-transform: uppercase; border-bottom: 1px solid rgba(124,138,153,0.25);
+}
+.schedule-table td { padding: 8px 10px; border-bottom: 1px solid rgba(124,138,153,0.12); }
+.schedule-table tr.sch-own td { background: rgba(52,211,153,0.06); }
+.sch-time { font-family: var(--mono); color: var(--board-amber); }
+.sch-ok { color: var(--green); }
+.sch-late { color: var(--board-amber); }
+.sch-landed { color: var(--text-dim); }
+.sch-diverted { color: var(--red); }
+@media (max-width: 640px) {
+  .schedule-table { font-size: 12px; }
+  .schedule-table th, .schedule-table td { padding: 6px 5px; }
+}

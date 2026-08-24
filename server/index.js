@@ -1364,6 +1364,81 @@ function serializeEnvelope(airportId) {
   return { offers, contracts, canAccept: canAcceptContracts(airportId) };
 }
 
+// Расписание прилётов: что и когда садится, с обратным отсчётом.
+// Собирается из четырёх источников — договоры (следующий прилёт), очередь
+// ожидающих, борта уже на земле и свои самолёты в рейсе.
+app.get('/api/schedule', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const now = store.getTickCounter();
+  const rows = [];
+
+  const craftName = (craft, size) => craft === 'heli' ? 'Вертолёт'
+    : size === 'large' ? 'Большой самолёт' : size === 'medium' ? 'Средний самолёт' : 'Малый самолёт';
+
+  // 1) борта в очереди — прилетели, но сесть пока некуда
+  for (const w of (airport.waitingBorts || [])) {
+    const waited = now - (w.waitingSinceTick || now);
+    rows.push({
+      airline: w.airline, craft: craftName(w.craft || 'heli', w.size),
+      arrivalTick: w.waitingSinceTick, pax: contractCraftCapacity(w.craft || 'heli', w.size),
+      minutesLeft: 0, status: 'delayed', note: `кружит ${waited} мин`,
+    });
+  }
+
+  // 2) уже на земле
+  for (const b of (airport.apronBorts || [])) {
+    rows.push({
+      airline: b.airline, craft: craftName(b.craft || 'heli', b.size),
+      arrivalTick: b.arrivedTick != null ? b.arrivedTick : b.departsTick,
+      pax: contractCraftCapacity(b.craft || 'heli', b.size),
+      minutesLeft: 0, status: 'landed',
+      note: b.damaged ? 'повреждён при посадке' : `вылет через ${Math.max(0, b.departsTick - now)} мин`,
+    });
+  }
+
+  // 3) ближайшие прилёты по договорам
+  for (const c of store.getContracts(airport.id)) {
+    if (c.nextArrivalTick == null) continue;
+    const left = c.nextArrivalTick - now;
+    if (left < 0) continue;
+    rows.push({
+      airline: c.airline, craft: craftName(c.craft || 'heli', c.size),
+      arrivalTick: c.nextArrivalTick, pax: contractCraftCapacity(c.craft || 'heli', c.size),
+      minutesLeft: left, status: 'scheduled', note: '',
+    });
+  }
+
+  // 4) свои самолёты, возвращающиеся из рейса
+  for (const ac of store.getAircraftByAirport(airport.id)) {
+    if (ac.status !== 'flying' || ac.flightEndsTick == null) continue;
+    const type = AIRCRAFT_TYPES[ac.typeId];
+    rows.push({
+      airline: airport.airline || 'Ваша компания', craft: type ? type.name : 'Самолёт',
+      arrivalTick: ac.flightEndsTick, pax: ac.flightPax || 0,
+      minutesLeft: Math.max(0, ac.flightEndsTick - now), status: 'scheduled', note: 'свой борт',
+      own: true,
+    });
+  }
+
+  // 5) недавно ушедшие на запасной
+  for (const d of (airport.divertedRecent || [])) {
+    if (now - d.tick > 120) continue;   // показываем два часа
+    rows.push({
+      airline: d.airline, craft: craftName(d.craft, d.size),
+      arrivalTick: d.tick, pax: contractCraftCapacity(d.craft, d.size),
+      minutesLeft: 0, status: 'diverted', note: `${now - d.tick} мин назад`,
+    });
+  }
+
+  rows.sort((a, b) => {
+    const order = { landed: 0, delayed: 1, scheduled: 2, diverted: 3 };
+    if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+    return a.minutesLeft - b.minutesLeft;
+  });
+  res.json({ now, rows });
+});
+
 app.get('/api/envelope', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
@@ -3390,6 +3465,8 @@ function processContractsTick(airport, currentTick, notifications) {
 
   // одна полоса принимает не больше одного борта за тик
   const runwaysUsedThisTick = new Set();
+  // борта, ушедшие на запасной в этом тике — попадут в расписание
+  const diverted = [];
 
   const stillWaiting = [];
   for (const w of waiting) {
@@ -3400,7 +3477,7 @@ function processContractsTick(airport, currentTick, notifications) {
       if (pad) {
         heliFree--;
         apron.push({
-          contractId: w.contractId, airline: w.airline,
+          contractId: w.contractId, airline: w.airline, arrivedTick: currentTick,
           departsTick: currentTick + APRON_ECONOMY.HELI_STAND_MINUTES,
           padCell: pad.cellIndex,
           payPerArrival: w.payPerArrival, craft: 'heli', size: null, flightType: 'vvl',
@@ -3419,6 +3496,7 @@ function processContractsTick(airport, currentTick, notifications) {
         const penalty = w.payPerArrival * APRON_ECONOMY.TURNAWAY_PENALTY_MULT;
         income -= penalty;
         reputation -= APRON_ECONOMY.TURNAWAY_REPUTATION_HIT;
+        diverted.push({ airline: w.airline, craft: 'heli', size: null, tick: currentTick });
         notifications.push(`🚁 Борт «${w.airline}» развернулся — нет вертолётного места! Штраф ${penalty} у.е.`);
       } else {
         stillWaiting.push(w);
@@ -3445,7 +3523,7 @@ function processContractsTick(airport, currentTick, notifications) {
           notifications.push(`🛠️ Борт «${w.airline}» повредился при посадке — полоса изношена. Компенсация ${compensation.toLocaleString('ru-RU')} у.е., стоянка занята вдвое дольше.`);
         }
         apron.push({
-          contractId: w.contractId, airline: w.airline,
+          contractId: w.contractId, airline: w.airline, arrivedTick: currentTick,
           departsTick: currentTick + serviceMinutes,
           standLevel: stand.level, standBuildingId: stand.buildingId,
           standCell: stand.cellIndex, damaged: !!hit.broke,
@@ -3468,6 +3546,7 @@ function processContractsTick(airport, currentTick, notifications) {
         reputation -= APRON_ECONOMY.TURNAWAY_REPUTATION_HIT;
         const why = hasRunwayForSize(airport.id, w.size, currentTick)
           ? 'нет свободной стоянки или полосы' : `нет ВПП, принимающей ${w.size === 'large' ? 'большие' : w.size === 'medium' ? 'средние' : 'малые'} самолёты`;
+        diverted.push({ airline: w.airline, craft: 'plane', size: w.size, tick: currentTick });
         notifications.push(`✈️ Самолёт «${w.airline}» развернулся — ${why}! Штраф ${penalty} у.е.`);
       } else {
         stillWaiting.push(w);
@@ -3476,7 +3555,12 @@ function processContractsTick(airport, currentTick, notifications) {
   }
 
   // сохраняем обновлённые списки бортов
-  store.updateAirport(airport.id, { apronBorts: apron, waitingBorts: stillWaiting });
+  const patchQueue = { apronBorts: apron, waitingBorts: stillWaiting };
+  if (diverted.length) {
+    const prev = (store.getAirportById(airport.id) || airport).divertedRecent || [];
+    patchQueue.divertedRecent = [...prev, ...diverted].slice(-10);
+  }
+  store.updateAirport(airport.id, patchQueue);
 
   // 4) Чистка истёкших предложений в конверте
   const offers = store.getContractOffers(airport.id);

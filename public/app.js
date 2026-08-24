@@ -385,6 +385,9 @@ function connectWs() {
       if (!$('#buildingModal').classList.contains('hidden')) {
         renderBuildingModal();
       }
+      if (!$('#scheduleModal').classList.contains('hidden')) {
+        renderSchedule();
+      }
       if (!$('#fleetModal').classList.contains('hidden')) {
         renderFleet();
       }
@@ -2571,6 +2574,52 @@ const EVENT_TEXTS = {
     ],
   },
 };
+
+// ---------- Расписание прилётов ----------
+// Табло: что летит, когда сядет и сколько везёт. Обновляется каждым тиком,
+// пока окно открыто, — обратный отсчёт должен идти на глазах.
+const SCHEDULE_STATUS = {
+  scheduled: { label: 'По расписанию', cls: 'sch-ok' },
+  delayed:   { label: 'Задерживается', cls: 'sch-late' },
+  landed:    { label: 'Сел',           cls: 'sch-landed' },
+  diverted:  { label: 'На запасном',   cls: 'sch-diverted' },
+};
+
+// Игровое время прилёта: тик = игровая минута, сутки = 1440 тиков.
+function tickToClock(tick) {
+  const m = ((tick % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
+
+async function renderSchedule() {
+  try {
+    const data = await api('/api/schedule');
+    const body = $('#scheduleBody');
+    const rows = data.rows || [];
+    $('#scheduleEmpty').classList.toggle('hidden', rows.length > 0);
+    $('#scheduleSub').textContent = rows.length ? `БОРТОВ: ${rows.length}` : 'ПУСТО';
+    body.innerHTML = rows.map(r => {
+      const st = SCHEDULE_STATUS[r.status] || SCHEDULE_STATUS.scheduled;
+      const left = r.status === 'scheduled'
+        ? `${r.minutesLeft} мин`
+        : (r.note || '—');
+      return `<tr class="${r.own ? 'sch-own' : ''}">
+        <td>${escapeHtml(r.airline)}</td>
+        <td>${escapeHtml(r.craft)}</td>
+        <td class="sch-time">${tickToClock(r.arrivalTick)}</td>
+        <td>${r.pax}</td>
+        <td class="sch-time">${escapeHtml(left)}</td>
+        <td><span class="${st.cls}">${st.label}</span></td>
+      </tr>`;
+    }).join('');
+  } catch (err) { /* окно могли закрыть */ }
+}
+
+$('#scheduleBtn')?.addEventListener('click', () => {
+  $('#scheduleModal').classList.remove('hidden');
+  renderSchedule();
+});
+$('#closeSchedule')?.addEventListener('click', () => $('#scheduleModal').classList.add('hidden'));
 
 // Вступление для нового игрока: два экрана подряд, второй начисляет опыт.
 // Показывается один раз на аэропорт и заново после «Начать сначала».
