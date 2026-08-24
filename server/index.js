@@ -443,6 +443,7 @@ function processTerminalsTick(airport, currentTick, notifications) {
   if (queue.length === 0) return { income, reputation };
 
   let anyLost = false;
+  let lostCount = 0;      // сколько пассажиров ушло — для ленты событий
   let served = 0; // обслужено пассажиров за тик (для общего счётчика)
 
   const servedByCell = {};   // сколько обслужил каждый терминал за тик
@@ -464,6 +465,7 @@ function processTerminalsTick(airport, currentTick, notifications) {
       // потерянные: ждали больше максимума — выбывают
       if (waited > PASSENGER_ECONOMY.WAIT_MAX_MINUTES) {
         anyLost = true;
+        lostCount += g.count;
         g.count = 0;
         continue;
       }
@@ -488,6 +490,18 @@ function processTerminalsTick(airport, currentTick, notifications) {
     const cur = airport.reputation || 0;
     reputation -= cur * PASSENGER_ECONOMY.LOST_REP_PENALTY_PCT;
     notifications.push('😠 Пассажиры не дождались обслуживания и ушли! Репутация резко упала. Нужны терминалы мощнее.');
+    // В ленту пишем не чаще раза в игровой час: пассажиры выбывают каждый
+    // тик, пока терминалов не хватает, и лента забилась бы одинаковыми
+    // строками. Копим число и подводим итог.
+    const nowT = store.getTickCounter();
+    const lastT = airport.lostPaxLogTick || 0;
+    const pending = (airport.lostPaxPending || 0) + lostCount;
+    if (nowT - lastT >= 60) {
+      logEvent(airport.id, 'lost', `Не дождались обслуживания и ушли: ${Math.round(pending)} пасс. Нужны терминалы мощнее.`);
+      store.updateAirport(airport.id, { lostPaxLogTick: nowT, lostPaxPending: 0 });
+    } else {
+      store.updateAirport(airport.id, { lostPaxPending: pending });
+    }
   }
 
   queue = queue.filter(g => g.count > 0);
@@ -3356,6 +3370,10 @@ function processAircraftTick(airport, currentTick, notifications) {
           income -= type.idlePenaltyPerTick;
           reputation -= type.idleRepPenaltyPerTick;
           store.updateAircraft(ac.id, { status: 'waiting' });
+          // Пишем один раз — в момент ухода в круг. Пока борт кружит, молчим:
+          // иначе строка повторялась бы каждый тик.
+          logEvent(airport.id, 'delay',
+            `${type.name} ушёл на второй круг — ${!standFree ? 'нет свободной стоянки' : 'нет свободной ВПП'}`);
         }
       }
     } else if (ac.status === 'waiting') {
@@ -3543,6 +3561,7 @@ function processContractsTick(airport, currentTick, notifications) {
         income -= penalty;
         reputation -= APRON_ECONOMY.TURNAWAY_REPUTATION_HIT;
         diverted.push({ airline: w.airline, craft: 'heli', size: null, tick: currentTick });
+        logEvent(airport.id, 'lost', `Борт «${w.airline}» ушёл на запасной — нет вертолётного места`);
         notifications.push(`🚁 Борт «${w.airline}» развернулся — нет вертолётного места! Штраф ${penalty} у.е.`);
       } else {
         stillWaiting.push(w);
@@ -3593,6 +3612,7 @@ function processContractsTick(airport, currentTick, notifications) {
         const why = hasRunwayForSize(airport.id, w.size, currentTick)
           ? 'нет свободной стоянки или полосы' : `нет ВПП, принимающей ${w.size === 'large' ? 'большие' : w.size === 'medium' ? 'средние' : 'малые'} самолёты`;
         diverted.push({ airline: w.airline, craft: 'plane', size: w.size, tick: currentTick });
+        logEvent(airport.id, 'lost', `Самолёт «${w.airline}» ушёл на запасной — ${why}`);
         notifications.push(`✈️ Самолёт «${w.airline}» развернулся — ${why}! Штраф ${penalty} у.е.`);
       } else {
         stillWaiting.push(w);

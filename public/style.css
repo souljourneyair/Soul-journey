@@ -852,9 +852,15 @@ body.modal-open { overflow: hidden; }
 
 /* --- лента событий: закреплена внизу панели объектов --- */
 .objects-panel { position: relative; }
+/* запас снизу, чтобы лента не перекрывала последние строки таблицы */
+.objects-panel { padding-bottom: 150px; }
+.objects-panel.feed-collapsed-space { padding-bottom: 54px; }
 .feed-panel {
-  position: sticky; bottom: 0; z-index: 20;
-  margin-top: 10px;
+  /* Закреплена на экране, а не в потоке страницы: остаётся внизу всегда,
+     независимо от того, где сейчас таблица. Ширину и положение по
+     горизонтали задаёт JS — по колонке с объектами. */
+  position: fixed; bottom: 0; z-index: 40;
+  border-bottom-left-radius: 0; border-bottom-right-radius: 0;
   background: var(--panel, #131820);
   border: 1px solid rgba(124,138,153,0.25);
   border-radius: 8px;
@@ -891,6 +897,8 @@ body.modal-open { overflow: hidden; }
 .feed-row.kind-level .feed-text { color: var(--board-amber); font-weight: 600; }
 .feed-row.kind-summary .feed-text { color: var(--green); }
 .feed-row.kind-upgrade .feed-text { color: var(--text); }
+.feed-row.kind-delay .feed-text { color: var(--board-amber); }
+.feed-row.kind-lost .feed-text { color: var(--red); }
 .feed-empty { padding: 16px 12px; text-align: center; color: var(--text-dim); font-size: 12px; }
 @media (max-width: 640px) {
   .feed-body { max-height: 108px; }
