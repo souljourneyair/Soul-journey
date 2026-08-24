@@ -3465,13 +3465,28 @@ function processContractsTick(airport, currentTick, notifications) {
   if (canAcceptContracts(airport.id) && activeOffers.length < CONTRACT_ECONOMY.MAX_OFFERS) {
     const pads = countHelipads(airport.id);
     const stands = listStands(airport.id).length;
-    const chance = Math.min(
+    let chance = Math.min(
       CONTRACT_ECONOMY.OFFER_CHANCE_MAX,
       CONTRACT_ECONOMY.OFFER_CHANCE_BASE
         + pads * CONTRACT_ECONOMY.OFFER_CHANCE_PER_PAD
         + stands * CONTRACT_ECONOMY.OFFER_CHANCE_PER_STAND
         + fresh.reputation * CONTRACT_ECONOMY.OFFER_CHANCE_PER_REPUTATION
     );
+
+    // На малых уровнях предложения идут чаще: договоры — единственный
+    // источник денег, и ждать их игроку нечем.
+    if ((fresh.level || 0) <= CONTRACT_ECONOMY.EARLY_LEVEL_MAX) {
+      chance = Math.min(CONTRACT_ECONOMY.OFFER_CHANCE_MAX,
+        chance * CONTRACT_ECONOMY.EARLY_OFFER_CHANCE_MULT);
+    }
+
+    // Совсем нечего делать — ни договоров, ни предложений: даём сразу.
+    // Игрок построил площадку и в тот же момент получил работу.
+    const hasContracts = store.getContracts(airport.id).length > 0;
+    if (CONTRACT_ECONOMY.FIRST_OFFER_GUARANTEED && !hasContracts && activeOffers.length === 0) {
+      chance = 1;
+    }
+
     if (Math.random() < chance) {
       const offer = makeContractOffer(fresh, currentTick);
       store.addContractOffer(airport.id, offer);
