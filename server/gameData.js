@@ -687,7 +687,7 @@ const BUILDINGS = {
   },
   terminal_a: {
     id: 'terminal_a', name: 'Терминал A', minLevel: 3,
-    cost: 15000, income: 75, reputation: 1, xp: 1900, removable: true, maxUpgradeLevel: 5,
+    cost: 15000, income: 0, reputation: 1, xp: 1900, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'A',
     desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Увеличивает приём пассажиров.',
   },
@@ -763,14 +763,13 @@ const BUILDINGS = {
   fire_station: {
     id: 'fire_station', name: 'Пожарная часть', minLevel: 5,
     cost: 7000, income: 0, reputation: 2, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3,
-    hidden: true,
-    desc: 'Требуется для сертификации крупных ВПП.',
+    desc: 'Тушит пожары в аэропорту. Без неё загоревшееся здание выгорает полностью и клетка освобождается; с ней пожар удаётся сбить, и объект отделывается повреждением. Дохода не приносит — это служба безопасности, а не бизнес.',
   },
   terminal_b: {
     id: 'terminal_b', name: 'Терминал B', minLevel: 5,
-    cost: 35000, income: 150, reputation: 2, xp: 3800, removable: true, maxUpgradeLevel: 5,
+    cost: 35000, income: 0, reputation: 2, xp: 3800, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'B',
-    desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Больше пассажиров, чем терминал A.',
+    desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Больше пассажиров, чем терминал A. Ценность терминала — в пропускной способности: аэропорт зарабатывает на обслуженных пассажирах.',
   },
   cafe: {
     id: 'cafe', name: 'Кафе / дьюти-фри', minLevel: 6,
@@ -809,25 +808,25 @@ const BUILDINGS = {
   },
   terminal_d: {
     id: 'terminal_d', name: 'Терминал D', minLevel: 7,
-    cost: 70000, income: 270, reputation: 3, xp: 6800, removable: true, maxUpgradeLevel: 5,
+    cost: 70000, income: 0, reputation: 3, xp: 6800, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'D',
     desc: 'Крупнейший пассажирский терминал внутренних авиалиний (ВВЛ).',
   },
   terminal_c: {
     id: 'terminal_c', name: 'Терминал C', minLevel: 5,
-    cost: 40000, income: 170, reputation: 2, xp: 4200, removable: true, maxUpgradeLevel: 5,
+    cost: 40000, income: 0, reputation: 2, xp: 4200, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'C',
     desc: 'Пассажирский терминал международных авиалиний (МВЛ). Обслуживает зарубежные рейсы.',
   },
   terminal_e: {
     id: 'terminal_e', name: 'Терминал E', minLevel: 5,
-    cost: 42000, income: 175, reputation: 2, xp: 4400, removable: true, maxUpgradeLevel: 5,
+    cost: 42000, income: 0, reputation: 2, xp: 4400, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'E',
     desc: 'Пассажирский терминал международных авиалиний (МВЛ). Обслуживает зарубежные рейсы.',
   },
   terminal_f: {
     id: 'terminal_f', name: 'Терминал F', minLevel: 8,
-    cost: 95000, income: 350, reputation: 3, xp: 8400, removable: true, maxUpgradeLevel: 5,
+    cost: 95000, income: 0, reputation: 3, xp: 8400, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'F',
     desc: 'Крупный пассажирский терминал международных авиалиний (МВЛ). Больше пассажиров, чем терминал E.',
   },
