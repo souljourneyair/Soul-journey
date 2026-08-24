@@ -652,9 +652,9 @@ function upgradeDurationTicks(def, targetLevel) {
 const BUILDINGS = {
   admin: {
     id: 'admin', name: 'Здание администрации', minLevel: 0,
-    cost: 3000, income: 15, reputation: 1, xp: 500, removable: false, maxUpgradeLevel: 5,
+    cost: 3000, income: 0, reputation: 1, xp: 500, removable: false, maxUpgradeLevel: 5,
     starter: true, unique: true,
-    desc: 'Штаб аэропорта. Приносит доход и репутацию, можно улучшать. Обязательная первая постройка в единственном экземпляре, снести нельзя.',
+    desc: 'Штаб аэропорта. Даёт репутацию и растит её с уровнем, но дохода не приносит: аэропорт зарабатывает на перевозках, а управление только стоит денег. Обязательная первая постройка в единственном экземпляре, снести нельзя.',
   },
   helipad: {
     id: 'helipad', name: 'Вертолётная стоянка', minLevel: 0,
@@ -698,12 +698,12 @@ const BUILDINGS = {
   },
   airline_office: {
     id: 'airline_office', name: 'Офис авиакомпании', minLevel: 5,
-    cost: 12000, income: 20, reputation: 1, xp: 2200, removable: true, maxUpgradeLevel: 3,
+    cost: 12000, income: 0, reputation: 1, xp: 2200, removable: true, maxUpgradeLevel: 3,
     unique: true,               // только один офис на аэропорт
     requiresAirline: true,      // доступен в каталоге только после создания АК
     rentable: false,            // нельзя сдавать в аренду / продавать — только снести
     officeIncomeWithoutAircraft: -60, // убыток в минуту, пока нет самолётов
-    desc: 'Штаб вашей авиакомпании. Открывает покупку и лизинг самолётов. Пока нет ни одного самолёта — приносит убыток. Нельзя сдать или продать, только снести (все самолёты при этом продаются).',
+    desc: 'Штаб вашей авиакомпании. Открывает покупку и лизинг самолётов. Сам дохода не приносит — авиакомпания зарабатывает рейсами, а офис только стоит денег. Пока нет ни одного самолёта, убыток заметно больше. Нельзя сдать или продать, только снести (все самолёты при этом продаются).',
   },
   stand_small: {
     id: 'stand_small', name: 'Малая стоянка ВС', minLevel: 4,
