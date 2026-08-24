@@ -1128,6 +1128,8 @@ function serializeAirport(airport) {
     terminalCapacity: { vvl: terminalCapacity(airport.id, 'vvl'), mvl: terminalCapacity(airport.id, 'mvl') },
     termQueue: (airport.termQueue || []).reduce((sum, g) => sum + g.count, 0),
     paxProcessed: airport.paxProcessed || 0,   // обработано терминалами
+    welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
+    welcomeXp: CONFIG.WELCOME_XP || 500,
     // по каждому терминалу: прилетело, обработано, улетело, сейчас в очереди
     terminalLoad: listTerminals(airport.id).map(t => {
       const st = (airport.termStats || {})[t.cellIndex] || { arrived: 0, served: 0, departed: 0 };
@@ -1246,7 +1248,9 @@ app.post('/api/airport/restart', auth, (req, res) => {
     apronBorts: [], waitingBorts: [],
     fuelStored: 0, fuelSupplier: null, fuelContract: null, fuelAutoContract: false, fuelRefillThreshold: 25,
     paxPool: { heli: 0, vvl: 0, mvl: 0 }, termQueue: [],
-    heliCarried: 0, paxServed: 0, heliFlow: { arrived: 0, departed: 0 },
+    heliCarried: 0, paxServed: 0, paxProcessed: 0, heliFlow: { arrived: 0, departed: 0 },
+    // счётчики приветствия — чтобы новый заход снова показал вступление
+    welcomeSeen: false, welcomeXpGiven: false,
   });
   res.json(serializeAirport(updated));
 });
@@ -1261,6 +1265,21 @@ app.get('/api/state', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
   res.json(serializeAirport(airport));
+});
+
+// Приветствие новичка: разовые 500 XP за вход. Начисляются один раз на
+// аэропорт и заново после «Начать сначала» — там флаги сбрасываются.
+app.post('/api/welcome/claim', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (airport.welcomeXpGiven) return res.json(serializeAirport(airport));
+  const xp = CONFIG.WELCOME_XP || 500;
+  const newXp = (airport.xp || 0) + xp;
+  const updated = store.updateAirport(airport.id, {
+    xp: newXp, level: levelFromXp(newXp),
+    welcomeXpGiven: true, welcomeSeen: true,
+  });
+  res.json({ ...serializeAirport(updated), _welcomeXp: xp });
 });
 
 // Установка названия аэропорта (при первом входе).
@@ -1608,6 +1627,18 @@ app.post('/api/build', auth, (req, res) => {
       .filter(b => b.buildingId === buildingId && (b.state || 'owned') !== 'sold').length;
     if (count >= limit) {
       return res.status(400).json({ error: 'limit_reached', message: `Достигнут лимит: максимум ${limit} шт. этого здания` });
+    }
+  }
+  // Администрация — первая постройка. Пока её нет, строить больше нечего:
+  // без штаба аэропорта не существует, и начинать с вертолётной площадки
+  // посреди пустого поля неправильно.
+  if (buildingId !== 'admin') {
+    const hasAdmin = store.getBuildingsByAirport(airport.id).some(b => b.buildingId === 'admin');
+    if (!hasAdmin) {
+      return res.status(400).json({
+        error: 'no_admin',
+        message: 'Сначала постройте здание администрации — без него аэропорта нет',
+      });
     }
   }
   if (airport.level < def.minLevel) return res.status(400).json({ error: 'level_too_low', message: `Нужен уровень ${def.minLevel}` });
@@ -2120,7 +2151,9 @@ app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
     termQueue: [],
     heliCarried: 0,
     paxServed: 0,
+    paxProcessed: 0,           // счётчик в шапке — тоже с нуля
     heliFlow: { arrived: 0, departed: 0 },
+    welcomeSeen: false, welcomeXpGiven: false,
   });
   res.json(serializeAirport(updated));
 });
@@ -2868,7 +2901,17 @@ function runTick() {
               upgradeLevel: b.pendingUpgradeLevel || (b.upgradeLevel || 1),
               constructionEndsTick: null, constructionType: null, pendingUpgradeLevel: null,
             });
-            notifications.push(`⬆️ «${def.name}» улучшен до уровня ${b.pendingUpgradeLevel}`);
+            // Опыт за апгрейд — доля от опыта за постройку. Раньше апгрейд не
+            // давал XP вовсе, и расти можно было только вширь.
+            const upXp = Math.round((def.xp || 0) * UPGRADE_ECONOMY.XP_RATE_PER_UPGRADE);
+            if (upXp > 0) {
+              const fa2 = store.getAirportById(airport.id) || airport;
+              const newXp2 = (fa2.xp || 0) + upXp;
+              const nl2 = levelFromXp(newXp2);
+              store.updateAirport(airport.id, { xp: newXp2, level: nl2 });
+              if (nl2 > fa2.level) notifications.push(`⭐ Новый уровень: ${nl2}!`);
+            }
+            notifications.push(`⬆️ «${def.name}» улучшен до уровня ${b.pendingUpgradeLevel} (+${upXp} XP)`);
           }
         }
         // пока СТРОИТСЯ (build) — здание не даёт дохода/репутации, пропускаем

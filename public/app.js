@@ -422,6 +422,7 @@ function bumpStat(el) {
 }
 
 function renderAll() {
+  checkWelcome();
   checkPendingDisasters();
   renderStats();
   renderRepairAllBar();
@@ -888,7 +889,11 @@ function renderBuildMenu() {
   const purchasable = purchasableBuildings();
 
   purchasable.forEach(def => {
-    const locked = STATE.level < def.minLevel;
+    // Пока нет администрации, доступна только она сама: без штаба аэропорта
+    // не существует, и начинать с вертолётной площадки в чистом поле нельзя.
+    const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin');
+    const needsAdminFirst = !hasAdmin && def.id !== 'admin';
+    const locked = STATE.level < def.minLevel || needsAdminFirst;
     const tooExpensive = STATE.money < def.cost;
     // лимит количества этого здания
     const limit = (STATE.buildLimits || {})[def.id];
@@ -904,8 +909,8 @@ function renderBuildMenu() {
       </div>
       <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
       <div class="build-item-meta">
-        <span>${def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое'}</span>
-        <span>Доход: +${def.income}/мин</span>
+        <span>${needsAdminFirst ? 'Сначала администрация' : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')}</span>
+        ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
         ${def.reputation ? `<span>Репутация: +${def.reputation}/мин</span>` : ''}
         <span>XP: +${def.xp}</span>
         ${limitLabel}
@@ -965,7 +970,11 @@ function renderTerritoryBuildMenu() {
   const purchasable = purchasableBuildings();
 
   purchasable.forEach(def => {
-    const locked = STATE.level < def.minLevel;
+    // Пока нет администрации, доступна только она сама: без штаба аэропорта
+    // не существует, и начинать с вертолётной площадки в чистом поле нельзя.
+    const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin');
+    const needsAdminFirst = !hasAdmin && def.id !== 'admin';
+    const locked = STATE.level < def.minLevel || needsAdminFirst;
     const tooExpensive = STATE.money < def.cost;
     const limit = (STATE.buildLimits || {})[def.id];
     const builtCount = STATE.buildings.filter(b => b.buildingId === def.id && (b.state || 'owned') !== 'sold').length;
@@ -980,8 +989,8 @@ function renderTerritoryBuildMenu() {
       </div>
       <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
       <div class="build-item-meta">
-        <span>${def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое'}</span>
-        <span>Доход: +${def.income}/мин</span>
+        <span>${needsAdminFirst ? 'Сначала администрация' : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')}</span>
+        ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
         ${def.reputation ? `<span>Репутация: +${def.reputation}/мин</span>` : ''}
         <span>XP: +${def.xp}</span>
         ${limitLabel}
@@ -2554,6 +2563,44 @@ const EVENT_TEXTS = {
     ],
   },
 };
+
+// Вступление для нового игрока: два экрана подряд, второй начисляет опыт.
+// Показывается один раз на аэропорт и заново после «Начать сначала».
+let welcomeStep = 0;
+function showWelcome() {
+  const screens = [
+    { icon: '🛩️', title: 'НАСЛЕДСТВО',
+      text: 'Привет! Твой старик завещал тебе вот эту рухлядь и поле. Надеюсь, ты сможешь с этим что-то сделать.' },
+    { icon: '⭐', title: 'ПОДАРОК',
+      text: `Вы получаете ${STATE.welcomeXp || 500} очков опыта за вход в игру.` },
+  ];
+  const cur = screens[welcomeStep];
+  $('#welcomeTitle').textContent = cur.title;
+  $('#welcomeIcon').textContent = cur.icon;
+  $('#welcomeText').textContent = cur.text;
+  $('#welcomeNext').textContent = welcomeStep === screens.length - 1 ? 'Начать' : 'Дальше';
+  $('#welcomeModal').classList.remove('hidden');
+}
+
+$('#welcomeNext')?.addEventListener('click', async () => {
+  welcomeStep++;
+  if (welcomeStep < 2) { showWelcome(); return; }
+  $('#welcomeModal').classList.add('hidden');
+  try {
+    const res = await api('/api/welcome/claim', 'POST', {});
+    STATE = res;
+    if (res._welcomeXp) toast(`+${res._welcomeXp} XP за вход в игру`);
+    renderAll();
+    updateTopboard();
+  } catch (err) { /* не критично */ }
+});
+
+function checkWelcome() {
+  if (STATE.welcomeSeen) return;
+  if (!$('#welcomeModal').classList.contains('hidden')) return;
+  welcomeStep = 0;
+  showWelcome();
+}
 
 // Показ очереди происшествий: игрок заходит и первым делом узнаёт, что
 // случилось, пока его не было. Окно блокирующее — закрывается только кнопкой.
