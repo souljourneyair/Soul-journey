@@ -378,13 +378,10 @@ function connectWs() {
       }
       // Игрок только что достиг 5 уровня — показываем предложение создать АК
       checkAirlineOffer();
-      // тост о балансе: показываем чистое изменение (доход минус содержание)
-      if (msg.income !== 0 || msg.reputation !== 0) {
-        const parts = [];
-        if (msg.income !== 0) parts.push(`${msg.income > 0 ? '+' : ''}${msg.income} у.е.`);
-        if (msg.reputation !== 0) parts.push(`${msg.reputation > 0 ? '+' : ''}${msg.reputation} реп.`);
-        if (parts.length) toast(`${parts.join(', ')} за минуту`);
-      }
+      // Тоста о заработке за минуту здесь больше нет: он выскакивал каждый
+      // тик, то есть раз в десять секунд, и перекрывал важные сообщения.
+      // Доход и репутация и так видны в шапке, а разовые события (прилёты,
+      // договоры, происшествия) приходят отдельными уведомлениями.
       if (!$('#buildingModal').classList.contains('hidden')) {
         renderBuildingModal();
       }
