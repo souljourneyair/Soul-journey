@@ -426,6 +426,7 @@ function bumpStat(el) {
 
 function renderAll() {
   checkWelcome();
+  renderFeed();
   checkPendingDisasters();
   renderStats();
   renderRepairAllBar();
@@ -2574,6 +2575,43 @@ const EVENT_TEXTS = {
     ],
   },
 };
+
+// ---------- Лента событий ----------
+// Закреплена внизу панели объектов и остаётся видимой при прокрутке таблицы.
+// Хранится на сервере, поэтому переживает перезаход: игрок видит, что
+// происходило, пока его не было.
+let feedTab = 'events';
+
+function renderFeed() {
+  const list = $('#feedEvents');
+  if (!list) return;
+  const log = (STATE.eventLog || []).slice().reverse();   // свежее сверху
+  if (!log.length) {
+    list.innerHTML = '<div class="feed-empty">Пока ничего не произошло</div>';
+    return;
+  }
+  list.innerHTML = log.map(e => `
+    <div class="feed-row kind-${e.kind}">
+      <span class="feed-time">${tickToClock(e.tick)}</span>
+      <span class="feed-text">${escapeHtml(e.text)}</span>
+    </div>`).join('');
+}
+
+document.querySelectorAll('.feed-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    feedTab = btn.dataset.feed;
+    document.querySelectorAll('.feed-tab').forEach(b =>
+      b.classList.toggle('feed-tab-active', b.dataset.feed === feedTab));
+    $('#feedEvents').classList.toggle('hidden', feedTab !== 'events');
+    $('#feedNews').classList.toggle('hidden', feedTab !== 'news');
+  });
+});
+
+$('#feedCollapse')?.addEventListener('click', () => {
+  const panel = $('#feedPanel');
+  panel.classList.toggle('collapsed');
+  $('#feedCollapse').textContent = panel.classList.contains('collapsed') ? '▴' : '▾';
+});
 
 // ---------- Расписание прилётов ----------
 // Табло: что летит, когда сядет и сколько везёт. Обновляется каждым тиком,

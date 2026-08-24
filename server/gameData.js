@@ -618,6 +618,15 @@ const XP_FOR_LEVEL = [
 // Раньше уровень штаба не влиял ни на что, кроме собственной репутации:
 // 25 200 у.е. за четыре апгрейда покупали +1.2 репутации в минуту. Теперь
 // администрация управляет аэропортом — отсюда управленческие бонусы.
+// ---------- Лента событий игрока ----------
+const EVENT_LOG = {
+  MAX_ENTRIES: 60,             // сколько записей храним
+  // Сводка о заработке за период. Игровой месяц (30 суток) — это 120 реальных
+  // часов, сводка приходила бы раз в пять суток и не имела смысла. Поэтому
+  // период — игровые сутки, то есть 4 реальных часа. Меняется одной строкой.
+  SUMMARY_PERIOD_TICKS: 1440,
+};
+
 const ADMIN_ECONOMY = {
   // Скидка на содержание ВСЕГО аэропорта: 1% на первом уровне, 3% на пятом.
   UPKEEP_DISCOUNT_BY_LEVEL: [0.01, 0.015, 0.02, 0.025, 0.03],
@@ -1083,6 +1092,7 @@ module.exports = {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
+  EVENT_LOG,
   DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,

@@ -144,6 +144,21 @@
           <tbody id="objectsTableBody"></tbody>
         </table>
       </div>
+
+      <!-- Лента: закреплена снизу, всегда поверх таблицы при прокрутке -->
+      <div class="feed-panel" id="feedPanel">
+        <div class="feed-tabs">
+          <button class="feed-tab feed-tab-active" data-feed="events">События</button>
+          <button class="feed-tab" data-feed="news">Новости</button>
+          <button class="feed-collapse" id="feedCollapse" title="Свернуть">▾</button>
+        </div>
+        <div class="feed-body" id="feedBody">
+          <div class="feed-list" id="feedEvents"></div>
+          <div class="feed-list hidden" id="feedNews">
+            <div class="feed-empty">В разработке</div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <aside class="side-panel">

@@ -17,6 +17,7 @@ const {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
+  EVENT_LOG,
   DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
@@ -180,6 +181,16 @@ function isUnderConstruction(b) {
 // Стоимость содержания аэропорта в минуту — сумма по всем зданиям игрока
 // (кроме проданных боту), растёт со стоимостью и уровнем апгрейда здания.
 // Уровень здания администрации (0 — не построена).
+// Записать событие в ленту игрока. В отличие от уведомлений по вебсокету,
+// лента переживает перезаход: игрок видит, что происходило, пока его не было.
+function logEvent(airportId, kind, text) {
+  const fresh = store.getAirportById(airportId);
+  if (!fresh) return;
+  const log = (fresh.eventLog || []).slice();
+  log.push({ tick: store.getTickCounter(), kind, text, at: Date.now() });
+  store.updateAirport(airportId, { eventLog: log.slice(-EVENT_LOG.MAX_ENTRIES) });
+}
+
 function adminLevel(airportId) {
   const b = store.getBuildingsByAirport(airportId)
     .find(x => x.buildingId === 'admin' && !x.ruined && (x.state || 'owned') === 'owned');
@@ -1149,6 +1160,7 @@ function serializeAirport(airport) {
     terminalCapacity: { vvl: terminalCapacity(airport.id, 'vvl'), mvl: terminalCapacity(airport.id, 'mvl') },
     termQueue: (airport.termQueue || []).reduce((sum, g) => sum + g.count, 0),
     paxProcessed: airport.paxProcessed || 0,   // обработано терминалами
+    eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
     welcomeXp: CONFIG.WELCOME_XP || 500,
     // по каждому терминалу: прилетело, обработано, улетело, сейчас в очереди
@@ -2992,7 +3004,11 @@ function runTick() {
             }
             store.updateAirport(airport.id, p);
             notifications.push(`🏗️ «${def.name}» построен и введён в эксплуатацию (+${gainedXp} XP)`);
-            if (nl > fa.level) notifications.push(`⭐ Новый уровень: ${nl}!`);
+            logEvent(airport.id, 'build', `Построено: ${def.name} (+${gainedXp} XP)`);
+            if (nl > fa.level) {
+              notifications.push(`⭐ Новый уровень: ${nl}!`);
+              logEvent(airport.id, 'level', `Достигнут уровень ${nl}`);
+            }
           } else if (b.constructionType === 'upgrade') {
             // апгрейд завершён: применяем новый уровень
             store.updateBuildingAtCell(airport.id, b.cellIndex, {
@@ -3007,9 +3023,13 @@ function runTick() {
               const newXp2 = (fa2.xp || 0) + upXp;
               const nl2 = levelFromXp(newXp2);
               store.updateAirport(airport.id, { xp: newXp2, level: nl2 });
-              if (nl2 > fa2.level) notifications.push(`⭐ Новый уровень: ${nl2}!`);
+              if (nl2 > fa2.level) {
+                notifications.push(`⭐ Новый уровень: ${nl2}!`);
+                logEvent(airport.id, 'level', `Достигнут уровень ${nl2}`);
+              }
             }
             notifications.push(`⬆️ «${def.name}» улучшен до уровня ${b.pendingUpgradeLevel} (+${upXp} XP)`);
+            logEvent(airport.id, 'upgrade', `Улучшено: ${def.name} до ур. ${b.pendingUpgradeLevel} (+${upXp} XP)`);
           }
         }
         // пока СТРОИТСЯ (build) — здание не даёт дохода/репутации, пропускаем
@@ -3172,10 +3192,36 @@ function runTick() {
     const xpPerTick = CONFIG.XP_PER_TICK_BASE + freshAirport.level * CONFIG.XP_PER_TICK_PER_LEVEL;
     const newXp = freshAirport.xp + xpPerTick;
     const newLevel = levelFromXp(newXp);
-    const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince };
+    // Копим итоги периода для сводки в ленте: сколько заработано и как
+    // изменилась репутация. Считаем чистый результат — доход минус содержание.
+    const st = freshAirport.periodStats || { sinceTick: currentTick, money: 0, repGain: 0, repLoss: 0 };
+    const repDelta = newRep - (freshAirport.reputation || 0);
+    const periodStats = {
+      sinceTick: st.sinceTick != null ? st.sinceTick : currentTick,
+      money: (st.money || 0) + (incomePerTick - upkeep),
+      repGain: (st.repGain || 0) + Math.max(0, repDelta),
+      repLoss: (st.repLoss || 0) + Math.max(0, -repDelta),
+    };
+
+    const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince, periodStats };
+    // Сводка за период: раз в игровые сутки подводим итог заработка и репутации.
+    if (currentTick - periodStats.sinceTick >= EVENT_LOG.SUMMARY_PERIOD_TICKS) {
+      const m = Math.round(periodStats.money);
+      logEvent(airport.id, 'summary', m >= 0
+        ? `Заработано за сутки: ${m.toLocaleString('ru-RU')} у.е.`
+        : `Убыток за сутки: ${Math.abs(m).toLocaleString('ru-RU')} у.е.`);
+      if (periodStats.repGain >= 1) {
+        logEvent(airport.id, 'summary', `Репутация за сутки: +${Math.round(periodStats.repGain).toLocaleString('ru-RU')}`);
+      }
+      if (periodStats.repLoss >= 1) {
+        logEvent(airport.id, 'summary', `Потеряно репутации за сутки: ${Math.round(periodStats.repLoss).toLocaleString('ru-RU')}`);
+      }
+      patch.periodStats = { sinceTick: currentTick, money: 0, repGain: 0, repLoss: 0 };
+    }
     if (bankrupt) patch.bankrupt = true;
     if (newLevel > freshAirport.level) {
       notifications.push(`⭐ Новый уровень: ${newLevel}!`);
+      logEvent(airport.id, 'level', `Достигнут уровень ${newLevel}`);
       if (newLevel >= CONFIG.TARGET_LEVEL && !freshAirport.reachedLevel10At) {
         patch.reachedLevel10At = Date.now();
       }
