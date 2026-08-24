@@ -544,9 +544,24 @@ const BUILDING_GROUPS = [
   { key: 'towers', title: 'Диспетчерская', members: ['tower'] },
   { key: 'hangars', title: 'Ангары', members: ['hangar'] },
   { key: 'fuel', title: 'Топливо', members: ['fuel_depot'] },
+  // Ловушка для всего остального: пожарная часть, коммерция, грузовые.
+  // members можно не пополнять — сюда автоматически попадает любое здание,
+  // не попавшее ни в одну группу выше. Раньше такое здание просто исчезало
+  // из таблицы: список групп работал как белый список.
+  { key: 'other', title: 'Другие здания', members: ['fire_station'] },
 ];
 // Здания вне групп (отдельные строки сверху).
 const UNGROUPED_BUILDINGS = ['admin', 'airline_office'];
+
+// Все id, которые где-то учтены — чтобы найти неучтённые.
+function groupedBuildingIds() {
+  const ids = new Set(UNGROUPED_BUILDINGS);
+  for (const g of BUILDING_GROUPS) {
+    if (g.subgroups) g.subgroups.forEach(sg => sg.members.forEach(id => ids.add(id)));
+    else g.members.forEach(id => ids.add(id));
+  }
+  return ids;
+}
 
 // Какие группы/подгруппы сейчас раскрыты (по key). Несколько могут быть открыты.
 let openGroups = new Set();
@@ -565,18 +580,23 @@ function toggleBuildingAccordion(cellIndex) {
 
 // Раскрыть группу (и подгруппу), где лежит здание, и само здание — по клику с клетки.
 function openBuildingInTable(buildingId, cellIndex) {
+  let found = false;
   for (const group of BUILDING_GROUPS) {
     if (group.subgroups) {
       for (const sg of group.subgroups) {
         if (sg.members.includes(buildingId)) {
           openGroups.add(group.key);
           openGroups.add(sg.key);
+          found = true;
         }
       }
     } else if (group.members.includes(buildingId)) {
       openGroups.add(group.key);
+      found = true;
     }
   }
+  // здание вне групп лежит в «Других зданиях» — раскрываем их
+  if (!found && !UNGROUPED_BUILDINGS.includes(buildingId)) openGroups.add('other');
   openBuildingCells.add(cellIndex);
   accRentView = 'menu'; accRentOffers = null;
 }
@@ -610,6 +630,10 @@ function renderObjectsTable(force) {
 
   const byId = (id) => buildings.filter(b => b.buildingId === id);
 
+  // Здания, не попавшие ни в одну группу, показываем в «Других зданиях».
+  const known = groupedBuildingIds();
+  const strays = [...new Set(buildings.map(b => b.buildingId).filter(id => !known.has(id)))];
+
   // 1) Здания вне групп (админ, офис) — отдельные строки
   UNGROUPED_BUILDINGS.forEach(id => {
     byId(id).forEach(b => renderBuildingRow(b, tbody, 0));
@@ -634,7 +658,8 @@ function renderObjectsTable(force) {
         });
       }
     } else {
-      const groupBuildings = group.members.flatMap(id => byId(id));
+      const members = group.key === 'other' ? [...group.members, ...strays] : group.members;
+      const groupBuildings = members.flatMap(id => byId(id));
       if (groupBuildings.length === 0) return;
       renderGroupHeaderRow(group.key, group.title, groupBuildings.length, tbody, 0);
       if (openGroups.has(group.key)) {
