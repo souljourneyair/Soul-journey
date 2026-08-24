@@ -1265,6 +1265,14 @@ function renderBuildingPanel(cellIndex, container) {
     }
 
     let adminInfo = '';
+    // Что даёт текущий уровень штаба — иначе апгрейд выглядит бессмысленным.
+    if (building.buildingId === 'admin' && STATE.adminBonuses) {
+      const a = STATE.adminBonuses;
+      adminInfo +=
+        `<span>Содержание аэропорта: −${(a.upkeepDiscount * 100).toFixed(1)}%</span>` +
+        `<span>Скорость работ: −${Math.round(a.buildSpeedBonus * 100)}% времени</span>` +
+        `<span>Предложений договоров: до ${a.maxOffers}${a.nextMaxOffers ? ` (на след. уровне ${a.nextMaxOffers})` : ''}</span>`;
+    }
     if (building.buildingId === 'admin') {
       const xpLeft = STATE.level >= 10 ? 0 : Math.max(0, (STATE.xpForNextLevel || 0) - (STATE.xp || 0));
       adminInfo =

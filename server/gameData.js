@@ -614,6 +614,36 @@ const XP_FOR_LEVEL = [
 // меняет её тип/иконку автоматически — иконку под конкретный (тип, уровень)
 // назначает админ через Галерею (см. buildingSkins в store.js), одна и та
 // же для всех игроков.
+// ---------- Что даёт апгрейд администрации ----------
+// Раньше уровень штаба не влиял ни на что, кроме собственной репутации:
+// 25 200 у.е. за четыре апгрейда покупали +1.2 репутации в минуту. Теперь
+// администрация управляет аэропортом — отсюда управленческие бонусы.
+const ADMIN_ECONOMY = {
+  // Скидка на содержание ВСЕГО аэропорта: 1% на первом уровне, 3% на пятом.
+  UPKEEP_DISCOUNT_BY_LEVEL: [0.01, 0.015, 0.02, 0.025, 0.03],
+  // Ускорение любых работ: 2% за уровень, до 10% на пятом.
+  BUILD_SPEED_BONUS_PER_LEVEL: 0.02,
+  // Сколько предложений договоров может висеть одновременно.
+  MAX_OFFERS_BY_LEVEL: [4, 5, 6, 7, 8],
+};
+
+function adminUpkeepDiscount(level) {
+  const arr = ADMIN_ECONOMY.UPKEEP_DISCOUNT_BY_LEVEL;
+  if (!level) return 0;                       // администрации нет
+  return arr[Math.min(Math.max(level - 1, 0), arr.length - 1)];
+}
+
+function adminBuildSpeedMult(level) {
+  if (!level) return 1;
+  return Math.max(0.5, 1 - level * ADMIN_ECONOMY.BUILD_SPEED_BONUS_PER_LEVEL);
+}
+
+function adminMaxOffers(level) {
+  const arr = ADMIN_ECONOMY.MAX_OFFERS_BY_LEVEL;
+  if (!level) return arr[0];
+  return arr[Math.min(Math.max(level - 1, 0), arr.length - 1)];
+}
+
 const UPGRADE_ECONOMY = {
   // XP за апгрейд — доля от XP за постройку этого здания. Раньше апгрейд не
   // давал опыта вовсе, и единственным способом расти было строить вширь.
@@ -666,9 +696,9 @@ function upgradeDurationTicks(def, targetLevel) {
 const BUILDINGS = {
   admin: {
     id: 'admin', name: 'Здание администрации', minLevel: 0,
-    cost: 3000, income: 0, reputation: 1, xp: 500, removable: false, maxUpgradeLevel: 5,
+    cost: 3000, income: 0, reputation: 0.2, xp: 500, removable: false, maxUpgradeLevel: 5,
     starter: true, unique: true,
-    desc: 'Штаб аэропорта. Даёт репутацию и растит её с уровнем, но дохода не приносит: аэропорт зарабатывает на перевозках, а управление только стоит денег. Обязательная первая постройка в единственном экземпляре, снести нельзя.',
+    desc: 'Штаб аэропорта — первая постройка, без неё строить больше нечего. Дохода не приносит: аэропорт зарабатывает на перевозках, а управление стоит денег. Но уровень штаба управляет всем аэропортом: снижает содержание (1% на ур.1, 3% на ур.5), ускоряет любые работы (2% за уровень) и расширяет переговоры — от 4 предложений договоров на первом уровне до 8 на пятом. В единственном экземпляре, снести нельзя.',
   },
   helipad: {
     id: 'helipad', name: 'Вертолётная стоянка', minLevel: 0,
@@ -1052,6 +1082,7 @@ module.exports = {
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
+  ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
   DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,

@@ -16,6 +16,7 @@ const {
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
+  ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
   DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
@@ -178,6 +179,13 @@ function isUnderConstruction(b) {
 
 // Стоимость содержания аэропорта в минуту — сумма по всем зданиям игрока
 // (кроме проданных боту), растёт со стоимостью и уровнем апгрейда здания.
+// Уровень здания администрации (0 — не построена).
+function adminLevel(airportId) {
+  const b = store.getBuildingsByAirport(airportId)
+    .find(x => x.buildingId === 'admin' && !x.ruined && (x.state || 'owned') === 'owned');
+  return b ? (b.upgradeLevel || 1) : 0;
+}
+
 function upkeepPerTick(airportId) {
   const buildings = store.getBuildingsByAirport(airportId);
   let upkeep = 0;
@@ -197,7 +205,9 @@ function upkeepPerTick(airportId) {
     const upgradeMult = 1 + (level - 1) * CONFIG.UPKEEP_UPGRADE_RATE;
     upkeep += perBuilding * upgradeMult;
   }
-  return upkeep;
+  // Администрация управляет расходами: чем выше её уровень, тем дешевле
+  // обходится содержание всего аэропорта.
+  return upkeep * (1 - adminUpkeepDiscount(adminLevel(airportId)));
 }
 
 // Дно долга = суммарная базовая стоимость всех зданий игрока (по каталогу).
@@ -1091,6 +1101,17 @@ function serializeAirport(airport) {
     // а не по порядку клеток, поэтому отдаём фактическую привязку
     standLoad: occupiedStands(airport.id),
     repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
+    // что даёт текущий уровень администрации
+    adminBonuses: (() => {
+      const lvl = adminLevel(airport.id);
+      return {
+        level: lvl,
+        upkeepDiscount: adminUpkeepDiscount(lvl),
+        buildSpeedBonus: 1 - adminBuildSpeedMult(lvl),
+        maxOffers: adminMaxOffers(lvl),
+        nextMaxOffers: lvl > 0 && lvl < 5 ? adminMaxOffers(lvl + 1) : null,
+      };
+    })(),
     // происшествия, которые игрок ещё не видел (показываются модальным окном)
     pendingDisasters: airport.pendingDisasters || [],
     stormTicksLeft: airport.stormEndsTick
@@ -1655,7 +1676,8 @@ app.post('/api/build', auth, (req, res) => {
   // Деньги списываются сразу. XP начислим при ЗАВЕРШЕНИИ стройки (в тике),
   // поэтому уровень пока не трогаем.
   const newMoney = airport.money - def.cost;
-  const endsTick = store.getTickCounter() + buildDurationTicks(def);
+  const endsTick = store.getTickCounter()
+    + Math.max(1, Math.round(buildDurationTicks(def) * adminBuildSpeedMult(adminLevel(airport.id))));
   store.addBuilding(airport.id, cellIndex, buildingId, { type: 'build', endsTick, xp: def.xp });
   const updated = store.updateAirport(airport.id, { money: newMoney });
 
@@ -1931,7 +1953,8 @@ app.post('/api/building/upgrade', auth, (req, res) => {
   if (airport.money < cost) return res.status(400).json({ error: 'not_enough_money' });
 
   // Деньги списываются сразу, уровень применится при ЗАВЕРШЕНИИ (в тике).
-  const endsTick = store.getTickCounter() + upgradeDurationTicks(def, nextLevel);
+  const endsTick = store.getTickCounter()
+    + Math.max(1, Math.round(upgradeDurationTicks(def, nextLevel) * adminBuildSpeedMult(adminLevel(airport.id))));
   store.updateBuildingAtCell(airport.id, building.cellIndex, {
     constructionEndsTick: endsTick,
     constructionType: 'upgrade',
@@ -2985,7 +3008,8 @@ function runTick() {
     reputationPerTick += termResult.reputation;
 
     incomePerTick = Math.round(incomePerTick);
-    reputationPerTick = Math.round(reputationPerTick);
+    // Не округляем: администрация даёт 0.2/мин, при округлении это стало бы
+    // нулём. Репутация хранится дробной, в интерфейсе показывается целой.
     const freshAirport = store.getAirportByUserId(airport.userId) || airport;
 
     // --- Отложенные происшествия, назначенные админом ---
@@ -3462,7 +3486,8 @@ function processContractsTick(airport, currentTick, notifications) {
 
   // 5) Появление новых предложений
   const activeOffers = store.getContractOffers(airport.id);
-  if (canAcceptContracts(airport.id) && activeOffers.length < CONTRACT_ECONOMY.MAX_OFFERS) {
+  const maxOffers = adminMaxOffers(adminLevel(airport.id));
+  if (canAcceptContracts(airport.id) && activeOffers.length < maxOffers) {
     const pads = countHelipads(airport.id);
     const stands = listStands(airport.id).length;
     let chance = Math.min(
