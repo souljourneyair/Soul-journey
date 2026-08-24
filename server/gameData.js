@@ -718,7 +718,7 @@ const BUILDINGS = {
   },
   tower: {
     id: 'tower', name: 'Диспетчерская вышка', minLevel: 2,
-    cost: 8000, income: 0, reputation: 0, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5,
+    cost: 6000, upgradeCostMult: 0.8, income: 0, reputation: 0, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     desc: 'Задаёт интервал между операциями на каждой ВПП: без вышки 20 мин, ур.1 — 15, ур.2 — 12, ур.3 — 9, ур.4 — 6, ур.5 — 4 мин. Интервал действует на каждую полосу отдельно, поэтому вторая и третья ВПП добавляют пропускной способности. Несколько вышек делят интервал между собой. Обязательна для полётов своих самолётов.',
   },
   runway_small: {
@@ -736,11 +736,11 @@ const BUILDINGS = {
       'Асфальт, оснащена глиссадой и огнями PAPI',
       'Самое современное покрытие, оснащена по последнему слову техники',
     ],
-    desc: 'Принимает только малые самолёты внутренних авиалиний (ВВЛ). Апгрейд повышает пропускную способность: 40 посадок за игровые сутки на ур.1, 320 на ур.5.',
+    desc: 'Принимает только малые самолёты внутренних авиалиний (ВВЛ). Одной полосы мало: самолётные договоры приходят, только когда есть ВПП, стоянка И пассажирский терминал — без терминала возить будет некого. Апгрейд повышает пропускную способность: 40 посадок за игровые сутки на ур.1, 320 на ур.5.',
   },
   terminal_a: {
     id: 'terminal_a', name: 'Терминал A', minLevel: 3,
-    cost: 15000, income: 0, reputation: 1, xp: 1900, removable: true, maxUpgradeLevel: 5,
+    cost: 30000, income: 0, reputation: 1, xp: 1900, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'A',
     desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Увеличивает приём пассажиров.',
   },
@@ -784,7 +784,7 @@ const BUILDINGS = {
   },
   hangar: {
     id: 'hangar', name: 'Ангар', minLevel: 3,
-    cost: 8000, income: 0,  // инфраструктура: доход от работы, не пассивный
+    cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, reputation: 0, xp: 900, removable: true, maxUpgradeLevel: 4,
     aircraftSlots: 1, // базово 1 место, +1 за каждый уровень апгрейда (ур.1→1 ... ур.4→4)
     aircraftSlotsPerLevel: true,
@@ -805,7 +805,7 @@ const BUILDINGS = {
       'Многослойная ВПП, оснащена глиссадой и огнями PAPI',
       'Самое современное покрытие, оснащена по последнему слову техники',
     ],
-    desc: 'Принимает малые и средние самолёты внутренних и международных авиалиний (ВВЛ+МВЛ). Апгрейд повышает пропускную способность: 80 посадок за игровые сутки на ур.1, 560 на ур.5.',
+    desc: 'Принимает малые и средние самолёты внутренних и международных авиалиний (ВВЛ+МВЛ). Самолётные договоры приходят только при наличии ВПП, стоянки И пассажирского терминала. Апгрейд повышает пропускную способность: 80 посадок за игровые сутки на ур.1, 560 на ур.5.',
   },
   cargo_terminal: {
     id: 'cargo_terminal', name: 'Грузовой терминал', minLevel: 5,
@@ -815,12 +815,12 @@ const BUILDINGS = {
   },
   fire_station: {
     id: 'fire_station', name: 'Пожарная часть', minLevel: 5,
-    cost: 7000, income: 0, reputation: 2, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3,
+    cost: 12000, income: 0, reputation: 2, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3,
     desc: 'Тушит пожары в аэропорту. Без неё загоревшееся здание выгорает полностью и клетка освобождается; с ней пожар удаётся сбить, и объект отделывается повреждением. Дохода не приносит — это служба безопасности, а не бизнес.',
   },
   terminal_b: {
     id: 'terminal_b', name: 'Терминал B', minLevel: 5,
-    cost: 35000, income: 0, reputation: 2, xp: 3800, removable: true, maxUpgradeLevel: 5,
+    cost: 60000, income: 0, reputation: 2, xp: 3800, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'B',
     desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Больше пассажиров, чем терминал A. Ценность терминала — в пропускной способности: аэропорт зарабатывает на обслуженных пассажирах.',
   },
@@ -851,7 +851,7 @@ const BUILDINGS = {
       'Многослойная ВПП, оснащена глиссадой и огнями PAPI',
       'Самое современное покрытие, оснащена по последнему слову техники',
     ],
-    desc: 'Принимает малые, средние и большие самолёты внутренних и международных авиалиний (ВВЛ+МВЛ). Апгрейд повышает пропускную способность: 160 посадок за игровые сутки на ур.1, 760 на ур.5.',
+    desc: 'Принимает малые, средние и большие самолёты внутренних и международных авиалиний (ВВЛ+МВЛ). Самолётные договоры приходят только при наличии ВПП, стоянки И пассажирского терминала. Апгрейд повышает пропускную способность: 160 посадок за игровые сутки на ур.1, 760 на ур.5.',
   },
   vip_lounge: {
     id: 'vip_lounge', name: 'VIP-зал', minLevel: 7,
@@ -861,25 +861,25 @@ const BUILDINGS = {
   },
   terminal_d: {
     id: 'terminal_d', name: 'Терминал D', minLevel: 7,
-    cost: 70000, income: 0, reputation: 3, xp: 6800, removable: true, maxUpgradeLevel: 5,
+    cost: 130000, income: 0, reputation: 3, xp: 6800, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'D',
     desc: 'Крупнейший пассажирский терминал внутренних авиалиний (ВВЛ).',
   },
   terminal_c: {
     id: 'terminal_c', name: 'Терминал C', minLevel: 5,
-    cost: 40000, income: 0, reputation: 2, xp: 4200, removable: true, maxUpgradeLevel: 5,
+    cost: 70000, income: 0, reputation: 2, xp: 4200, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'C',
     desc: 'Пассажирский терминал международных авиалиний (МВЛ). Обслуживает зарубежные рейсы.',
   },
   terminal_e: {
     id: 'terminal_e', name: 'Терминал E', minLevel: 5,
-    cost: 42000, income: 0, reputation: 2, xp: 4400, removable: true, maxUpgradeLevel: 5,
+    cost: 75000, income: 0, reputation: 2, xp: 4400, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'E',
     desc: 'Пассажирский терминал международных авиалиний (МВЛ). Обслуживает зарубежные рейсы.',
   },
   terminal_f: {
     id: 'terminal_f', name: 'Терминал F', minLevel: 8,
-    cost: 95000, income: 0, reputation: 3, xp: 8400, removable: true, maxUpgradeLevel: 5,
+    cost: 160000, income: 0, reputation: 3, xp: 8400, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'F',
     desc: 'Крупный пассажирский терминал международных авиалиний (МВЛ). Больше пассажиров, чем терминал E.',
   },
