@@ -1175,6 +1175,15 @@ function serializeAirport(airport) {
         repairing: b.repairEndsTick != null && nowTick < b.repairEndsTick,
         repairTicksLeft: b.repairEndsTick ? Math.max(0, b.repairEndsTick - nowTick) : 0,
         repairCost: (b.wear || 0) >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR && def ? damageRepairCost(def, b.wear || 0) : 0,
+        // содержание именно этого объекта на его текущем уровне
+        upkeep: def ? Math.round(
+          (CONFIG.UPKEEP_BASE_PER_BUILDING + (def.cost || 0) *
+            (def.infrastructure ? CONFIG.UPKEEP_INFRA_COST_RATE : CONFIG.UPKEEP_COST_RATE))
+          * (1 + (level - 1) * CONFIG.UPKEEP_UPGRADE_RATE)) : 0,
+        // штраф за пустой штаб (только у офиса, когда нет самолётов)
+        emptyOfficePenalty: def && def.id === 'airline_office'
+          ? Math.round((def.officeIncomeWithoutAircraft || -60) * (1 + (level - 1) * CONFIG.UPKEEP_UPGRADE_RATE))
+          : 0,
         ruinedDemolishCost: b.ruined && def ? ruinedDemolishCost(def) : 0,
         constructionTotal,
         pendingUpgradeLevel: b.pendingUpgradeLevel || null,
@@ -2895,11 +2904,16 @@ function runTick() {
       const damageMult = b.ruined ? 0 : damageMultiplier(b.wear || 0, repairingNow);
       let income;
       if (def.id === 'airline_office') {
-        // офис: пока нет самолётов — убыток; есть хотя бы один — обычный доход
+        // Офис дохода не приносит — авиакомпания зарабатывает рейсами. Пока
+        // нет ни одного самолёта, сверх обычного содержания списывается
+        // штраф за пустой штаб. Он растёт с уровнем по той же ставке, что и
+        // содержание: чем крупнее офис, тем дороже держать его без дела.
         const fleetCount = store.getAircraftByAirport(airport.id).length;
+        const emptyPenalty = (def.officeIncomeWithoutAircraft || -60)
+          * (1 + ((b.upgradeLevel || 1) - 1) * CONFIG.UPKEEP_UPGRADE_RATE);
         income = fleetCount > 0
           ? Math.round(def.income * upgradeMult * workPenalty * damageMult)
-          : (def.officeIncomeWithoutAircraft || -60);
+          : Math.round(emptyPenalty);
       } else {
         income = state === 'rented'
           ? (b.rentPrice || def.income)   // аренду платит бот, повреждения его забота

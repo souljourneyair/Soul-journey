@@ -1217,7 +1217,28 @@ function renderBuildingPanel(cellIndex, container) {
     // инфраструктура (income 0) — показываем статус, не "+0/мин"
     const incomeLine = isInfra
       ? `<span>${infraStatusText(building)}</span>`
-      : `<span>Доход: +${Math.round(def.income * upgradeMult(building.upgradeLevel))}/мин</span>`;
+      : (def.income > 0
+        ? `<span>Доход: +${Math.round(def.income * upgradeMult(building.upgradeLevel))}/мин</span>`
+        : '');
+
+    // Содержание объекта — видно у каждого здания: теперь это основная статья,
+    // ради которой игрок решает, строить и качать ли.
+    const upkeepLine = building.upkeep
+      ? `<span>Содержание: −${building.upkeep}/мин</span>` : '';
+
+    // Офис: расходы расписаны отдельно, потому что зависят от наличия флота.
+    let officeInfo = '';
+    if (building.buildingId === 'airline_office') {
+      const fleet = (STATE.aircraft || []).length;
+      const penalty = Math.abs(building.emptyOfficePenalty || 0);
+      const total = (building.upkeep || 0) + (fleet > 0 ? 0 : penalty);
+      officeInfo =
+        `<span>Самолётов в парке: ${fleet}</span>` +
+        (fleet > 0
+          ? `<span>Расходы: −${total}/мин</span>`
+          : `<span class="term-queue">Штаб без флота: −${penalty}/мин сверху, итого −${total}/мин</span>`) +
+        `<span>Дохода не приносит — авиакомпания зарабатывает рейсами</span>`;
+    }
 
     // Здание администрации — центр управления аэропортом: сюда переехали из
     // шапки уровень и общие расходы, там они занимали место и обновлялись
@@ -1244,7 +1265,7 @@ function renderBuildingPanel(cellIndex, container) {
         `<span>Пассажиров за всё время: ${(STATE.paxServed || 0).toLocaleString('ru-RU')}</span>` +
         `<span>Из них обработано терминалами: ${(STATE.paxProcessed || 0).toLocaleString('ru-RU')}</span>`;
     }
-    statsHtml = `${incomeLine}${termInfo}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
+    statsHtml = `${incomeLine}${upkeepLine}${officeInfo}${termInfo}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
   } else if (state === 'listed') {
     statsHtml = `<span>На бирже — дохода нет, ждём ботов</span>`;
   } else if (state === 'rented') {
