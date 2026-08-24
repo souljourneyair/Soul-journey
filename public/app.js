@@ -426,6 +426,7 @@ function bumpStat(el) {
 
 function renderAll() {
   checkWelcome();
+  checkLevel2Bonus();
   renderFeed();
   checkPendingDisasters();
   renderStats();
@@ -897,7 +898,12 @@ function renderBuildMenu() {
     // не существует, и начинать с вертолётной площадки в чистом поле нельзя.
     const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin');
     const needsAdminFirst = !hasAdmin && def.id !== 'admin';
-    const locked = STATE.level < def.minLevel || needsAdminFirst;
+    // Репутация как ключ и цепочка построек: здание может ждать не уровня,
+    // а доверия авиакомпаний или предыдущего объекта в цепочке.
+    const needsRep = def.minReputation && STATE.reputation < def.minReputation;
+    const needsPrev = def.requiresBuilt && !STATE.buildings.some(b =>
+      b.buildingId === def.requiresBuilt && !b.constructionType && !b.ruined);
+    const locked = STATE.level < def.minLevel || needsAdminFirst || needsRep || needsPrev;
     const tooExpensive = STATE.money < def.cost;
     // лимит количества этого здания
     const limit = (STATE.buildLimits || {})[def.id];
@@ -913,7 +919,12 @@ function renderBuildMenu() {
       </div>
       <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
       <div class="build-item-meta">
-        <span>${needsAdminFirst ? 'Сначала администрация' : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')}</span>
+        <span>${
+          needsAdminFirst ? 'Сначала администрация'
+          : needsPrev ? `Нужен: ${displayBuildingName(def.requiresBuilt)}`
+          : needsRep ? `Нужна репутация ${def.minReputation}`
+          : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
+        }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
         ${def.reputation ? `<span>Репутация: +${def.reputation}/мин</span>` : ''}
         <span>XP: +${def.xp}</span>
@@ -978,7 +989,12 @@ function renderTerritoryBuildMenu() {
     // не существует, и начинать с вертолётной площадки в чистом поле нельзя.
     const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin');
     const needsAdminFirst = !hasAdmin && def.id !== 'admin';
-    const locked = STATE.level < def.minLevel || needsAdminFirst;
+    // Репутация как ключ и цепочка построек: здание может ждать не уровня,
+    // а доверия авиакомпаний или предыдущего объекта в цепочке.
+    const needsRep = def.minReputation && STATE.reputation < def.minReputation;
+    const needsPrev = def.requiresBuilt && !STATE.buildings.some(b =>
+      b.buildingId === def.requiresBuilt && !b.constructionType && !b.ruined);
+    const locked = STATE.level < def.minLevel || needsAdminFirst || needsRep || needsPrev;
     const tooExpensive = STATE.money < def.cost;
     const limit = (STATE.buildLimits || {})[def.id];
     const builtCount = STATE.buildings.filter(b => b.buildingId === def.id && (b.state || 'owned') !== 'sold').length;
@@ -993,7 +1009,12 @@ function renderTerritoryBuildMenu() {
       </div>
       <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
       <div class="build-item-meta">
-        <span>${needsAdminFirst ? 'Сначала администрация' : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')}</span>
+        <span>${
+          needsAdminFirst ? 'Сначала администрация'
+          : needsPrev ? `Нужен: ${displayBuildingName(def.requiresBuilt)}`
+          : needsRep ? `Нужна репутация ${def.minReputation}`
+          : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
+        }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
         ${def.reputation ? `<span>Репутация: +${def.reputation}/мин</span>` : ''}
         <span>XP: +${def.xp}</span>
@@ -2698,6 +2719,14 @@ function showWelcome() {
 }
 
 $('#welcomeNext')?.addEventListener('click', async () => {
+  // окно бонуса за второй уровень
+  if (welcomeStep === 99) {
+    $('#welcomeModal').classList.add('hidden');
+    welcomeStep = 0; level2Shown = false;
+    try { STATE = await api('/api/level2-bonus/ack', 'POST', {}); renderAll(); updateTopboard(); }
+    catch (err) { /* покажем снова при следующем заходе */ }
+    return;
+  }
   welcomeStep++;
   if (welcomeStep < 2) { showWelcome(); return; }
   $('#welcomeModal').classList.add('hidden');
@@ -2709,6 +2738,22 @@ $('#welcomeNext')?.addEventListener('click', async () => {
     updateTopboard();
   } catch (err) { /* не критично */ }
 });
+
+// Поздравление со вторым уровнем и выдачей бонуса.
+let level2Shown = false;
+async function checkLevel2Bonus() {
+  if (!STATE.pendingLevel2Bonus || level2Shown) return;
+  level2Shown = true;
+  const b = STATE.level2Bonus || { xp: 1000, rep: 5 };
+  $('#welcomeTitle').textContent = 'ВТОРОЙ УРОВЕНЬ';
+  $('#welcomeIcon').textContent = '🎉';
+  $('#welcomeText').textContent =
+    `Поздравляем! Аэропорт вышел на второй уровень. Авиакомпании начали к вам присматриваться. ` +
+    `Ваш бонус: +${b.xp} очков опыта и +${b.rep} репутации.`;
+  $('#welcomeNext').textContent = 'Забрать';
+  $('#welcomeModal').classList.remove('hidden');
+  welcomeStep = 99;   // отличаем от вступления
+}
 
 function checkWelcome() {
   if (STATE.welcomeSeen) return;

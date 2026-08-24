@@ -5,6 +5,10 @@
 const CONFIG = {
   START_MONEY: 15000,
   WELCOME_XP: 500,             // разовый опыт за вход в игру (вступление)
+  HELI_XP_PER_ARRIVAL: 5,      // опыт за принятый вертолёт
+  HELI_XP_UNTIL_LEVEL: 3,      // ...только пока уровень ниже этого
+  LEVEL2_BONUS_XP: 1000,       // подарок за второй уровень
+  LEVEL2_BONUS_REP: 5,
   START_GRID_SIZE: 4,      // 4x4 = 16 стартовых клеток
   MAX_GRID_SIZE: 8,        // максимум 8x8 = 64 клетки после всех покупок земли
   TICK_MS: 10 * 1000,      // 1 тик = 10 секунд реального времени (игровая минута)
@@ -717,12 +721,12 @@ const BUILDINGS = {
     desc: 'Источник дохода — мелкие вертолётные чартеры. Обычное здание: можно строить, улучшать, сдавать, продавать и сносить.',
   },
   tower: {
-    id: 'tower', name: 'Диспетчерская вышка', minLevel: 2,
-    cost: 6000, upgradeCostMult: 0.8, income: 0, reputation: 0, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5,
+    id: 'tower', name: 'Диспетчерская вышка', 
+    cost: 6000, upgradeCostMult: 0.8, income: 0, reputation: 0, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5, minLevel: 3, requiresBuilt: 'runway_small',
     desc: 'Задаёт интервал между операциями на каждой ВПП: без вышки 20 мин, ур.1 — 15, ур.2 — 12, ур.3 — 9, ур.4 — 6, ур.5 — 4 мин. Интервал действует на каждую полосу отдельно, поэтому вторая и третья ВПП добавляют пропускной способности. Несколько вышек делят интервал между собой. Обязательна для полётов своих самолётов.',
   },
   runway_small: {
-    id: 'runway_small', name: 'Малая ВПП', minLevel: 3,
+    id: 'runway_small', name: 'Малая ВПП', 
     cost: 12000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, reputation: 0, xp: 1600, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     isRunway: true, lineType: 'vvl',
@@ -735,13 +739,13 @@ const BUILDINGS = {
       'Бетон, оснащена рулёжными огнями',
       'Асфальт, оснащена глиссадой и огнями PAPI',
       'Самое современное покрытие, оснащена по последнему слову техники',
-    ],
+    ], minLevel: 3, requiresBuilt: 'stand_small',
     desc: 'Принимает только малые самолёты внутренних авиалиний (ВВЛ). Одной полосы мало: самолётные договоры приходят, только когда есть ВПП, стоянка И пассажирский терминал — без терминала возить будет некого. Апгрейд повышает пропускную способность: 40 посадок за игровые сутки на ур.1, 320 на ур.5.',
   },
   terminal_a: {
-    id: 'terminal_a', name: 'Терминал A', minLevel: 3,
+    id: 'terminal_a', name: 'Терминал A', 
     cost: 30000, income: 0, reputation: 1, xp: 1900, removable: true, maxUpgradeLevel: 5,
-    lineType: 'vvl', terminalClass: 'A',
+    lineType: 'vvl', terminalClass: 'A', minLevel: 3, minReputation: 200,
     desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Увеличивает приём пассажиров.',
   },
   fuel_depot: {
@@ -759,11 +763,11 @@ const BUILDINGS = {
     desc: 'Штаб вашей авиакомпании. Открывает покупку и лизинг самолётов. Сам дохода не приносит — авиакомпания зарабатывает рейсами, а офис только стоит денег. Пока нет ни одного самолёта, сверх содержания списывается штраф за пустой штаб — на первом уровне это −80/мин против −20/мин с флотом. Штраф растёт с уровнем офиса. Нельзя сдать или продать, только снести (все самолёты при этом продаются).',
   },
   stand_small: {
-    id: 'stand_small', name: 'Малая стоянка ВС', minLevel: 4,
+    id: 'stand_small', name: 'Малая стоянка ВС', 
     cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, nonRentable: true, reputation: 0, xp: 700, removable: true, maxUpgradeLevel: 5,
     upgradeCostMult: 0.2, standSize: 'small',   // вмещает маленькие самолёты
-    aircraftSlots: 1,
+    aircraftSlots: 1, minLevel: 3, requiresBuilt: 'terminal_a',
     desc: 'Стоянка для маленького самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин, то есть вдвое с половиной больше прилётов через ту же стоянку.',
   },
   stand_medium: {
@@ -814,8 +818,8 @@ const BUILDINGS = {
     desc: 'Грузовые рейсы — отдельный поток дохода.',
   },
   fire_station: {
-    id: 'fire_station', name: 'Пожарная часть', minLevel: 5,
-    cost: 12000, income: 0, reputation: 2, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3,
+    id: 'fire_station', name: 'Пожарная часть', 
+    cost: 12000, income: 0, reputation: 2, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3, minLevel: 3, minReputation: 200,
     desc: 'Тушит пожары в аэропорту. Без неё загоревшееся здание выгорает полностью и клетка освобождается; с ней пожар удаётся сбить, и объект отделывается повреждением. Дохода не приносит — это служба безопасности, а не бизнес.',
   },
   terminal_b: {

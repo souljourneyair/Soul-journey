@@ -1175,6 +1175,8 @@ function serializeAirport(airport) {
     termQueue: (airport.termQueue || []).reduce((sum, g) => sum + g.count, 0),
     paxProcessed: airport.paxProcessed || 0,   // обработано терминалами
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
+    pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
+    level2Bonus: { xp: CONFIG.LEVEL2_BONUS_XP, rep: CONFIG.LEVEL2_BONUS_REP },
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
     welcomeXp: CONFIG.WELCOME_XP || 500,
     // по каждому терминалу: прилетело, обработано, улетело, сейчас в очереди
@@ -1316,6 +1318,14 @@ app.get('/api/state', auth, (req, res) => {
 
 // Приветствие новичка: разовые 500 XP за вход. Начисляются один раз на
 // аэропорт и заново после «Начать сначала» — там флаги сбрасываются.
+// Игрок увидел окно с бонусом за второй уровень — гасим флаг.
+app.post('/api/level2-bonus/ack', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  store.updateAirport(airport.id, { pendingLevel2Bonus: false });
+  res.json(serializeAirport(store.getAirportById(airport.id)));
+});
+
 app.post('/api/welcome/claim', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
@@ -1764,6 +1774,26 @@ app.post('/api/build', auth, (req, res) => {
     }
   }
   if (airport.level < def.minLevel) return res.status(400).json({ error: 'level_too_low', message: `Нужен уровень ${def.minLevel}` });
+  // Репутация как ключ: некоторые здания открываются не уровнем, а доверием
+  // авиакомпаний к аэропорту.
+  if (def.minReputation && (airport.reputation || 0) < def.minReputation) {
+    return res.status(400).json({
+      error: 'reputation_too_low',
+      message: `Нужна репутация ${def.minReputation} (сейчас ${Math.floor(airport.reputation || 0)})`,
+    });
+  }
+  // Цепочка: здание открывается постройкой предыдущего.
+  if (def.requiresBuilt) {
+    const req = BUILDINGS[def.requiresBuilt];
+    const built = store.getBuildingsByAirport(airport.id)
+      .some(b => b.buildingId === def.requiresBuilt && !isUnderConstruction(b) && !b.ruined);
+    if (!built) {
+      return res.status(400).json({
+        error: 'requires_building',
+        message: `Сначала постройте: ${req ? req.name : def.requiresBuilt}`,
+      });
+    }
+  }
   if (airport.money < def.cost) return res.status(400).json({ error: 'not_enough_money' });
 
   const maxCells = airport.gridSize * airport.gridSize;
@@ -3110,6 +3140,7 @@ function runTick() {
     const contractResult = processContractsTick(airport, currentTick, notifications);
     incomePerTick += contractResult.income;
     reputationPerTick += contractResult.reputation;
+    const heliXp = contractResult.heliXp || 0;   // опыт за принятые вертолёты
 
     // ---- терминалы: обслуживание очередей пассажиров (вылет+прилёт) ----
     const termResult = processTerminalsTick(store.getAirportByUserId(airport.userId) || airport, currentTick, notifications);
@@ -3204,7 +3235,7 @@ function runTick() {
 
     // Пассивный опыт за тик (растёт с уровнем) — вторая половина прогрессии.
     const xpPerTick = CONFIG.XP_PER_TICK_BASE + freshAirport.level * CONFIG.XP_PER_TICK_PER_LEVEL;
-    const newXp = freshAirport.xp + xpPerTick;
+    const newXp = freshAirport.xp + xpPerTick + heliXp;
     const newLevel = levelFromXp(newXp);
     // Копим итоги периода для сводки в ленте: сколько заработано и как
     // изменилась репутация. Считаем чистый результат — доход минус содержание.
@@ -3236,6 +3267,16 @@ function runTick() {
     if (newLevel > freshAirport.level) {
       notifications.push(`⭐ Новый уровень: ${newLevel}!`);
       logEvent(airport.id, 'level', `Достигнут уровень ${newLevel}`);
+      // Подарок за второй уровень — разовый, отмечаем флагом.
+      if (newLevel >= 2 && !freshAirport.level2BonusGiven) {
+        patch.xp = newXp + CONFIG.LEVEL2_BONUS_XP;
+        patch.level = levelFromXp(patch.xp);
+        patch.reputation = newRep + CONFIG.LEVEL2_BONUS_REP;
+        patch.level2BonusGiven = true;
+        patch.pendingLevel2Bonus = true;   // клиент покажет окно
+        logEvent(airport.id, 'level',
+          `Бонус за второй уровень: +${CONFIG.LEVEL2_BONUS_XP} XP и +${CONFIG.LEVEL2_BONUS_REP} репутации`);
+      }
       if (newLevel >= CONFIG.TARGET_LEVEL && !freshAirport.reachedLevel10At) {
         patch.reachedLevel10At = Date.now();
       }
@@ -3531,6 +3572,8 @@ function processContractsTick(airport, currentTick, notifications) {
   const runwaysUsedThisTick = new Set();
   // борта, ушедшие на запасной в этом тике — попадут в расписание
   const diverted = [];
+  // опыт за принятые вертолёты (начисляется только на ранних уровнях)
+  let heliXpGained = 0;
 
   const stillWaiting = [];
   for (const w of waiting) {
@@ -3547,6 +3590,11 @@ function processContractsTick(airport, currentTick, notifications) {
           payPerArrival: w.payPerArrival, craft: 'heli', size: null, flightType: 'vvl',
         });
         income += w.payPerArrival;
+        // Опыт за приём вертолёта — только на ранних уровнях. Дальше
+        // вертолётный поток перестаёт быть обучением и становится фоном.
+        if ((airport.level || 0) < CONFIG.HELI_XP_UNTIL_LEVEL) {
+          heliXpGained += CONFIG.HELI_XP_PER_ARRIVAL;
+        }
         // заправка чужого борта со склада (топливо убывает; штраф при нехватке)
         const freshFuel = store.getAirportByUserId(airport.userId) || airport;
         const rf = refuelContractCraft(freshFuel, 'heli', null);
@@ -3669,7 +3717,7 @@ function processContractsTick(airport, currentTick, notifications) {
     }
   }
 
-  return { income, reputation };
+  return { income, reputation, heliXp: heliXpGained };
 }
 
 // Суммарная ёмкость ангаров (для ремонта) — сколько самолётов ангары могут
