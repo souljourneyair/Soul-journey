@@ -1300,6 +1300,9 @@ app.post('/api/airport/restart', auth, (req, res) => {
     heliCarried: 0, paxServed: 0, paxProcessed: 0, heliFlow: { arrived: 0, departed: 0 },
     // счётчики приветствия — чтобы новый заход снова показал вступление
     welcomeSeen: false, welcomeXpGiven: false,
+    // бонус за второй уровень тоже с чистого листа — иначе после «Начать
+    // сначала» он считался бы уже выданным и окно не показывалось
+    level2BonusGiven: false, pendingLevel2Bonus: false,
   });
   res.json(serializeAirport(updated));
 });
@@ -2308,6 +2311,9 @@ app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
     paxProcessed: 0,           // счётчик в шапке — тоже с нуля
     heliFlow: { arrived: 0, departed: 0 },
     welcomeSeen: false, welcomeXpGiven: false,
+    // бонус за второй уровень тоже с чистого листа — иначе после «Начать
+    // сначала» он считался бы уже выданным и окно не показывалось
+    level2BonusGiven: false, pendingLevel2Bonus: false,
   });
   res.json(serializeAirport(updated));
 });

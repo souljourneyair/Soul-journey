@@ -2743,13 +2743,16 @@ $('#welcomeNext')?.addEventListener('click', async () => {
 let level2Shown = false;
 async function checkLevel2Bonus() {
   if (!STATE.pendingLevel2Bonus || level2Shown) return;
+  // Вступление и поздравление делят одну разметку. Если сейчас идёт
+  // вступление — ждём: бонус покажется следующим обновлением.
+  if (!$('#welcomeModal').classList.contains('hidden')) return;
   level2Shown = true;
   const b = STATE.level2Bonus || { xp: 1000, rep: 5 };
   $('#welcomeTitle').textContent = 'ВТОРОЙ УРОВЕНЬ';
   $('#welcomeIcon').textContent = '🎉';
   $('#welcomeText').textContent =
-    `Поздравляем! Аэропорт вышел на второй уровень. Авиакомпании начали к вам присматриваться. ` +
-    `Ваш бонус: +${b.xp} очков опыта и +${b.rep} репутации.`;
+    `Ты отлично справляешься, только не переусердствуй! Будь осторожен. ` +
+    `Для мотивации матрица послала тебе ещё ${b.xp} XP и ${b.rep} репутации! Дерзай, авиатор!`;
   $('#welcomeNext').textContent = 'Забрать';
   $('#welcomeModal').classList.remove('hidden');
   welcomeStep = 99;   // отличаем от вступления
