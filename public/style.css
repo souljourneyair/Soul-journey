@@ -104,11 +104,23 @@ body {
 .screen > *:not(.screen-bg) { position: relative; z-index: 1; }
 /* Игровой экран — обычный вертикальный поток (шапка, xp-бар, main друг под
    другом на всю ширину), а не центрированная карточка как экраны входа. */
+/* Пока открыт игровой экран, страница не прокручивается — прокрутка живёт
+   внутри колонок. Класс вешается на body при входе в игру. */
+body.game-open { overflow: hidden; }
+
 #gameScreen.screen {
-  display: block;
+  /* Приложение занимает ровно экран и само не прокручивается: иначе рядом
+     с прокруткой таблицы появлялась вторая, страничная, и шапка уезжала
+     наверх, стоило колесу попасть мимо таблицы.
+     dvh вместо vh — на телефоне адресная строка меняет высоту окна. */
+  display: flex;
+  flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
   padding: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 .auth-card { width: 360px; }
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
@@ -213,7 +225,13 @@ body {
   grid-template-columns: auto 1fr minmax(260px, 320px);
   gap: 20px; padding: 20px 24px; max-width: 1500px; margin: 0 auto;
   align-items: start;
+  /* забираем всю оставшуюся высоту; min-height: 0 обязателен, иначе
+     grid-элемент раздувается по содержимому и прокрутка уезжает на страницу */
+  flex: 1; min-height: 0; width: 100%; box-sizing: border-box;
 }
+/* каждая колонка прокручивается сама */
+.game-main > * { max-height: 100%; overflow-y: auto; min-height: 0; }
+.left-menu { overflow-y: auto; }
 .panel-title {
   font-family: var(--mono); font-size: 11px; letter-spacing: 2px; color: var(--text-dim);
   margin-bottom: 12px; border-bottom: 1px solid var(--line); padding-bottom: 8px;
@@ -222,8 +240,9 @@ body {
 /* ===== OBJECTS TABLE ===== */
 .objects-panel { min-width: 0; }
 .objects-table-wrap {
-  border: 1px solid var(--line); border-radius: 4px; overflow: hidden; background: var(--bg-panel);
-  max-height: 78vh; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--bg-panel);
+  /* высоту задаёт колонка, а не доля экрана: прокрутка теперь внутри неё */
+  overflow: visible;
 }
 .objects-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
 .objects-table col { }
@@ -675,7 +694,13 @@ body.modal-open { overflow: hidden; }
   .game-main {
     grid-template-columns: 1fr;
     padding: 14px 14px; gap: 16px;
+    /* На телефоне колонки идут одна под другой, и внутренняя прокрутка
+       у каждой мешала бы: страница должна прокручиваться целиком. */
+    flex: none; min-height: 0; max-height: none;
   }
+  .game-main > * { max-height: none; overflow-y: visible; }
+  #gameScreen.screen { height: auto; overflow: visible; display: block; }
+  body.game-open { overflow: visible; }   /* на телефоне прокрутка страницы нужна */
   /* меню сворачивается/разворачивается по кнопке, стоит в потоке над таблицей */
   .left-menu {
     order: 0;

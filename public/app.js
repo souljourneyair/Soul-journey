@@ -72,6 +72,10 @@ const BUILDING_ICONS = {
 function showScreen(id) {
   $$('.screen').forEach(s => s.classList.add('hidden'));
   $(`#${id}`).classList.remove('hidden');
+  // На игровом экране страница не прокручивается: прокрутка живёт внутри
+  // колонок, иначе рядом с прокруткой таблицы появлялась вторая, страничная,
+  // и шапка уезжала наверх. На остальных экранах прокрутка нужна как обычно.
+  document.body.classList.toggle('game-open', id === 'gameScreen');
 }
 
 function toast(msg, isError = false) {
