@@ -1,13 +1,23 @@
 // Лёгкое файловое хранилище на чистом Node.js fs — без нативных зависимостей.
 //
-// ВАЖНО: намеренно НЕ кэширует данные в памяти между вызовами — каждая функция
-// читает data.json заново и, если нужно, сохраняет обратно. Это чуть медленнее
-// (не критично при таком масштабе), зато исключает потерю изменений, если
-// параллельно с работающим сервером что-то меняет файл напрямую — например,
-// скрипт сброса пароля (server/scripts/reset-password.js), запущенный пока
-// сервер работает. Раньше сервер держал устаревшую копию в памяти и на
-// ближайшем тике перезаписывал файл ею, откатывая внешние изменения — это
-// было исправлено переходом на чтение-перед-каждой-операцией.
+// КЭШ С ПРОВЕРКОЙ ВНЕШНИХ ИЗМЕНЕНИЙ.
+//
+// Раньше каждая функция перечитывала data.json с диска — это защищало от
+// потери изменений, если файл правит что-то извне (например, скрипт
+// server/scripts/reset-password.js при работающем сервере). На одном игроке
+// незаметно, но нагрузка росла квадратично: при 51 аэропорте один тик делал
+// 7 800 чтений и перемалывал 3.6 ГБ, занимая 8 из 10 секунд между тиками.
+// Ещё десяток игроков — и тики начали бы накладываться.
+//
+// Теперь данные живут в памяти, а безопасность внешних правок обеспечена
+// иначе: перед выдачей кэша проверяется время изменения файла (stat вместо
+// чтения и разбора — в тысячу раз дешевле), и при чужой записи кэш
+// сбрасывается. Проверка не чаще раза в STAT_CHECK_MS, чтобы не сыпать
+// системными вызовами.
+//
+// Запись отложенная: изменения копятся в памяти и сбрасываются на диск раз в
+// FLUSH_MS, а также при остановке сервера. Цена — при аварийном падении
+// теряется до полусекунды игры вместо последнего действия.
 //
 // При росте нагрузки — замена на Postgres/SQLite делается без изменения
 // остального кода, только этого файла.
@@ -40,7 +50,17 @@ const EMPTY_DB = {
   settings: {},              // глобальные настройки игры (логотип и т.п.)
 };
 
-function load() {
+// ---------- кэш ----------
+const STAT_CHECK_MS = 250;   // как часто сверяться с файлом на диске
+const FLUSH_MS = 500;        // как часто сбрасывать изменения на диск
+
+let cache = null;
+let cacheMtime = 0;          // время изменения файла, каким мы его знаем
+let dirty = false;           // есть несохранённые изменения
+let lastStatCheck = 0;
+let flushTimer = null;
+
+function readFromDisk() {
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf-8');
     const data = JSON.parse(raw);
@@ -129,11 +149,44 @@ function load() {
   }
 }
 
-function save(data) {
+function load() {
+  const now = Date.now();
+  // Пока есть несохранённые изменения, наша копия свежее любой на диске.
+  // Иначе сверяемся с файлом, но не чаще раза в четверть секунды.
+  if (cache && (dirty || now - lastStatCheck < STAT_CHECK_MS)) return cache;
+  lastStatCheck = now;
+
+  let mtime = 0;
+  try { mtime = fs.statSync(DATA_FILE).mtimeMs; } catch (e) { mtime = 0; }
+  if (!cache || mtime !== cacheMtime) {
+    cache = readFromDisk();
+    cacheMtime = mtime;
+  }
+  return cache;
+}
+
+// Немедленно записать накопленное на диск.
+function flush() {
+  if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  if (!dirty || !cache) return;
   // Пишем во временный файл и переименовываем — атомарно, не побьём файл при падении сервера.
   const tmp = DATA_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(data));
+  fs.writeFileSync(tmp, JSON.stringify(cache));
   fs.renameSync(tmp, DATA_FILE);
+  dirty = false;
+  try { cacheMtime = fs.statSync(DATA_FILE).mtimeMs; } catch (e) { /* не критично */ }
+}
+
+function save(data) {
+  cache = data;
+  dirty = true;
+  if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
+}
+
+// Не теряем последние изменения при остановке сервера.
+process.on('exit', flush);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { flush(); process.exit(0); });
 }
 
 function newToken() {
@@ -641,5 +694,6 @@ module.exports = {
   addAircraft, getAircraftByAirport, getAircraftById, updateAircraft, removeAircraft, removeAllAircraft,
   getTickCounter, incrementTickCounter,
   addContractOffer, getContractOffers, getContractOfferById, updateContractOffer, removeContractOffer,
+  flush,
   addContract, getContracts, getContractById, updateContract, removeContract, setContractOffers, setContracts, removeAllContracts,
 };
