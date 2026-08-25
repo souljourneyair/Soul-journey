@@ -437,7 +437,6 @@ function renderAll() {
 }
 
 function renderStats() {
-  reserveHeaderSpace();   // содержимое шапки меняется — высота могла поехать
   const moneyEl = $('#statMoney');
   moneyEl.textContent = Math.floor(STATE.money).toLocaleString('ru-RU');
   moneyEl.classList.toggle('stat-negative', STATE.money < 0); // долг — красным
@@ -2660,17 +2659,6 @@ const EVENT_TEXTS = {
     ],
   },
 };
-
-// Шапка закреплена (position: fixed), поэтому под неё нужно освободить место.
-// Высота меняется от ширины экрана — на телефоне показатели переносятся
-// в несколько строк, — поэтому меряем её и подставляем отступ.
-function reserveHeaderSpace() {
-  const header = document.querySelector('.topboard');
-  const screen = document.querySelector('#gameScreen');
-  if (!header || !screen) return;
-  screen.style.paddingTop = `${header.offsetHeight}px`;
-}
-window.addEventListener('resize', reserveHeaderSpace);
 
 // ---------- Подсказки в шапке ----------
 // На телефоне атрибут title бесполезен: по тапу он не показывается, а долгое
