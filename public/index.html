@@ -74,23 +74,23 @@
     </div>
 
     <div class="stat-block">
-      <div class="stat">
+      <div class="stat" data-tip="Деньги аэропорта. Уходят в минус — начинается долг: репутация падает, а на дне долга наступает банкротство.">
         <span class="stat-label">КАПИТАЛ</span>
         <span class="stat-value flap" id="statMoney">0</span>
       </div>
-      <div class="stat">
+      <div class="stat" data-tip="Чистый результат за игровую минуту: заработок на перевозках минус содержание. Здания сами по себе дохода не приносят.">
         <span class="stat-label">ДОХОД/МИН</span>
         <span class="stat-value flap" id="statIncome">—</span>
       </div>
-      <div class="stat">
+      <div class="stat" data-tip="Содержание всех зданий за игровую минуту. Растёт со стоимостью и уровнем объекта, снижается с уровнем администрации.">
         <span class="stat-label">СОДЕРЖ. А/П</span>
         <span class="stat-value flap" id="statUpkeep">0</span>
       </div>
-      <div class="stat">
+      <div class="stat" data-tip="Доверие авиакомпаний. Влияет на пассажиропоток, плату по договорам и частоту новых предложений. Падает от разворотов и изношенных полос.">
         <span class="stat-label">РЕПУТАЦИЯ</span>
         <span class="stat-value flap" id="statRep">0</span>
       </div>
-      <div class="stat">
+      <div class="stat" data-tip="Уровень аэропорта. Растёт от опыта за постройки, апгрейды и приём бортов. Открывает новые здания.">
         <span class="stat-label">УРОВЕНЬ</span>
         <span class="stat-value flap" id="statLevel">1</span>
       </div>
@@ -98,15 +98,15 @@
         <span class="stat-label">СТОЯНКА</span>
         <span class="stat-value flap" id="statApron">0/0</span>
       </div>
-      <div class="stat" id="statFuelWrap">
+      <div class="stat" id="statFuelWrap" data-tip="Запас топлива на складе и его вместимость. Тратится на заправку бортов, пополняется по контракту с поставщиком.">
         <span class="stat-label">ТОПЛИВО</span>
         <span class="stat-value flap" id="statFuel">0</span>
       </div>
-      <div class="stat" id="statPaxWrap">
+      <div class="stat" id="statPaxWrap" data-tip="Сколько пассажиров обработали терминалы. Растёт только при своём флоте: договорные борта пассажиров через терминалы не проводят.">
         <span class="stat-label">ПАССАЖИРЫ</span>
         <span class="stat-value flap" id="statPax">—</span>
       </div>
-      <div class="stat stat-timer">
+      <div class="stat stat-timer" data-tip="Сколько реального времени идёт эта игра. Одна игровая минута — 10 секунд реального времени.">
         <span class="stat-label">ВРЕМЯ В ИГРЕ</span>
         <span class="stat-value" id="statTimer">00:00:00</span>
       </div>

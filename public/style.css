@@ -904,3 +904,28 @@ body.modal-open { overflow: hidden; }
   .feed-body { max-height: 108px; }
   .feed-row { font-size: 11px; }
 }
+
+/* --- подсказки в шапке по тапу --- */
+/* Ни выделения текста, ни системного меню «поиск в Google»: показатели —
+   это кнопки, а не текст для копирования. */
+.stat, .stat-label, .stat-value {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+.stat[data-tip] { cursor: pointer; position: relative; }
+.stat[data-tip]::after {
+  content: '';
+  position: absolute; inset: -4px -6px;   /* палец крупнее цифры */
+}
+.stat-tip {
+  position: fixed; z-index: 200;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 8px 12px; border-radius: 8px;
+  background: #0f141b; border: 1px solid var(--board-amber);
+  color: var(--text); font-size: 12px; line-height: 1.45;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+  opacity: 0; transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  pointer-events: none;
+}
+.stat-tip.visible { opacity: 1; transform: translateY(0); }

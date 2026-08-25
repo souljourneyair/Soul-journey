@@ -475,9 +475,14 @@ function renderStats() {
       (wait > 0 ? ` <span class="apron-queue">⏳${wait}</span>` : '');
 
     apronEl.classList.remove('stat-negative', 'stat-warn');
-    apronEl.title = wait > 0
-      ? `${wait} борт(ов) в очереди на посадку`
-      : 'Занято мест: вертолётных / самолётных';
+    // Подсказка живёт на .stat, а не на значении: тапать удобнее по всей ячейке.
+    const apronStat = apronEl.closest('.stat');
+    if (apronStat) {
+      apronStat.dataset.tip =
+        `Занято мест: 🚁 вертолётных ${heli.used} из ${heli.total}` +
+        (plane.total > 0 || plane.used > 0 ? `, ✈ самолётных ${plane.used} из ${plane.total}` : '') +
+        (wait > 0 ? `. ⏳ В очереди на посадку: ${wait} — не хватает места, полосы или не вышел интервал вышки.` : '.');
+    }
   }
   // топливо: показываем запас/вместимость, скрываем если склада нет
   const fuelWrap = $('#statFuelWrap');
@@ -2596,6 +2601,53 @@ const EVENT_TEXTS = {
     ],
   },
 };
+
+// ---------- Подсказки в шапке ----------
+// На телефоне атрибут title бесполезен: по тапу он не показывается, а долгое
+// нажатие выделяет текст и открывает системное меню с поиском в Google.
+// Поэтому подсказки показываем сами — по тапу, с автоскрытием.
+let statTipEl = null;
+let statTipTimer = null;
+
+function hideStatTip() {
+  if (!statTipEl) return;
+  statTipEl.classList.remove('visible');
+  clearTimeout(statTipTimer);
+  statTipTimer = setTimeout(() => { statTipEl?.remove(); statTipEl = null; }, 200);
+}
+
+function showStatTip(anchor, text) {
+  hideStatTip();
+  clearTimeout(statTipTimer);
+  statTipEl = document.createElement('div');
+  statTipEl.className = 'stat-tip';
+  statTipEl.textContent = text;
+  document.body.appendChild(statTipEl);
+
+  const r = anchor.getBoundingClientRect();
+  const tw = statTipEl.offsetWidth;
+  let left = r.left + r.width / 2 - tw / 2;
+  left = Math.max(12, Math.min(left, window.innerWidth - tw - 12));
+  let top = r.bottom + 8;
+  // не помещается снизу — показываем сверху
+  if (top + statTipEl.offsetHeight > window.innerHeight - 12) {
+    top = Math.max(12, r.top - statTipEl.offsetHeight - 8);
+  }
+  statTipEl.style.left = `${left}px`;
+  statTipEl.style.top = `${top}px`;
+  requestAnimationFrame(() => statTipEl?.classList.add('visible'));
+  // держим достаточно, чтобы прочитать
+  statTipTimer = setTimeout(hideStatTip, 5000);
+}
+
+document.addEventListener('click', (e) => {
+  const stat = e.target.closest('.stat[data-tip]');
+  if (!stat) { hideStatTip(); return; }
+  e.preventDefault();
+  showStatTip(stat, stat.dataset.tip);
+});
+window.addEventListener('scroll', hideStatTip, { passive: true });
+window.addEventListener('resize', hideStatTip);
 
 // ---------- Лента событий ----------
 // Закреплена внизу панели объектов и остаётся видимой при прокрутке таблицы.
