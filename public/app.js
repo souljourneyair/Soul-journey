@@ -896,7 +896,7 @@ function renderBuildMenu() {
   purchasable.forEach(def => {
     // Пока нет администрации, доступна только она сама: без штаба аэропорта
     // не существует, и начинать с вертолётной площадки в чистом поле нельзя.
-    const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin');
+    const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin' && !b.constructionType);
     const needsAdminFirst = !hasAdmin && def.id !== 'admin';
     // Репутация как ключ и цепочка построек: здание может ждать не уровня,
     // а доверия авиакомпаний или предыдущего объекта в цепочке.
@@ -920,7 +920,7 @@ function renderBuildMenu() {
       <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
       <div class="build-item-meta">
         <span>${
-          needsAdminFirst ? 'Сначала администрация'
+          needsAdminFirst ? 'Ждём администрацию'
           : needsPrev ? `Нужен: ${displayBuildingName(def.requiresBuilt)}`
           : needsRep ? `Нужна репутация ${def.minReputation}`
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
@@ -987,7 +987,7 @@ function renderTerritoryBuildMenu() {
   purchasable.forEach(def => {
     // Пока нет администрации, доступна только она сама: без штаба аэропорта
     // не существует, и начинать с вертолётной площадки в чистом поле нельзя.
-    const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin');
+    const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin' && !b.constructionType);
     const needsAdminFirst = !hasAdmin && def.id !== 'admin';
     // Репутация как ключ и цепочка построек: здание может ждать не уровня,
     // а доверия авиакомпаний или предыдущего объекта в цепочке.
@@ -1010,7 +1010,7 @@ function renderTerritoryBuildMenu() {
       <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
       <div class="build-item-meta">
         <span>${
-          needsAdminFirst ? 'Сначала администрация'
+          needsAdminFirst ? 'Ждём администрацию'
           : needsPrev ? `Нужен: ${displayBuildingName(def.requiresBuilt)}`
           : needsRep ? `Нужна репутация ${def.minReputation}`
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')

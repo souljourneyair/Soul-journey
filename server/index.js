@@ -180,6 +180,14 @@ function isUnderConstruction(b) {
 
 // Стоимость содержания аэропорта в минуту — сумма по всем зданиям игрока
 // (кроме проданных боту), растёт со стоимостью и уровнем апгрейда здания.
+// Как часто борт по договору хочет прилететь. До третьего уровня втрое чаще:
+// ждать полчаса первого вертолёта, когда это всё содержание игры, слишком долго.
+function arrivalIntervalFor(level) {
+  const base = APRON_ECONOMY.CONTRACT_ARRIVAL_INTERVAL;
+  if ((level || 0) >= APRON_ECONOMY.EARLY_ARRIVAL_UNTIL_LEVEL) return base;
+  return Math.max(2, Math.round(base / APRON_ECONOMY.EARLY_ARRIVAL_DIVISOR));
+}
+
 // Уровень здания администрации (0 — не построена).
 // Записать событие в ленту игрока. В отличие от уведомлений по вебсокету,
 // лента переживает перезаход: игрок видит, что происходило, пока его не было.
@@ -1493,7 +1501,7 @@ app.post('/api/envelope/accept', auth, (req, res) => {
   if (!offer || offer.airportId !== airport.id) return res.status(404).json({ error: 'no_offer' });
 
   const nowTick = store.getTickCounter();
-  const arrivalInterval = APRON_ECONOMY.CONTRACT_ARRIVAL_INTERVAL;
+  const arrivalInterval = arrivalIntervalFor(airport.level);
   store.addContract(airport.id, {
     airline: offer.airline,
     payPerTick: offer.payPerTick,
@@ -1567,7 +1575,7 @@ app.post('/api/envelope/haggle/accept', auth, (req, res) => {
   // фиксируем цену встречного предложения и заключаем договор
   store.updateContractOffer(offer.id, { payPerArrival: offer.botCounter });
   const nowTick = store.getTickCounter();
-  const arrivalInterval = APRON_ECONOMY.CONTRACT_ARRIVAL_INTERVAL;
+  const arrivalInterval = arrivalIntervalFor(airport.level);
   store.addContract(airport.id, {
     airline: offer.airline,
     payPerTick: offer.payPerTick,
@@ -1768,11 +1776,12 @@ app.post('/api/build', auth, (req, res) => {
   // без штаба аэропорта не существует, и начинать с вертолётной площадки
   // посреди пустого поля неправильно.
   if (buildingId !== 'admin') {
-    const hasAdmin = store.getBuildingsByAirport(airport.id).some(b => b.buildingId === 'admin');
+    const hasAdmin = store.getBuildingsByAirport(airport.id)
+      .some(b => b.buildingId === 'admin' && !isUnderConstruction(b));
     if (!hasAdmin) {
       return res.status(400).json({
         error: 'no_admin',
-        message: 'Сначала постройте здание администрации — без него аэропорта нет',
+        message: 'Дождитесь окончания строительства администрации — без штаба аэропорта нет',
       });
     }
   }
@@ -3255,6 +3264,10 @@ function runTick() {
     };
 
     const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince, periodStats };
+    // Починка старых сохранений: у аэропортов, начатых до появления бонуса,
+    // флаг мог остаться поднятым с прошлой жизни аккаунта. Если игрок ещё не
+    // добрался до второго уровня, бонус впереди — снимаем флаг.
+    if (freshAirport.level < 2 && freshAirport.level2BonusGiven) patch.level2BonusGiven = false;
     // Сводка за период: раз в игровые сутки подводим итог заработка и репутации.
     if (currentTick - periodStats.sinceTick >= EVENT_LOG.SUMMARY_PERIOD_TICKS) {
       const m = Math.round(periodStats.money);
@@ -3274,6 +3287,8 @@ function runTick() {
       notifications.push(`⭐ Новый уровень: ${newLevel}!`);
       logEvent(airport.id, 'level', `Достигнут уровень ${newLevel}`);
       // Подарок за второй уровень — разовый, отмечаем флагом.
+    // (Флаг чинится сам: если аэропорт ниже второго уровня, значит бонус
+    // ещё впереди — см. сброс ниже по тику.)
       if (newLevel >= 2 && !freshAirport.level2BonusGiven) {
         patch.xp = newXp + CONFIG.LEVEL2_BONUS_XP;
         patch.level = levelFromXp(patch.xp);
@@ -3557,7 +3572,7 @@ function processContractsTick(airport, currentTick, notifications) {
         size: c.size || null,
         flightType: c.flightType || 'vvl',
       });
-      const iv = APRON_ECONOMY.CONTRACT_ARRIVAL_INTERVAL;
+      const iv = arrivalIntervalFor(fresh.level);
       const variance = 1 + (Math.random() * 2 - 1) * APRON_ECONOMY.ARRIVAL_INTERVAL_VARIANCE;
       store.updateContract(c.id, { nextArrivalTick: currentTick + Math.round(iv * variance) });
     }
