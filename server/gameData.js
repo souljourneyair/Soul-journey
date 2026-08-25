@@ -628,6 +628,14 @@ const XP_FOR_LEVEL = [
 // 25 200 у.е. за четыре апгрейда покупали +1.2 репутации в минуту. Теперь
 // администрация управляет аэропортом — отсюда управленческие бонусы.
 // ---------- Лента событий игрока ----------
+// Сезоны рейтинга: живые таблицы обнуляются раз в неделю, иначе первые игроки
+// занимают вершину навсегда и остальным незачем стараться.
+const SEASON = {
+  DURATION_MS: 7 * 24 * 60 * 60 * 1000,   // неделя реального времени
+  KEEP_HISTORY: 8,                         // сколько прошлых сезонов помним
+  TOP_ARCHIVED: 3,                         // сколько призёров записываем
+};
+
 const EVENT_LOG = {
   MAX_ENTRIES: 60,             // сколько записей храним
   // Сводка о заработке за период. Игровой месяц (30 суток) — это 120 реальных
@@ -1101,7 +1109,7 @@ module.exports = {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG,
+  EVENT_LOG, SEASON,
   DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,

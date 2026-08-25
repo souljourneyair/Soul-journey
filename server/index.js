@@ -17,7 +17,7 @@ const {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG,
+  EVENT_LOG, SEASON,
   DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
@@ -2129,6 +2129,40 @@ app.post('/api/buy-land', auth, (req, res) => {
   res.json(serializeAirport(updated));
 });
 
+// ---------- Сезоны рейтинга ----------
+// Живые таблицы меряют не абсолют, а достижения текущей недели: прирост
+// стоимости и лучший результат по эффективности. Иначе тот, кто начал раньше,
+// занимал бы вершину вечно.
+function ensureSeason() {
+  const st = store.getSettings();
+  const now = Date.now();
+  const startedAt = st.seasonStartedAt || 0;
+  if (startedAt && now - startedAt < SEASON.DURATION_MS) return st;
+
+  // Новый сезон: архивируем призёров и переснимаем отметки у всех аэропортов.
+  const number = (st.seasonNumber || 0) + 1;
+  if (startedAt) {
+    const finished = liveRows()
+      .filter(r => r.seasonGrowth > 0)
+      .sort((a, b) => b.seasonGrowth - a.seasonGrowth)
+      .slice(0, SEASON.TOP_ARCHIVED)
+      .map(r => ({ username: r.username, growth: r.seasonGrowth, perCell: r.seasonBestPerCell }));
+    const history = (st.seasonHistory || []).concat([{
+      number: st.seasonNumber || 1, endedAt: now, top: finished,
+    }]).slice(-SEASON.KEEP_HISTORY);
+    store.setSetting('seasonHistory', history);
+  }
+  store.setSetting('seasonNumber', number);
+  store.setSetting('seasonStartedAt', now);
+  for (const ap of store.getAllAirports()) {
+    store.updateAirport(ap.id, {
+      seasonStartValue: airportValue(ap.id, ap),
+      seasonBestPerCell: null,
+    });
+  }
+  return store.getSettings();
+}
+
 // Стоимость аэропорта: здания с учётом вложений в апгрейды, флот и деньги.
 // Разрушенные здания не считаем — это уже не актив, а обязательство снести.
 function airportValue(airportId, airport) {
@@ -2147,6 +2181,26 @@ function airportValue(airportId, airport) {
   return Math.round(total);
 }
 
+// Строки живых таблиц: текущее состояние всех аэропортов.
+function liveRows() {
+  const rows = [];
+  for (const ap of store.getAllAirports()) {
+    const user = store.findUserById(ap.userId);
+    if (!user) continue;
+    const cells = occupiedCells(ap.id);
+    const value = airportValue(ap.id, ap);
+    const base = ap.seasonStartValue != null ? ap.seasonStartValue : value;
+    rows.push({
+      username: user.username,
+      level: ap.level || 0,
+      value, cells,
+      seasonGrowth: value - base,
+      seasonBestPerCell: ap.seasonBestPerCell != null ? ap.seasonBestPerCell : null,
+    });
+  }
+  return rows;
+}
+
 // Сколько клеток занято постройками — знаменатель для эффективности.
 function occupiedCells(airportId) {
   return store.getBuildingsByAirport(airportId)
@@ -2160,34 +2214,26 @@ app.get('/api/leaderboard', (req, res) => {
     elapsed_seconds: r.elapsedSeconds, achieved_at: r.achievedAt,
   }));
 
-  // Живые таблицы считаем по текущему состоянию аэропортов.
-  const rows = [];
-  for (const ap of store.getAllAirports()) {
-    const user = store.findUserById(ap.userId);
-    if (!user) continue;
-    const cells = occupiedCells(ap.id);
-    rows.push({
-      username: user.username,
-      level: ap.level || 0,
-      value: airportValue(ap.id, ap),
-      cells,
-      reputation: Math.floor(ap.reputation || 0),
-      // прибыль за последние завершённые игровые сутки на занятую клетку
-      lastDayNet: ap.lastDayNet != null ? ap.lastDayNet : null,
-      perCell: ap.lastDayNet != null && cells > 0 ? Math.round(ap.lastDayNet / cells) : null,
-    });
-  }
+  const st = ensureSeason();
+  const rows = liveRows();
 
-  // 2) АЭРОПОРТЫ — кто крупнее прямо сейчас.
-  const airports = [...rows].sort((a, b) => b.value - a.value).slice(0, 50);
+  // 2) АЭРОПОРТЫ — насколько вырос аэропорт за текущий сезон.
+  const airports = [...rows].sort((a, b) => b.seasonGrowth - a.seasonGrowth).slice(0, 50);
 
-  // 3) МАСТЕРСТВО — сколько выжато с одной клетки. Здесь аккуратный маленький
-  // аэропорт может обойти громоздкий: считается не размер, а устройство.
-  // Аэропорты, не прожившие ни одних игровых суток, в зачёт не идут.
-  const mastery = rows.filter(r => r.perCell != null)
-    .sort((a, b) => b.perCell - a.perCell).slice(0, 50);
+  // 3) МАСТЕРСТВО — лучший за сезон результат по прибыли с клетки. Здесь
+  // аккуратный маленький аэропорт может обойти громоздкий.
+  const mastery = rows.filter(r => r.seasonBestPerCell != null)
+    .sort((a, b) => b.seasonBestPerCell - a.seasonBestPerCell).slice(0, 50);
 
-  res.json({ race, airports, mastery });
+  res.json({
+    race, airports, mastery,
+    season: {
+      number: st.seasonNumber || 1,
+      startedAt: st.seasonStartedAt || Date.now(),
+      endsAt: (st.seasonStartedAt || Date.now()) + SEASON.DURATION_MS,
+      history: (st.seasonHistory || []).slice(-3).reverse(),
+    },
+  });
 });
 
 // ==================== АДМИН-ПАНЕЛЬ ====================
@@ -3339,6 +3385,18 @@ function runTick() {
       // запоминаем итог суток — по нему строится рейтинг мастерства
       patch.lastDayNet = Math.round(periodStats.money);
       patch.lastDayAt = currentTick;
+      // лучший результат за сезон: прибыль с одной постройки
+      const cellsNow = store.getBuildingsByAirport(airport.id)
+        .filter(b => (b.state || 'owned') !== 'sold').length;
+      if (cellsNow > 0) {
+        const perCell = Math.round(patch.lastDayNet / cellsNow);
+        const best = freshAirport.seasonBestPerCell;
+        if (best == null || perCell > best) patch.seasonBestPerCell = perCell;
+      }
+      // отметка старта сезона — если аэропорт создан в середине недели
+      if (freshAirport.seasonStartValue == null) {
+        patch.seasonStartValue = airportValue(airport.id, freshAirport);
+      }
       patch.periodStats = { sinceTick: currentTick, money: 0, repGain: 0, repLoss: 0 };
     }
     if (bankrupt) patch.bankrupt = true;

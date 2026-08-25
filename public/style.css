@@ -165,7 +165,16 @@ body {
   padding: 14px 24px;
   max-width: 1400px; margin: 0 auto;
   background: var(--bg-panel); border-bottom: 2px solid var(--board-amber-dim);
-  position: sticky; top: 0; z-index: 10;
+  /* Жёстко закреплена: sticky работал не везде, потому что зависит от
+     контекста прокрутки родителя. Место под шапку резервирует JS —
+     её высота зависит от ширины экрана (на телефоне переносится в две-три
+     строки), поэтому фиксированным отступом не обойтись. */
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  max-width: none;
+}
+.topboard-inner {
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap; row-gap: 10px;
+  max-width: 1400px; margin: 0 auto; width: 100%;
 }
 .topboard-logo {
   height: 44px; width: auto; max-width: 120px; object-fit: contain;

@@ -437,6 +437,7 @@ function renderAll() {
 }
 
 function renderStats() {
+  reserveHeaderSpace();   // содержимое шапки меняется — высота могла поехать
   const moneyEl = $('#statMoney');
   moneyEl.textContent = Math.floor(STATE.money).toLocaleString('ru-RU');
   moneyEl.classList.toggle('stat-negative', STATE.money < 0); // долг — красным
@@ -1787,27 +1788,32 @@ const LB_BOARDS = {
       <td>${escapeHtml(r.start_type)}</td><td class="lb-num">${formatDuration(r.elapsed_seconds * 1000)}</td>`,
   },
   airports: {
-    sub: 'СТОИМОСТЬ АЭРОПОРТА',
-    hint: 'Здания с вложениями в апгрейды, флот и деньги на счету. Кто построил больше всех.',
-    head: '<tr><th>#</th><th>Игрок</th><th>Ур.</th><th>Стоимость</th></tr>',
-    empty: 'Пока пусто.',
+    sub: 'ПРИРОСТ ЗА СЕЗОН',
+    hint: 'Насколько аэропорт вырос за текущую неделю: здания, апгрейды, флот и деньги. Меряется рост, а не размер — начавший позже не в проигрыше.',
+    head: '<tr><th>#</th><th>Игрок</th><th>Ур.</th><th>Прирост</th></tr>',
+    empty: 'Сезон только начался — стройте.',
     row: (r, i) => `<td class="lb-num">${i + 1}</td><td>${escapeHtml(r.username)}</td>
-      <td class="lb-num">${r.level}</td><td class="lb-num">${r.value.toLocaleString('ru-RU')}</td>`,
+      <td class="lb-num">${r.level}</td><td class="lb-num">${r.seasonGrowth > 0 ? '+' : ''}${r.seasonGrowth.toLocaleString('ru-RU')}</td>`,
   },
   mastery: {
-    sub: 'ПРИБЫЛЬ С КЛЕТКИ ЗА СУТКИ',
-    hint: 'Чистая прибыль за последние игровые сутки, делённая на число построек. Считается не размер, а устройство — небольшой аэропорт может обойти крупный.',
+    sub: 'ЛУЧШАЯ ПРИБЫЛЬ С КЛЕТКИ',
+    hint: 'Лучший за сезон результат: чистая прибыль за игровые сутки, делённая на число построек. Считается не размер, а устройство — небольшой аэропорт может обойти крупный.',
     head: '<tr><th>#</th><th>Игрок</th><th>Построек</th><th>С клетки</th></tr>',
     empty: 'Никто не прожил полных игровых суток — таблица заполнится позже.',
     row: (r, i) => `<td class="lb-num">${i + 1}</td><td>${escapeHtml(r.username)}</td>
-      <td class="lb-num">${r.cells}</td><td class="lb-num">${r.perCell.toLocaleString('ru-RU')}</td>`,
+      <td class="lb-num">${r.cells}</td><td class="lb-num">${r.seasonBestPerCell.toLocaleString('ru-RU')}</td>`,
   },
 };
 
 function renderLeaderboard() {
   const cfg = LB_BOARDS[lbBoard];
+  // Живые таблицы сезонные: показываем номер сезона и сколько до обнуления.
+  const season = lbData && lbData.season;
+  const seasonNote = season && lbBoard !== 'race'
+    ? ` · Сезон ${season.number}, до конца ${formatDuration(Math.max(0, season.endsAt - Date.now()))}`
+    : '';
   const rows = (lbData && lbData[lbBoard]) || [];
-  $('#lbSub').textContent = cfg.sub;
+  $('#lbSub').textContent = cfg.sub + seasonNote;
   $('#lbHint').textContent = cfg.hint;
   $('#leaderboardHead').innerHTML = cfg.head;
   const me = STATE.username || '';
@@ -2654,6 +2660,17 @@ const EVENT_TEXTS = {
     ],
   },
 };
+
+// Шапка закреплена (position: fixed), поэтому под неё нужно освободить место.
+// Высота меняется от ширины экрана — на телефоне показатели переносятся
+// в несколько строк, — поэтому меряем её и подставляем отступ.
+function reserveHeaderSpace() {
+  const header = document.querySelector('.topboard');
+  const screen = document.querySelector('#gameScreen');
+  if (!header || !screen) return;
+  screen.style.paddingTop = `${header.offsetHeight}px`;
+}
+window.addEventListener('resize', reserveHeaderSpace);
 
 // ---------- Подсказки в шапке ----------
 // На телефоне атрибут title бесполезен: по тапу он не показывается, а долгое
