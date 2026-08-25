@@ -355,11 +355,17 @@
   <div class="modal-card board-frame">
     <button class="modal-close" aria-label="Закрыть">×</button>
     <div class="board-header">
-      <span class="board-title">РЕЙТИНГ СИНГЛОВ</span>
-      <span class="board-sub">ВРЕМЯ ДО 10 УРОВНЯ</span>
+      <span class="board-title">РЕЙТИНГ</span>
+      <span class="board-sub" id="lbSub">ВРЕМЯ ДО 10 УРОВНЯ</span>
     </div>
+    <div class="lb-tabs">
+      <button class="lb-tab lb-tab-active" data-board="race">Гонка</button>
+      <button class="lb-tab" data-board="airports">Аэропорты</button>
+      <button class="lb-tab" data-board="mastery">Мастерство</button>
+    </div>
+    <p class="lb-hint" id="lbHint"></p>
     <table class="leaderboard-table">
-      <thead><tr><th>#</th><th>Игрок</th><th>Путь</th><th>Время</th></tr></thead>
+      <thead id="leaderboardHead"></thead>
       <tbody id="leaderboardBody"></tbody>
     </table>
     <button id="closeLeaderboard" class="btn-secondary">Закрыть</button>

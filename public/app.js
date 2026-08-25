@@ -1768,18 +1768,71 @@ async function buildingAction(action) {
 }
 
 // ===== LEADERBOARD =====
+// Три таблицы вместо одной: одна не может быть одновременно про скорость
+// прохождения и про размер аэропорта.
+//   Гонка      — статичная память о прохождении, кто быстрее дошёл до 10.
+//   Аэропорты  — живая, кто крупнее прямо сейчас.
+//   Мастерство — живая, сколько выжато с одной клетки: здесь маленький
+//                продуманный аэропорт может обойти громоздкий.
+let lbData = null;
+let lbBoard = 'race';
+
+const LB_BOARDS = {
+  race: {
+    sub: 'ВРЕМЯ ДО 10 УРОВНЯ',
+    hint: 'Кто быстрее прошёл путь до десятого уровня. Результат остаётся навсегда.',
+    head: '<tr><th>#</th><th>Игрок</th><th>Путь</th><th>Время</th></tr>',
+    empty: 'Пока никто не достиг 10 уровня — будь первым!',
+    row: (r, i) => `<td class="lb-num">${i + 1}</td><td>${escapeHtml(r.username)}</td>
+      <td>${escapeHtml(r.start_type)}</td><td class="lb-num">${formatDuration(r.elapsed_seconds * 1000)}</td>`,
+  },
+  airports: {
+    sub: 'СТОИМОСТЬ АЭРОПОРТА',
+    hint: 'Здания с вложениями в апгрейды, флот и деньги на счету. Кто построил больше всех.',
+    head: '<tr><th>#</th><th>Игрок</th><th>Ур.</th><th>Стоимость</th></tr>',
+    empty: 'Пока пусто.',
+    row: (r, i) => `<td class="lb-num">${i + 1}</td><td>${escapeHtml(r.username)}</td>
+      <td class="lb-num">${r.level}</td><td class="lb-num">${r.value.toLocaleString('ru-RU')}</td>`,
+  },
+  mastery: {
+    sub: 'ПРИБЫЛЬ С КЛЕТКИ ЗА СУТКИ',
+    hint: 'Чистая прибыль за последние игровые сутки, делённая на число построек. Считается не размер, а устройство — небольшой аэропорт может обойти крупный.',
+    head: '<tr><th>#</th><th>Игрок</th><th>Построек</th><th>С клетки</th></tr>',
+    empty: 'Никто не прожил полных игровых суток — таблица заполнится позже.',
+    row: (r, i) => `<td class="lb-num">${i + 1}</td><td>${escapeHtml(r.username)}</td>
+      <td class="lb-num">${r.cells}</td><td class="lb-num">${r.perCell.toLocaleString('ru-RU')}</td>`,
+  },
+};
+
+function renderLeaderboard() {
+  const cfg = LB_BOARDS[lbBoard];
+  const rows = (lbData && lbData[lbBoard]) || [];
+  $('#lbSub').textContent = cfg.sub;
+  $('#lbHint').textContent = cfg.hint;
+  $('#leaderboardHead').innerHTML = cfg.head;
+  const me = STATE.username || '';
+  $('#leaderboardBody').innerHTML = rows.length
+    ? rows.map((r, i) =>
+        `<tr class="${r.username === me ? 'lb-me' : ''}">${cfg.row(r, i)}</tr>`).join('')
+    : `<tr><td colspan="4">${cfg.empty}</td></tr>`;
+}
+
+document.querySelectorAll('.lb-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    lbBoard = btn.dataset.board;
+    document.querySelectorAll('.lb-tab').forEach(b =>
+      b.classList.toggle('lb-tab-active', b.dataset.board === lbBoard));
+    renderLeaderboard();
+  });
+});
+
 $('#leaderboardBtn').addEventListener('click', async () => {
-  const rows = await api('/api/leaderboard');
-  const body = $('#leaderboardBody');
-  body.innerHTML = rows.length
-    ? rows.map((r, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${escapeHtml(r.username)}</td>
-        <td>${r.start_type}</td>
-        <td>${formatDuration(r.elapsed_seconds * 1000)}</td>
-      </tr>`).join('')
-    : '<tr><td colspan="4">Пока никто не достиг 10 уровня — будь первым!</td></tr>';
+  try {
+    lbData = await api('/api/leaderboard');
+  } catch (err) {
+    lbData = { race: [], airports: [], mastery: [] };
+  }
+  renderLeaderboard();
   $('#leaderboardModal').classList.remove('hidden');
 });
 $('#closeLeaderboard').addEventListener('click', () => $('#leaderboardModal').classList.add('hidden'));

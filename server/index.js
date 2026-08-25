@@ -1070,6 +1070,7 @@ function serializeAircraft(airportId) {
 }
 
 function serializeAirport(airport) {
+  const owner = store.findUserById(airport.userId);
   const buildings = store.getBuildingsByAirport(airport.id);
   const nextExpansion = LAND_EXPANSION[airport.landExpansionsBought] || null;
   const usedSlots = store.getAircraftByAirport(airport.id).length;
@@ -1185,6 +1186,7 @@ function serializeAirport(airport) {
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
     level2Bonus: { xp: CONFIG.LEVEL2_BONUS_XP, rep: CONFIG.LEVEL2_BONUS_REP },
+    username: owner ? owner.username : null,   // чтобы подсветить себя в рейтинге
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
     welcomeXp: CONFIG.WELCOME_XP || 500,
     // по каждому терминалу: прилетело, обработано, улетело, сейчас в очереди
@@ -2127,11 +2129,65 @@ app.post('/api/buy-land', auth, (req, res) => {
   res.json(serializeAirport(updated));
 });
 
+// Стоимость аэропорта: здания с учётом вложений в апгрейды, флот и деньги.
+// Разрушенные здания не считаем — это уже не актив, а обязательство снести.
+function airportValue(airportId, airport) {
+  let total = Math.max(0, airport.money || 0);
+  for (const b of store.getBuildingsByAirport(airportId)) {
+    const def = BUILDINGS[b.buildingId];
+    if (!def || b.ruined) continue;
+    if ((b.state || 'owned') === 'sold') continue;
+    total += def.cost || 0;
+    for (let l = 2; l <= (b.upgradeLevel || 1); l++) total += upgradeCost(def, l);
+  }
+  for (const ac of store.getAircraftByAirport(airportId)) {
+    const t = AIRCRAFT_TYPES[ac.typeId];
+    if (t) total += resalePrice(t, ac.wear || 0);
+  }
+  return Math.round(total);
+}
+
+// Сколько клеток занято постройками — знаменатель для эффективности.
+function occupiedCells(airportId) {
+  return store.getBuildingsByAirport(airportId)
+    .filter(b => (b.state || 'owned') !== 'sold').length;
+}
+
 app.get('/api/leaderboard', (req, res) => {
-  const rows = store.getLeaderboard(50).map(r => ({
-    username: r.username, start_type: r.startType, elapsed_seconds: r.elapsedSeconds, achieved_at: r.achievedAt,
+  // 1) ГОНКА — кто быстрее прошёл до 10 уровня. Статичная память о прохождении.
+  const race = store.getLeaderboard(50).map(r => ({
+    username: r.username, start_type: r.startType,
+    elapsed_seconds: r.elapsedSeconds, achieved_at: r.achievedAt,
   }));
-  res.json(rows);
+
+  // Живые таблицы считаем по текущему состоянию аэропортов.
+  const rows = [];
+  for (const ap of store.getAllAirports()) {
+    const user = store.findUserById(ap.userId);
+    if (!user) continue;
+    const cells = occupiedCells(ap.id);
+    rows.push({
+      username: user.username,
+      level: ap.level || 0,
+      value: airportValue(ap.id, ap),
+      cells,
+      reputation: Math.floor(ap.reputation || 0),
+      // прибыль за последние завершённые игровые сутки на занятую клетку
+      lastDayNet: ap.lastDayNet != null ? ap.lastDayNet : null,
+      perCell: ap.lastDayNet != null && cells > 0 ? Math.round(ap.lastDayNet / cells) : null,
+    });
+  }
+
+  // 2) АЭРОПОРТЫ — кто крупнее прямо сейчас.
+  const airports = [...rows].sort((a, b) => b.value - a.value).slice(0, 50);
+
+  // 3) МАСТЕРСТВО — сколько выжато с одной клетки. Здесь аккуратный маленький
+  // аэропорт может обойти громоздкий: считается не размер, а устройство.
+  // Аэропорты, не прожившие ни одних игровых суток, в зачёт не идут.
+  const mastery = rows.filter(r => r.perCell != null)
+    .sort((a, b) => b.perCell - a.perCell).slice(0, 50);
+
+  res.json({ race, airports, mastery });
 });
 
 // ==================== АДМИН-ПАНЕЛЬ ====================
@@ -3280,6 +3336,9 @@ function runTick() {
       if (periodStats.repLoss >= 1) {
         logEvent(airport.id, 'summary', `Потеряно репутации за сутки: ${Math.round(periodStats.repLoss).toLocaleString('ru-RU')}`);
       }
+      // запоминаем итог суток — по нему строится рейтинг мастерства
+      patch.lastDayNet = Math.round(periodStats.money);
+      patch.lastDayAt = currentTick;
       patch.periodStats = { sinceTick: currentTick, money: 0, repGain: 0, repLoss: 0 };
     }
     if (bankrupt) patch.bankrupt = true;

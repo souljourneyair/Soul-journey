@@ -929,3 +929,17 @@ body.modal-open { overflow: hidden; }
   pointer-events: none;
 }
 .stat-tip.visible { opacity: 1; transform: translateY(0); }
+
+/* --- вкладки рейтинга --- */
+.lb-tabs { display: flex; gap: 2px; margin-bottom: 6px; }
+.lb-tab {
+  flex: 1; background: none; border: none; cursor: pointer;
+  padding: 8px 10px; font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-dim);
+  border-bottom: 2px solid rgba(124,138,153,0.2);
+}
+.lb-tab:hover { color: var(--text); }
+.lb-tab-active { color: var(--board-amber); border-bottom-color: var(--board-amber); }
+.lb-hint { font-size: 11px; color: var(--text-dim); margin: 0 0 10px; line-height: 1.4; }
+.lb-me { background: rgba(245,158,11,0.10); }
+.lb-num { font-family: var(--mono); color: var(--board-amber); }
