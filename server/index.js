@@ -1171,7 +1171,14 @@ function serializeAirport(airport) {
         used: heliUsed, total: totalApronSlots(airport.id),
       };
     })(),
-    apronWaiting: (airport.waitingBorts || []).length,  // бортов в очереди на посадку
+    // В очередь считаем только те борта, что уже прилетели и ждут места.
+    // Заказанный чартер и борт, которому ещё лететь, стоят в том же списке,
+    // но очередью не являются: показывать их как затор неправильно — площадки
+    // при этом пустые, и игрок не понимает, что не так.
+    apronWaiting: (airport.waitingBorts || [])
+      .filter(w => (w.waitingSinceTick || 0) <= store.getTickCounter()).length,
+    apronInbound: (airport.waitingBorts || [])
+      .filter(w => (w.waitingSinceTick || 0) > store.getTickCounter()).length,
     // загрузка ВПП: сколько посадок из суточной квоты израсходовано
     runwayLoad: listRunways(airport.id, store.getTickCounter()).map(r => ({
       cellIndex: r.cellIndex, buildingId: r.buildingId, level: r.level,
