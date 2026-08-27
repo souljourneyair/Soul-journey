@@ -1177,7 +1177,12 @@ function renderBuildingModal() {
   } else if (working === 'upgrade') {
     stats.innerHTML = `<div class="bm-progress">${progressRing(constructionProgress(building), 56)}<span>Идёт улучшение до уровня ${building.pendingUpgradeLevel}. Пока показатели снижены.</span></div>${upgradeLine}`;
   } else if (!def.removable) {
-    stats.innerHTML = `<span>Обязательное здание — нельзя сдать в аренду или снести</span>${upgradeLine}`;
+    // Администрация сюда попадает как несносимая — раньше это значило, что
+    // в модалке у неё не было вообще ничего, кроме одной строки: ни рейтинга,
+    // ни репутации, ни того, что даёт апгрейд штаба.
+    stats.innerHTML =
+      `<span>Обязательное здание — нельзя сдать в аренду или снести</span>${upgradeLine}` +
+      adminStatsHtml(building);
   } else if (state === 'owned') {
     let fuelInfo = '';
     if (building.buildingId === 'fuel_depot' && STATE.fuel) {
@@ -1260,6 +1265,31 @@ function renderBuildingModal() {
 
 // Рендер панели управления зданием ВНУТРИ контейнера (для аккордеона).
 // Переиспользует ту же логику, что модалка, но пишет в переданный элемент.
+// Показатели здания администрации. Общие для модалки и аккордеона: раньше
+// они жили только в аккордеоне, а в модальном окне администрация попадала в
+// ветку «обязательное здание» и не показывала ничего.
+function adminStatsHtml(building) {
+  if (!building || building.buildingId !== 'admin') return '';
+  const a = STATE.adminBonuses;
+  const xpLeft = STATE.level >= 10 ? 0 : Math.max(0, (STATE.xpForNextLevel || 0) - (STATE.xp || 0));
+  const n = (v) => Math.floor(v || 0).toLocaleString('ru-RU');
+  let html =
+    `<span>Уровень аэропорта: ${STATE.level}${STATE.level >= 10 ? ' (максимум)' : ` · до следующего ${xpLeft.toLocaleString('ru-RU')} XP`}</span>` +
+    `<span>Рейтинг: ${(STATE.rating || 0).toFixed(1)} — борт берёт до ${STATE.heliSeats || 2} мест</span>` +
+    `<span>Репутация: ${n(STATE.reputation)} — накопленный счёт заслуг</span>` +
+    `<span>Содержание аэропорта: −${Math.round(STATE.upkeepPerTick || 0)}/мин</span>` +
+    `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>` +
+    `<span>Прилетело: ${n(STATE.paxArrived)} · улетело: ${n(STATE.paxDeparted)}</span>` +
+    `<span>Всего через аэропорт: ${n(STATE.paxProcessed)}</span>`;
+  if (a) {
+    html +=
+      `<span>Апгрейд даёт: содержание −${(a.upkeepDiscount * 100).toFixed(1)}%, ` +
+      `работы −${Math.round(a.buildSpeedBonus * 100)}%, ` +
+      `предложений до ${a.maxOffers}${a.nextMaxOffers ? ` (дальше ${a.nextMaxOffers})` : ''}</span>`;
+  }
+  return html;
+}
+
 function renderBuildingPanel(cellIndex, container) {
   const building = STATE.buildings.find(b => b.cellIndex === cellIndex);
   if (!building) { container.innerHTML = ''; return; }
@@ -1338,28 +1368,9 @@ function renderBuildingPanel(cellIndex, container) {
         `<span${tl.queued > 0 ? ' class="term-queue"' : ''}>В очереди: ${tl.queued.toLocaleString('ru-RU')}</span>`;
     }
 
-    let adminInfo = '';
-    // Что даёт текущий уровень штаба — иначе апгрейд выглядит бессмысленным.
-    if (building.buildingId === 'admin' && STATE.adminBonuses) {
-      const a = STATE.adminBonuses;
-      adminInfo +=
-        `<span>Содержание аэропорта: −${(a.upkeepDiscount * 100).toFixed(1)}%</span>` +
-        `<span>Скорость работ: −${Math.round(a.buildSpeedBonus * 100)}% времени</span>` +
-        `<span>Предложений договоров: до ${a.maxOffers}${a.nextMaxOffers ? ` (на след. уровне ${a.nextMaxOffers})` : ''}</span>`;
-    }
-    if (building.buildingId === 'admin') {
-      const xpLeft = STATE.level >= 10 ? 0 : Math.max(0, (STATE.xpForNextLevel || 0) - (STATE.xp || 0));
-      adminInfo =
-        `<span>Уровень аэропорта: ${STATE.level}${STATE.level >= 10 ? ' (максимум)' : ` · до следующего ${xpLeft.toLocaleString('ru-RU')} XP`}</span>` +
-        `<span>Содержание аэропорта: −${Math.round(STATE.upkeepPerTick || 0)}/мин</span>` +
-        `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>` +
-        `<span>Пассажиров за всё время: ${(STATE.paxServed || 0).toLocaleString('ru-RU')}</span>` +
-        `<span>Прилетело: ${(STATE.paxArrived || 0).toLocaleString('ru-RU')}</span>` +
-        `<span>Улетело: ${(STATE.paxDeparted || 0).toLocaleString('ru-RU')}</span>` +
-        `<span>Всего через аэропорт: ${(STATE.paxProcessed || 0).toLocaleString('ru-RU')}</span>` +
-        `<span>Рейтинг: ${(STATE.rating || 0).toFixed(1)} — борт берёт до ${STATE.heliSeats || 2} мест</span>` +
-        `<span>Репутация: ${Math.floor(STATE.reputation || 0).toLocaleString('ru-RU')} — накопленный счёт заслуг за всё время</span>`;
-    }
+    // Показатели штаба — тем же блоком, что и в модальном окне.
+    const adminInfo = adminStatsHtml(building);
+
     statsHtml = `${incomeLine}${upkeepLine}${officeInfo}${termInfo}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
   } else if (state === 'listed') {
     statsHtml = `<span>На бирже — дохода нет, ждём ботов</span>`;
