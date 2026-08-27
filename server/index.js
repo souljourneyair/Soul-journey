@@ -3254,7 +3254,16 @@ function runTick() {
             }
             store.updateAirport(airport.id, p);
             notifications.push(`🏗️ «${def.name}» построен и введён в эксплуатацию (+${gainedXp} XP)`);
-            logEvent(airport.id, 'build', `Построено: ${def.name} (+${gainedXp} XP)`);
+            // Разовый бонус репутации за постройку: новый объект сразу
+            // добавляет аэропорту веса, дальше здание платит помесячно
+            // и только пока в порядке.
+            const repBonus = def.reputation || 0;
+            if (repBonus > 0) {
+              reputationPerTick += repBonus;
+              logEvent(airport.id, 'build', `Построено: ${def.name} (+${gainedXp} XP, +${repBonus} репутации)`);
+            } else {
+              logEvent(airport.id, 'build', `Построено: ${def.name} (+${gainedXp} XP)`);
+            }
             if (nl > fa.level) {
               notifications.push(`⭐ Новый уровень: ${nl}!`);
               logEvent(airport.id, 'level', `Достигнут уровень ${nl}`);

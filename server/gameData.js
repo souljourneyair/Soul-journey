@@ -790,26 +790,26 @@ function upgradeDurationTicks(def, targetLevel) {
 const BUILDINGS = {
   admin: {
     id: 'admin', name: 'Здание администрации', minLevel: 0,
-    cost: 3000, income: 0, reputation: 0.2, xp: 500, removable: false, maxUpgradeLevel: 5,
+    cost: 3000, income: 0, reputation: 5, xp: 500, removable: false, maxUpgradeLevel: 5,
     starter: true, unique: true,
     desc: 'Штаб аэропорта — первая постройка, без неё строить больше нечего. Дохода не приносит: аэропорт зарабатывает на перевозках, а управление стоит денег. Но уровень штаба управляет всем аэропортом: снижает содержание (1% на ур.1, 3% на ур.5), ускоряет любые работы (2% за уровень) и расширяет переговоры — от 4 предложений договоров на первом уровне до 8 на пятом. В единственном экземпляре, снести нельзя.',
   },
   helipad: {
     id: 'helipad', name: 'Вертолётная стоянка', minLevel: 0,
     cost: 2500, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 300, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, reputation: 3, xp: 300, removable: true, maxUpgradeLevel: 5,
     starter: true,
     desc: 'Источник дохода — мелкие вертолётные чартеры. Обычное здание: можно строить, улучшать, сдавать, продавать и сносить.',
   },
   tower: {
     id: 'tower', name: 'Диспетчерская вышка', 
-    cost: 6000, upgradeCostMult: 0.8, income: 0, reputation: 0, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5, minLevel: 3, requiresBuilt: 'runway_small',
+    cost: 6000, upgradeCostMult: 0.8, income: 0, reputation: 6, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5, minLevel: 3, requiresBuilt: 'runway_small',
     desc: 'Задаёт интервал между операциями на каждой ВПП: без вышки 20 мин, ур.1 — 15, ур.2 — 12, ур.3 — 9, ур.4 — 6, ур.5 — 4 мин. Интервал действует на каждую полосу отдельно, поэтому вторая и третья ВПП добавляют пропускной способности. Несколько вышек делят интервал между собой. Обязательна для полётов своих самолётов.',
   },
   runway_small: {
     id: 'runway_small', name: 'Малая ВПП', 
     cost: 12000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 1600, removable: true, nonRentable: true, maxUpgradeLevel: 5,
+    infrastructure: true, reputation: 8, xp: 1600, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     isRunway: true, lineType: 'vvl',
     upgradeCostMult: 0.2,
     accepts: ['small'],                              // только малые самолёты
@@ -825,18 +825,18 @@ const BUILDINGS = {
   },
   terminal_a: {
     id: 'terminal_a', name: 'Терминал A', 
-    cost: 30000, income: 0, reputation: 1, xp: 1900, removable: true, maxUpgradeLevel: 5,
+    cost: 30000, income: 0, reputation: 10, xp: 1900, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'A', minLevel: 3, minReputation: 200,
     desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Увеличивает приём пассажиров.',
   },
   fuel_depot: {
     id: 'fuel_depot', name: 'Топливный склад', minLevel: 3,
-    cost: 10000, income: 0, reputation: 0, xp: 1400, removable: true, maxUpgradeLevel: 5,
+    cost: 10000, income: 0, reputation: 4, xp: 1400, removable: true, maxUpgradeLevel: 5,
     desc: 'Компания-поставщик авиатоплива. Прямого дохода не приносит, но даёт дешёвую домашнюю заправку. Можно выбрать поставщика.',
   },
   airline_office: {
     id: 'airline_office', name: 'Офис авиакомпании', minLevel: 5,
-    cost: 12000, income: 0, reputation: 1, xp: 2200, removable: true, maxUpgradeLevel: 3,
+    cost: 12000, income: 0, reputation: 5, xp: 2200, removable: true, maxUpgradeLevel: 3,
     unique: true,               // только один офис на аэропорт
     requiresAirline: true,      // доступен в каталоге только после создания АК
     rentable: false,            // нельзя сдавать в аренду / продавать — только снести
@@ -846,7 +846,7 @@ const BUILDINGS = {
   stand_small: {
     id: 'stand_small', name: 'Малая стоянка ВС', 
     cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, nonRentable: true, reputation: 0, xp: 700, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, nonRentable: true, reputation: 3, xp: 700, removable: true, maxUpgradeLevel: 5,
     upgradeCostMult: 0.2, standSize: 'small',   // вмещает маленькие самолёты
     aircraftSlots: 1, minLevel: 3, requiresBuilt: 'terminal_a',
     desc: 'Стоянка для маленького самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин, то есть вдвое с половиной больше прилётов через ту же стоянку.',
@@ -854,7 +854,7 @@ const BUILDINGS = {
   stand_medium: {
     id: 'stand_medium', name: 'Средняя стоянка ВС', minLevel: 6,
     cost: 14000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, nonRentable: true, reputation: 0, xp: 1700, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, nonRentable: true, reputation: 5, xp: 1700, removable: true, maxUpgradeLevel: 5,
     upgradeCostMult: 0.2, standSize: 'medium',  // вмещает средние; с ур.3 — ещё и маленькие
     aircraftSlots: 1,
     desc: 'Стоянка для среднего (узкофюзеляжного) самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также маленькие самолёты.',
@@ -862,7 +862,7 @@ const BUILDINGS = {
   stand_large: {
     id: 'stand_large', name: 'Большая стоянка ВС', minLevel: 8,
     cost: 32000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, nonRentable: true, reputation: 0, xp: 3600, removable: true, maxUpgradeLevel: 5,
+    infrastructure: true, nonRentable: true, reputation: 8, xp: 3600, removable: true, maxUpgradeLevel: 5,
     upgradeCostMult: 0.2, standSize: 'large',   // вмещает большие; с ур.3 — ещё средние и маленькие
     aircraftSlots: 1,
     desc: 'Стоянка для большого (широкофюзеляжного) самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также средние и маленькие самолёты.',
@@ -870,7 +870,7 @@ const BUILDINGS = {
   hangar: {
     id: 'hangar', name: 'Ангар', minLevel: 3,
     cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 900, removable: true, maxUpgradeLevel: 4,
+    infrastructure: true, reputation: 4, xp: 900, removable: true, maxUpgradeLevel: 4,
     aircraftSlots: 1, // базово 1 место, +1 за каждый уровень апгрейда (ур.1→1 ... ур.4→4)
     aircraftSlotsPerLevel: true,
     desc: 'Хранит и обслуживает самолёты: 1 место на 1 уровне, до 4 на максимальном.',
@@ -878,7 +878,7 @@ const BUILDINGS = {
   runway_full: {
     id: 'runway_full', name: 'Средняя ВПП', minLevel: 5,
     cost: 45000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 4600, removable: true, nonRentable: true, maxUpgradeLevel: 5,
+    infrastructure: true, reputation: 15, xp: 4600, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     isRunway: true, lineType: 'both',
     upgradeCostMult: 0.2,
     accepts: ['small', 'medium'],
@@ -900,12 +900,12 @@ const BUILDINGS = {
   },
   fire_station: {
     id: 'fire_station', name: 'Пожарная часть', 
-    cost: 12000, income: 0, reputation: 2, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3, minLevel: 3, minReputation: 200,
+    cost: 12000, income: 0, reputation: 8, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3, minLevel: 3, minReputation: 200,
     desc: 'Тушит пожары в аэропорту. Без неё загоревшееся здание выгорает полностью и клетка освобождается; с ней пожар удаётся сбить, и объект отделывается повреждением. Дохода не приносит — это служба безопасности, а не бизнес.',
   },
   terminal_b: {
     id: 'terminal_b', name: 'Терминал B', minLevel: 5,
-    cost: 60000, income: 0, reputation: 2, xp: 3800, removable: true, maxUpgradeLevel: 5,
+    cost: 60000, income: 0, reputation: 15, xp: 3800, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'B',
     desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Больше пассажиров, чем терминал A. Ценность терминала — в пропускной способности: аэропорт зарабатывает на обслуженных пассажирах.',
   },
@@ -924,7 +924,7 @@ const BUILDINGS = {
   runway_big: {
     id: 'runway_big', name: 'Большая ВПП', minLevel: 8,
     cost: 90000, income: 0,  // инфраструктура: доход от работы, не пассивный
-    infrastructure: true, reputation: 0, xp: 8000, removable: true, nonRentable: true, maxUpgradeLevel: 5,
+    infrastructure: true, reputation: 25, xp: 8000, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     isRunway: true, lineType: 'both',
     upgradeCostMult: 0.2,
     accepts: ['small', 'medium', 'large'],
@@ -946,25 +946,25 @@ const BUILDINGS = {
   },
   terminal_d: {
     id: 'terminal_d', name: 'Терминал D', minLevel: 7,
-    cost: 130000, income: 0, reputation: 3, xp: 6800, removable: true, maxUpgradeLevel: 5,
+    cost: 130000, income: 0, reputation: 20, xp: 6800, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'D',
     desc: 'Крупнейший пассажирский терминал внутренних авиалиний (ВВЛ).',
   },
   terminal_c: {
     id: 'terminal_c', name: 'Терминал C', minLevel: 5,
-    cost: 70000, income: 0, reputation: 2, xp: 4200, removable: true, maxUpgradeLevel: 5,
+    cost: 70000, income: 0, reputation: 15, xp: 4200, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'C',
     desc: 'Пассажирский терминал международных авиалиний (МВЛ). Обслуживает зарубежные рейсы.',
   },
   terminal_e: {
     id: 'terminal_e', name: 'Терминал E', minLevel: 5,
-    cost: 75000, income: 0, reputation: 2, xp: 4400, removable: true, maxUpgradeLevel: 5,
+    cost: 75000, income: 0, reputation: 15, xp: 4400, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'E',
     desc: 'Пассажирский терминал международных авиалиний (МВЛ). Обслуживает зарубежные рейсы.',
   },
   terminal_f: {
     id: 'terminal_f', name: 'Терминал F', minLevel: 8,
-    cost: 160000, income: 0, reputation: 3, xp: 8400, removable: true, maxUpgradeLevel: 5,
+    cost: 160000, income: 0, reputation: 25, xp: 8400, removable: true, maxUpgradeLevel: 5,
     lineType: 'mvl', terminalClass: 'F',
     desc: 'Крупный пассажирский терминал международных авиалиний (МВЛ). Больше пассажиров, чем терминал E.',
   },

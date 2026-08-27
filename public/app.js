@@ -747,7 +747,7 @@ function renderBuildingRow(building, tbody, indent) {
       actionText = infraStatusText(building);
     } else {
       const income = Math.round(def.income * upgradeMult(level));
-      const rep = Math.round((def.reputation || 0) * upgradeMult(level));
+      const rep = 0;   // репутацию приносят пассажиры, а не здания
       const parts = [`+${income} у.е./мин`];
       if (rep > 0) parts.push(`+${rep} реп./мин`);
       actionText = parts.join('<br>');
@@ -953,7 +953,7 @@ function renderBuildMenu() {
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
         }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
-        ${def.reputation ? `<span>Репутация: +${def.reputation}/мин</span>` : ''}
+        ${def.reputation ? `<span>Репутация: +${def.reputation} за постройку</span>` : ''}
         <span>XP: +${def.xp}</span>
         ${limitLabel}
       </div>
@@ -1043,7 +1043,7 @@ function renderTerritoryBuildMenu() {
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
         }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
-        ${def.reputation ? `<span>Репутация: +${def.reputation}/мин</span>` : ''}
+        ${def.reputation ? `<span>Репутация: +${def.reputation} за постройку</span>` : ''}
         <span>XP: +${def.xp}</span>
         ${limitLabel}
       </div>
