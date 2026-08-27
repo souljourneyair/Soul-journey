@@ -476,6 +476,19 @@ function renderStats() {
     numEl.classList.toggle('forming', forming);
   }
 
+  // Очередь на вылет: сколько туристов ждут борт. Главный сигнал игроку —
+  // если очередь растёт, люди начнут уходить и портить рейтинг.
+  const waitEl = $('#statWaiting');
+  if (waitEl) {
+    const p = STATE.paxPool || {};
+    const total = (p.heli || 0) + (p.vvl || 0) + (p.mvl || 0);
+    waitEl.textContent = total;
+    // подсвечиваем, когда очередь больше, чем увезёт один борт
+    const seats = STATE.heliSeats || 2;
+    waitEl.classList.toggle('stat-warn', total > seats * 3);
+    waitEl.classList.toggle('stat-negative', total > seats * 6);
+  }
+
   const apronEl = $('#statApron');
   if (apronEl && STATE.apronSlots) {
     const s = STATE.apronSlots;
@@ -1487,7 +1500,10 @@ function infraStatusText(building) {
   }
   if (id === 'helipad') {
     const o = slotOccupancyOf(building);
-    return o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`;
+    const waiting = Math.floor((STATE.paxPool || {}).heli || 0);
+    const seats = STATE.heliSeats || 2;
+    const state = o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`;
+    return `${state} · ждут вылета: ${waiting} чел. · борт берёт ${seats}`;
   }
   if (id === 'tower') {
     const t = (STATE.towerLoad || []).find(x => x.cellIndex === building.cellIndex);
