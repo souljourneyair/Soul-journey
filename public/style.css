@@ -990,3 +990,9 @@ body.modal-open { overflow: hidden; }
 .charter-seats { font-family: var(--mono); color: var(--text); min-width: 90px; }
 .charter-cost { font-family: var(--mono); color: var(--board-amber); min-width: 70px; }
 .charter-note { color: var(--text-dim); font-size: 12px; flex: 1; }
+
+/* картинка здания во вступительном окне */
+.welcome-img {
+  width: 100%; max-width: 220px; height: auto; border-radius: 8px;
+  border: 1px solid var(--board-amber-dim);
+}

@@ -3518,21 +3518,27 @@ function runTick() {
       patch.periodStats = { sinceTick: currentTick, money: 0, repGain: 0, repLoss: 0 };
     }
     if (bankrupt) patch.bankrupt = true;
+    // Подарок за второй уровень. Проверяем по факту уровня, а не по событию
+    // повышения: до второго игрок обычно доходит не в тике, а достроив здание
+    // или получив приветственные очки. Тик такого повышения не видит — уровень
+    // к его приходу уже второй, — и бонус ждал следующего, то есть третьего.
+    if (newLevel >= 2 && !freshAirport.level2BonusGiven) {
+      patch.xp = newXp + CONFIG.LEVEL2_BONUS_XP;
+      patch.level = levelFromXp(patch.xp);
+      patch.reputation = newRep + CONFIG.LEVEL2_BONUS_REP;
+      patch.level2BonusGiven = true;
+      patch.pendingLevel2Bonus = true;   // клиент покажет окно
+      // Ставим отметку сразу, не дожидаясь сохранения всего патча: между
+      // начислением и записью успевает пройти ещё один тик, и запись в ленту
+      // тогда дублируется.
+      store.updateAirport(airport.id, { level2BonusGiven: true });
+      logEvent(airport.id, 'level',
+        `Бонус за второй уровень: +${CONFIG.LEVEL2_BONUS_XP} XP и +${CONFIG.LEVEL2_BONUS_REP} репутации`);
+    }
+
     if (newLevel > freshAirport.level) {
       notifications.push(`⭐ Новый уровень: ${newLevel}!`);
       logEvent(airport.id, 'level', `Достигнут уровень ${newLevel}`);
-      // Подарок за второй уровень — разовый, отмечаем флагом.
-    // (Флаг чинится сам: если аэропорт ниже второго уровня, значит бонус
-    // ещё впереди — см. сброс ниже по тику.)
-      if (newLevel >= 2 && !freshAirport.level2BonusGiven) {
-        patch.xp = newXp + CONFIG.LEVEL2_BONUS_XP;
-        patch.level = levelFromXp(patch.xp);
-        patch.reputation = newRep + CONFIG.LEVEL2_BONUS_REP;
-        patch.level2BonusGiven = true;
-        patch.pendingLevel2Bonus = true;   // клиент покажет окно
-        logEvent(airport.id, 'level',
-          `Бонус за второй уровень: +${CONFIG.LEVEL2_BONUS_XP} XP и +${CONFIG.LEVEL2_BONUS_REP} репутации`);
-      }
       if (newLevel >= CONFIG.TARGET_LEVEL && !freshAirport.reachedLevel10At) {
         patch.reachedLevel10At = Date.now();
       }

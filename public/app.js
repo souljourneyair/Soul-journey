@@ -734,7 +734,7 @@ function renderBuildingRow(building, tbody, indent) {
   const state = building.state || 'owned';
   const level = building.upgradeLevel || 1;
 
-  const baseName = building.customName || displayBuildingName(building.buildingId);
+  const baseName = building.customName || displayBuildingName(building.buildingId, level);
   const levelSuffix = building.maxUpgradeLevel > 1 ? ` ${toRoman(level)}` : '';
   const name = baseName + levelSuffix;
 
@@ -854,7 +854,7 @@ function renderGrid() {
         ? `<img src="${iconValue}" alt="" class="cell-icon-img">`
         : `<div class="cell-icon">${iconValue}</div>`;
 
-      const baseName = building.customName || displayBuildingName(building.buildingId);
+      const baseName = building.customName || displayBuildingName(building.buildingId, building.upgradeLevel);
       const levelSuffix = building.maxUpgradeLevel > 1 ? ` ${toRoman(building.upgradeLevel)}` : '';
       const displayName = baseName + levelSuffix;
       const labelStyle = STATE.buildingLabelStyles?.[building.buildingId];
@@ -1134,7 +1134,7 @@ function renderBuildingModal() {
   const def = STATE.catalog[building.buildingId];
   const state = building.state || 'owned';
 
-  $('#bmTitle').textContent = `${displayBuildingName(building.buildingId).toUpperCase()} ${toRoman(building.upgradeLevel)}`;
+  $('#bmTitle').textContent = `${displayBuildingName(building.buildingId, building.upgradeLevel).toUpperCase()} ${toRoman(building.upgradeLevel)}`;
   const bmSurface = $('#bmSurface');
   if (bmSurface) {
     const detail = levelDetailText(building.buildingId, building.upgradeLevel);
@@ -2907,15 +2907,23 @@ $('#closeSchedule')?.addEventListener('click', () => $('#scheduleModal').classLi
 // Показывается один раз на аэропорт и заново после «Начать сначала».
 let welcomeStep = 0;
 function showWelcome() {
+  // Во вступлении показываем само наследство — здание администрации первого
+  // уровня, ту самую «рухлядь». Если картинка не загружена, остаётся эмодзи.
+  const adminImg = resolveBuildingImage('admin', 1);
   const screens = [
-    { icon: '🛩️', title: 'НАСЛЕДСТВО',
+    { icon: '🛩️', img: adminImg, title: 'НАСЛЕДСТВО',
       text: 'Привет! Твой старик завещал тебе вот эту рухлядь и поле. Надеюсь, ты сможешь с этим что-то сделать.' },
     { icon: '⭐', title: 'ПОДАРОК',
       text: `Вы получаете ${STATE.welcomeXp || 500} очков опыта за вход в игру.` },
   ];
   const cur = screens[welcomeStep];
   $('#welcomeTitle').textContent = cur.title;
-  $('#welcomeIcon').textContent = cur.icon;
+  const iconEl = $('#welcomeIcon');
+  if (cur.img) {
+    iconEl.innerHTML = `<img src="${cur.img}" alt="" class="welcome-img">`;
+  } else {
+    iconEl.textContent = cur.icon;
+  }
   $('#welcomeText').textContent = cur.text;
   $('#welcomeNext').textContent = welcomeStep === screens.length - 1 ? 'Начать' : 'Дальше';
   $('#welcomeModal').classList.remove('hidden');
@@ -3051,8 +3059,18 @@ function toRoman(n) {
   return map[n] || String(n);
 }
 
-function displayBuildingName(buildingId) {
-  return STATE.buildingNames?.[buildingId] || STATE.catalog[buildingId].name;
+function displayBuildingName(buildingId, level) {
+  // Название может зависеть от уровня: администрация первого уровня — это
+  // «Рухлядь», доставшаяся от старика, и только с апгрейдом она становится
+  // зданием администрации. Переименование админом (buildingNames) имеет
+  // приоритет над всем.
+  const custom = STATE.buildingNames?.[buildingId];
+  if (custom) return custom;
+  const def = STATE.catalog[buildingId];
+  if (!def) return buildingId;
+  const byLevel = def.nameByLevel;
+  if (byLevel && level != null && byLevel[level - 1]) return byLevel[level - 1];
+  return def.name;
 }
 
 function displayBuildingDesc(buildingId) {
