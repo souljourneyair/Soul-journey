@@ -443,6 +443,74 @@ const DISASTER_ECONOMY = {
 
 const DISASTER_KINDS = ['storm', 'flood', 'earthquake', 'birds', 'fire', 'meteor'];
 
+// ---------- Рейтинг: впечатление пассажиров ----------
+// Репутация — накопленный «стаж» (пороги, плата по договорам). Рейтинг —
+// среднее впечатление за последние поездки, от 0 до 5. Именно он решает,
+// сколько людей придёт и сколько борт согласится взять.
+const RATING = {
+  WINDOW: 50,              // по скольким последним оценкам считаем среднее
+  MIN_SAMPLES: 10,         // пока меньше — показываем стартовое значение
+  START: 3.0,              // с чего начинает новый аэропорт
+  // Из чего складывается впечатление одного пассажира (потом зажимаем в 0..2).
+  BASE: 2.0,
+  TURBULENCE_CHANCE: 0.2,  // шанс тряски в полёте
+  TURBULENCE_HIT: 1.0,
+  DELAY_HIT: 1.0,          // борт задержался (кружил, разворачивался)
+  DELAY_AFTER_MINUTES: 5,  // задержкой считается ожидание дольше этого
+  WAIT_FREE_MINUTES: 20,   // столько ждать в аэропорту не обидно
+  WAIT_HIT_PER_STEP: 0.5,  // дальше за каждые WAIT_STEP минут
+  WAIT_STEP: 15,
+  MOOD_SPREAD: 0.5,        // случайный разброс настроения
+
+  // Сколько пассажиров приходит в аэропорт за игровую минуту на одну площадку.
+  // Ключ — нижняя граница рейтинга. В реальном времени: при 2.5 это один
+  // человек за 5 минут, при 5.0 — четверо в минуту.
+  ARRIVALS_BY_RATING: [
+    { from: 0.0, perMinute: 1 / 30 },   // 1 человек за 5 реальных минут
+    { from: 2.6, perMinute: 1 / 18 },   // 1 за 3 реальных минуты
+    { from: 3.1, perMinute: 1 / 12 },   // 1 за 2 минуты
+    { from: 3.6, perMinute: 1 / 6 },    // 1 в минуту
+    { from: 4.1, perMinute: 2 / 6 },    // 2 в минуту
+    { from: 4.6, perMinute: 4 / 6 },    // 4 в минуту
+  ],
+  // Сколько мест согласится дать договорной вертолёт при таком рейтинге.
+  HELI_SEATS_BY_RATING: [
+    { from: 0.0, seats: 2 }, { from: 2.6, seats: 3 }, { from: 3.1, seats: 4 },
+    { from: 3.6, seats: 5 }, { from: 4.1, seats: 6 }, { from: 4.6, seats: 8 },
+  ],
+};
+
+// Репутация зданий: до 2 единиц за игровой месяц, но только если здание в
+// порядке. Изношенное даёт меньше, вплоть до нуля — стены сами по себе
+// уважения не приносят, приносит ухоженный аэропорт.
+const BUILDING_REPUTATION = {
+  PERIOD_TICKS: 43200,     // игровой месяц (30 игровых суток)
+  MAX_PER_PERIOD: 2,
+  FULL_UNTIL_WEAR: 0.15,   // до этого износа — полная выплата
+};
+
+function buildingReputationFor(wear) {
+  const w = wear || 0;
+  if (w <= BUILDING_REPUTATION.FULL_UNTIL_WEAR) return BUILDING_REPUTATION.MAX_PER_PERIOD;
+  const left = 1 - BUILDING_REPUTATION.FULL_UNTIL_WEAR;
+  return Math.max(0, BUILDING_REPUTATION.MAX_PER_PERIOD * (1 - (w - BUILDING_REPUTATION.FULL_UNTIL_WEAR) / left));
+}
+
+// Чартер: аэропорт сам заказывает борт, чтобы вывезти скопившихся туристов.
+// Платит за подачу, зарабатывает комиссию с билетов — при полной загрузке
+// выходит небольшой плюс, при неполной убыток. В этом и выбор.
+const CHARTER = {
+  COST_PER_SEAT: 12,
+  ARRIVES_IN_MINUTES: 5,   // через сколько игровых минут борт подадут
+  OPTIONS: [2, 3, 5, 8],
+};
+
+function byRating(table, rating) {
+  let found = table[0];
+  for (const row of table) if (rating >= row.from) found = row;
+  return found;
+}
+
 const APRON_ECONOMY = {
   HELIPAD_SLOTS_PER_LEVEL: 1,     // мест на вертолётке = уровень апгрейда (ур.1=1 ... ур.5=5)
   // Сколько самолёт стоит на земле (занимает стоянку) — по уровню стоянки.
@@ -1109,7 +1177,7 @@ module.exports = {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON,
+  EVENT_LOG, SEASON, RATING, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,

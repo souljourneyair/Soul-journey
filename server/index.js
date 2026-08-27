@@ -17,7 +17,7 @@ const {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON,
+  EVENT_LOG, SEASON, RATING, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
@@ -186,6 +186,50 @@ function arrivalIntervalFor(level) {
   const base = APRON_ECONOMY.CONTRACT_ARRIVAL_INTERVAL;
   if ((level || 0) >= APRON_ECONOMY.EARLY_ARRIVAL_UNTIL_LEVEL) return base;
   return Math.max(2, Math.round(base / APRON_ECONOMY.EARLY_ARRIVAL_DIVISOR));
+}
+
+// ---------- Рейтинг: впечатление пассажиров ----------
+// Считаем среднее по последним RATING.WINDOW оценкам, а не за период: у
+// маленького аэропорта с парой пассажиров в час календарное среднее прыгало
+// бы от каждого ворчуна, а ночной простой обнулял бы статистику.
+function airportRating(airport) {
+  const scores = airport.ratingScores || [];
+  if (scores.length < RATING.MIN_SAMPLES) return RATING.START;
+  const sum = scores.reduce((a, b) => a + b, 0);
+  return Math.max(0, Math.min(5, (sum / scores.length) * 2.5));
+}
+
+// Оценка одного пассажира: 0..2. Даже при идеальной работе кто-то уйдёт
+// недовольным — рейтинг 5.0 не должен доставаться прогулкой.
+function passengerScore({ waitedMinutes = 0, delayed = false }) {
+  let score = RATING.BASE;
+  if (Math.random() < RATING.TURBULENCE_CHANCE) score -= RATING.TURBULENCE_HIT;
+  if (delayed) score -= RATING.DELAY_HIT;
+  const over = Math.max(0, waitedMinutes - RATING.WAIT_FREE_MINUTES);
+  if (over > 0) score -= Math.ceil(over / RATING.WAIT_STEP) * RATING.WAIT_HIT_PER_STEP;
+  score += (Math.random() * 2 - 1) * RATING.MOOD_SPREAD;
+  return Math.max(0, Math.min(2, score));
+}
+
+// Записать оценки пассажиров: они же и есть очки репутации.
+function addPassengerScores(airportId, count, opts) {
+  if (count <= 0) return { reputation: 0, scores: [] };
+  const fresh = store.getAirportById(airportId);
+  if (!fresh) return { reputation: 0, scores: [] };
+  const scores = (fresh.ratingScores || []).slice();
+  let rep = 0;
+  for (let i = 0; i < count; i++) {
+    const sc = passengerScore(opts || {});
+    scores.push(sc);
+    rep += sc;
+  }
+  store.updateAirport(airportId, { ratingScores: scores.slice(-RATING.WINDOW) });
+  return { reputation: rep, scores };
+}
+
+// Сколько мест даст договорной вертолёт при нынешнем рейтинге.
+function heliSeatsFor(airport) {
+  return byRating(RATING.HELI_SEATS_BY_RATING, airportRating(airport)).seats;
 }
 
 // Уровень здания администрации (0 — не построена).
@@ -366,34 +410,35 @@ function terminalPoints(airportId, lineType) {
 
 // Генерация трафика пассажиров в пулы за тик (heli/vvl/mvl).
 function generateTraffic(airport) {
-  // Все три пула (heli/vvl/mvl) копятся от инфраструктуры + репутация/уровень.
-  // heli — от вертолётплощадок, vvl/mvl — от терминалов.
+  // Пассажиры приходят сами — столько, сколько заслужил рейтинг. Раньше поток
+  // считался от числа зданий и накопленной репутации: аэропорт мог обрастать
+  // стенами и получать людей, не обслуживая никого. Теперь наоборот —
+  // хорошее обслуживание приводит следующих.
+  const rating = airportRating(airport);
+  const perPad = byRating(RATING.ARRIVALS_BY_RATING, rating).perMinute;
+
   const heliPts = helipadPoints(airport.id);
   const vvlPts = terminalPoints(airport.id, 'vvl');
   const mvlPts = terminalPoints(airport.id, 'mvl');
-  const rep = Math.max(0, airport.reputation || 0);
-  const lvl = airport.level || 1;
-
-  const activePools = (heliPts > 0 ? 1 : 0) + (vvlPts > 0 ? 1 : 0) + (mvlPts > 0 ? 1 : 0);
-  const bonusEach = activePools > 0
-    ? (rep * PASSENGER_ECONOMY.TRAFFIC_PER_REPUTATION + lvl * PASSENGER_ECONOMY.TRAFFIC_PER_LEVEL) / activePools
-    : 0;
 
   const pool = airport.paxPool || { heli: 0, vvl: 0, mvl: 0 };
   const cap = PASSENGER_ECONOMY.POOL_CAP;
-  if (heliPts > 0) {
-    pool.heli = Math.min(cap, (pool.heli || 0) + heliPts * PASSENGER_ECONOMY.HELIPAD_TRAFFIC_BASE + bonusEach);
-  } else {
-    pool.heli = 0;
-  }
-  if (vvlPts > 0) {
-    pool.vvl = Math.min(cap, (pool.vvl || 0) + vvlPts * PASSENGER_ECONOMY.VVL_TERMINAL_TRAFFIC_BASE + bonusEach);
-  }
-  if (mvlPts > 0) {
-    pool.mvl = Math.min(cap, (pool.mvl || 0) + mvlPts * PASSENGER_ECONOMY.MVL_TERMINAL_TRAFFIC_BASE + bonusEach);
-  }
-  store.updateAirport(airport.id, { paxPool: pool });
-  return pool;
+  // Приток пропорционален числу и уровню площадок и терминалов: расширяться
+  // должно быть выгодно, но потолок задаёт рейтинг.
+  // Помним, когда очередь на вылет начала копиться: по этому считается,
+  // сколько пассажир прождал, и падает его оценка.
+  const since = { ...(airport.paxPoolSince || {}) };
+  const tick = store.getTickCounter();
+  const grow = (key, pts, base) => {
+    if (pts <= 0) { since[key] = null; return 0; }
+    const before = base || 0;
+    if (before <= 0) since[key] = tick;          // очередь только появилась
+    return Math.min(cap, before + perPad * pts);
+  };
+  pool.heli = grow('heli', heliPts, pool.heli);
+  pool.vvl = grow('vvl', vvlPts, pool.vvl);
+  pool.mvl = grow('mvl', mvlPts, pool.mvl);
+  store.updateAirport(airport.id, { paxPool: pool, paxPoolSince: since });
 }
 
 // «Очки» вертолётплощадок (сумма уровней) — база heli-трафика.
@@ -409,8 +454,11 @@ function helipadPoints(airportId) {
 
 // Сколько пассажиров может увезти договорной борт (вместимость по типу/размеру).
 // Вертолёт — небольшая вместимость; самолёты — по размеру.
-function contractCraftCapacity(craft, size) {
-  if (craft === 'heli') return 8;               // вертолёт увозит до 8
+// Вместимость договорного борта. У вертолёта она зависит от рейтинга: чем
+// лучше о аэропорте говорят, тем охотнее к нему летят и тем больше мест
+// авиакомпания готова дать. Самолёты возят по типу.
+function contractCraftCapacity(craft, size, airport) {
+  if (craft === 'heli') return airport ? heliSeatsFor(airport) : 8;
   if (size === 'small') return 50;              // малый самолёт
   if (size === 'medium') return 155;            // средний
   if (size === 'large') return 310;             // большой
@@ -1182,7 +1230,13 @@ function serializeAirport(airport) {
     paxServed: airport.paxServed || 0,
     terminalCapacity: { vvl: terminalCapacity(airport.id, 'vvl'), mvl: terminalCapacity(airport.id, 'mvl') },
     termQueue: (airport.termQueue || []).reduce((sum, g) => sum + g.count, 0),
-    paxProcessed: airport.paxProcessed || 0,   // обработано терминалами
+    paxProcessed: airport.paxProcessed || 0,   // всего прошло через аэропорт
+    paxArrived: airport.paxArrived || 0,
+    paxDeparted: airport.paxDeparted || 0,
+    rating: Number(airportRating(airport).toFixed(2)),
+    ratingSamples: (airport.ratingScores || []).length,
+    ratingMinSamples: RATING.MIN_SAMPLES,
+    heliSeats: heliSeatsFor(airport),
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
     level2Bonus: { xp: CONFIG.LEVEL2_BONUS_XP, rep: CONFIG.LEVEL2_BONUS_REP },
@@ -1430,7 +1484,7 @@ app.get('/api/schedule', auth, (req, res) => {
     const waited = now - (w.waitingSinceTick || now);
     rows.push({
       airline: w.airline, craft: craftName(w.craft || 'heli', w.size),
-      arrivalTick: w.waitingSinceTick, pax: contractCraftCapacity(w.craft || 'heli', w.size),
+      arrivalTick: w.waitingSinceTick, pax: contractCraftCapacity(w.craft || 'heli', w.size, airport),
       minutesLeft: 0, status: 'delayed', note: `кружит ${waited} мин`,
     });
   }
@@ -1440,7 +1494,7 @@ app.get('/api/schedule', auth, (req, res) => {
     rows.push({
       airline: b.airline, craft: craftName(b.craft || 'heli', b.size),
       arrivalTick: b.arrivedTick != null ? b.arrivedTick : b.departsTick,
-      pax: contractCraftCapacity(b.craft || 'heli', b.size),
+      pax: contractCraftCapacity(b.craft || 'heli', b.size, airport),
       minutesLeft: 0, status: 'landed',
       note: b.damaged ? 'повреждён при посадке' : `вылет через ${Math.max(0, b.departsTick - now)} мин`,
     });
@@ -1453,7 +1507,7 @@ app.get('/api/schedule', auth, (req, res) => {
     if (left < 0) continue;
     rows.push({
       airline: c.airline, craft: craftName(c.craft || 'heli', c.size),
-      arrivalTick: c.nextArrivalTick, pax: contractCraftCapacity(c.craft || 'heli', c.size),
+      arrivalTick: c.nextArrivalTick, pax: contractCraftCapacity(c.craft || 'heli', c.size, airport),
       minutesLeft: left, status: 'scheduled', note: '',
     });
   }
@@ -1475,7 +1529,7 @@ app.get('/api/schedule', auth, (req, res) => {
     if (now - d.tick > 120) continue;   // показываем два часа
     rows.push({
       airline: d.airline, craft: craftName(d.craft, d.size),
-      arrivalTick: d.tick, pax: contractCraftCapacity(d.craft, d.size),
+      arrivalTick: d.tick, pax: contractCraftCapacity(d.craft, d.size, airport),
       minutesLeft: 0, status: 'diverted', note: `${now - d.tick} мин назад`,
     });
   }
@@ -3242,7 +3296,9 @@ function runTick() {
           : Math.round(def.income * upgradeMult * workPenalty * damageMult);
       }
       incomePerTick += income;
-      reputationPerTick += (def.reputation || 0) * upgradeMult * workPenalty * damageMult;
+      // Здания больше не капают репутацию каждую минуту — она приходит от
+      // пассажиров. Постройки дают её раз в игровой месяц и только если
+      // в порядке (см. ниже, блок «репутация зданий»).
     }
 
     // ---- генерация пассажирского трафика (пулы ожидающих вылета) ----
@@ -3277,6 +3333,24 @@ function runTick() {
       // вычищаем отработавшие записи целиком, когда время прошло для всех
       const rest = sched.filter(x => currentTick < x.atTick);
       if (rest.length !== sched.length) store.setSetting('scheduledDisasters', rest);
+    }
+
+    // --- Репутация зданий: раз в игровой месяц, по состоянию ---
+    // Ухоженный аэропорт вызывает доверие сам по себе, изношенный — нет.
+    const repDue = (freshAirport.buildingRepTick || 0) + BUILDING_REPUTATION.PERIOD_TICKS;
+    if (currentTick >= repDue) {
+      let gained = 0;
+      for (const b of store.getBuildingsByAirport(airport.id)) {
+        const bd = BUILDINGS[b.buildingId];
+        if (!bd || !bd.reputation || b.ruined) continue;
+        if ((b.state || 'owned') !== 'owned' || isUnderConstruction(b)) continue;
+        gained += buildingReputationFor(b.wear || 0);
+      }
+      if (gained > 0) {
+        reputationPerTick += gained;
+        logEvent(airport.id, 'summary', `Репутация за состояние аэропорта: +${gained.toFixed(1)}`);
+      }
+      store.updateAirport(airport.id, { buildingRepTick: currentTick });
     }
 
     // --- Чрезвычайные происшествия ---
@@ -3655,9 +3729,27 @@ function processContractsTick(airport, currentTick, notifications) {
     // тип пула по борту: вертолёт → heli, самолёт → flightType (vvl/mvl)
     const poolType = b.craft === 'heli' ? 'heli' : (b.flightType === 'mvl' ? 'mvl' : 'vvl');
     // сколько борт может увезти (по размеру), берём из очереди на вылет
-    const capacity = contractCraftCapacity(b.craft, b.size);
+    const capacity = contractCraftCapacity(b.craft, b.size, airport);
     const taken = drawFromPool(airport.id, poolType, capacity);
     if (taken > 0) {
+      // Пассажир улетел — ставит оценку. Она же и есть очки репутации:
+      // уважение теперь приносит обслуживание, а не стены.
+      // Сколько ждал вылета самый терпеливый из улетевших.
+      const freshQ = store.getAirportById(airport.id) || airport;
+      const since = (freshQ.paxPoolSince || {})[poolType];
+      const waitedOut = since ? currentTick - since : 0;
+      const rated = addPassengerScores(airport.id, taken, {
+        waitedMinutes: waitedOut,
+        delayed: !!b.damaged || waitedOut > RATING.DELAY_AFTER_MINUTES * 4,
+      });
+      // очередь разошлась — отсчёт ожидания начинается заново
+      const poolAfter = (store.getAirportById(airport.id) || {}).paxPool || {};
+      if ((poolAfter[poolType] || 0) < 1) {
+        const sn = { ...((store.getAirportById(airport.id) || {}).paxPoolSince || {}) };
+        sn[poolType] = null;
+        store.updateAirport(airport.id, { paxPoolSince: sn });
+      }
+      reputation += rated.reputation;
       const baseTicket = poolType === 'mvl'
         ? Math.round(APRON_ECONOMY.TICKET_PRICE_VVL * APRON_ECONOMY.MVL_CONTRACT_MULT)
         : APRON_ECONOMY.TICKET_PRICE_VVL;
@@ -3665,7 +3757,12 @@ function processContractsTick(airport, currentTick, notifications) {
       const commission = Math.round(taken * ticket * APRON_ECONOMY.CONTRACT_COMMISSION);
       income += commission;
       const freshP = store.getAirportByUserId(airport.userId) || airport;
-      store.updateAirport(airport.id, { paxServed: (freshP.paxServed || 0) + taken });
+      store.updateAirport(airport.id, {
+        paxServed: (freshP.paxServed || 0) + taken,
+        paxDeparted: (freshP.paxDeparted || 0) + taken,
+        // счётчик в шапке считает всех прошедших через аэропорт
+        paxProcessed: (freshP.paxProcessed || 0) + taken,
+      });
       const icon = b.craft === 'heli' ? '🚁' : '✈️';
       notifications.push(`${icon} Борт «${b.airline}» увёз ${taken} пасс. — комиссия аэропорта +${commission} у.е.`);
     }
@@ -3728,6 +3825,21 @@ function processContractsTick(airport, currentTick, notifications) {
           payPerArrival: w.payPerArrival, craft: 'heli', size: null, flightType: 'vvl',
         });
         income += w.payPerArrival;
+        // Борт привёз туристов — столько, сколько согласился взять при
+        // нынешнем рейтинге. Они проходят через аэропорт и ставят оценку:
+        // прилетевшие тоже формируют мнение о нём.
+        const broughtHeli = contractCraftCapacity('heli', null, airport);
+        const waitedHeli = currentTick - (w.waitingSinceTick || currentTick);
+        const ratedIn = addPassengerScores(airport.id, broughtHeli, {
+          waitedMinutes: waitedHeli,
+          delayed: waitedHeli > RATING.DELAY_AFTER_MINUTES,
+        });
+        reputation += ratedIn.reputation;
+        const fA = store.getAirportById(airport.id) || airport;
+        store.updateAirport(airport.id, {
+          paxArrived: (fA.paxArrived || 0) + broughtHeli,
+          paxProcessed: (fA.paxProcessed || 0) + broughtHeli,
+        });
         // Опыт за приём вертолёта — только на ранних уровнях. Дальше
         // вертолётный поток перестаёт быть обучением и становится фоном.
         if ((airport.level || 0) < CONFIG.HELI_XP_UNTIL_LEVEL) {
