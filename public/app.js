@@ -762,7 +762,7 @@ function renderBuildingRow(building, tbody, indent) {
     actionText = `<span class="obj-status rented">Аренда: +${building.rentPrice} у.е./мин</span><br>${escapeHtml(building.botName || '')}`;
   } else {
     if (def.infrastructure) {
-      actionText = infraStatusText(building);
+      actionText = infraStatusHtml(building);
     } else {
       const income = Math.round(def.income * upgradeMult(level));
       const rep = 0;   // репутацию приносят пассажиры, а не здания
@@ -1299,7 +1299,7 @@ function renderBuildingPanel(cellIndex, container) {
     }
     // инфраструктура (income 0) — показываем статус, не "+0/мин"
     const incomeLine = isInfra
-      ? `<span>${infraStatusText(building)}</span>`
+      ? infraStatusLines(building).map(l => `<span>${escapeHtml(l)}</span>`).join('')
       : (def.income > 0
         ? `<span>Доход: +${Math.round(def.income * upgradeMult(building.upgradeLevel))}/мин</span>`
         : '');
@@ -1494,47 +1494,73 @@ function slotOccupancyOf(building) {
 }
 
 // Статус инфраструктурного здания вместо "+0/мин".
-function infraStatusText(building) {
+// Статус инфраструктуры — списком строк, а не одной длинной фразой.
+// Раньше всё склеивалось через разделитель, и у вертолётной площадки выходило
+// «Занята (3/4) · ждут вылета: 2 чел. · борт берёт 6» — такая строка не
+// помещалась в столбец и растягивала таблицу с горизонтальной прокруткой.
+function infraStatusLines(building) {
   const id = building.buildingId;
+
   if (id.startsWith('runway')) {
-    // загрузка суточной квоты посадок этой полосы
     const rw = (STATE.runwayLoad || []).find(r => r.cellIndex === building.cellIndex);
-    if (!rw) return '🛬 Работает';
-    const wearPct = Math.round((rw.wear || 0) * 100);
-    if (rw.repairing) return `🚧 Ремонт: ${rw.repairTicksLeft} мин · пропускная −70%`;
-    const wearNote = wearPct >= 10 ? ` · износ ${wearPct}% ⚠️` : wearPct > 0 ? ` · износ ${wearPct}%` : '';
+    if (!rw) return ['🛬 Работает'];
+    if (rw.repairing) return [`🚧 Ремонт: ${rw.repairTicksLeft} мин`, 'пропускная −70%'];
+    const lines = [];
     const left = Math.max(0, rw.capacity - rw.used);
-    if (left <= 0) return `🛬 Квота исчерпана (${rw.used}/${rw.capacity})${wearNote}`;
-    if (rw.waitTicks > 0) return `🛬 Интервал вышки: ${rw.waitTicks} мин · ${rw.used}/${rw.capacity}${wearNote}`;
-    return `🛬 Свободна · ${rw.used}/${rw.capacity} за сутки${wearNote}`;
+    if (left <= 0) lines.push('🛬 Квота исчерпана');
+    else if (rw.waitTicks > 0) lines.push(`🛬 Интервал вышки: ${rw.waitTicks} мин`);
+    else lines.push('🛬 Свободна');
+    lines.push(`посадок: ${rw.used}/${rw.capacity} за сутки`);
+    const wearPct = Math.round((rw.wear || 0) * 100);
+    if (wearPct >= 10) lines.push(`износ ${wearPct}% ⚠️`);
+    else if (wearPct > 0) lines.push(`износ ${wearPct}%`);
+    return lines;
   }
+
   if (id === 'helipad') {
     const o = slotOccupancyOf(building);
     const waiting = Math.floor((STATE.paxPool || {}).heli || 0);
     const seats = STATE.heliSeats || 2;
-    const state = o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`;
-    return `${state} · ждут вылета: ${waiting} чел. · борт берёт ${seats}`;
+    return [
+      o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`,
+      `ждут вылета: ${waiting} чел.`,
+      `борт берёт ${seats}`,
+    ];
   }
+
   if (id === 'tower') {
     const t = (STATE.towerLoad || []).find(x => x.cellIndex === building.cellIndex);
     const common = STATE.towerInterval;
     const queue = STATE.apronWaiting || 0;
-    if (!t) return common ? `📡 Интервал: ${common} мин` : '📡 Работает';
+    if (!t) return [common ? `📡 Интервал: ${common} мин` : '📡 Работает'];
     const towers = (STATE.towerLoad || []).length;
-    // Очередь в игре одна на весь аэропорт: вышки работают сообща, их
-    // интервалы складываются в общий. Делить очередь «по вышкам» пришлось бы
-    // выдуманным правилом, поэтому показываем её как есть.
-    const parts = [`📡 Своя ур.${t.level}: ${t.ownInterval} мин`];
-    if (towers > 1) parts.push(`вместе: ${common} мин`);
-    parts.push(queue > 0 ? `в очереди: ${queue}` : 'очереди нет');
-    return parts.join(' · ');
+    // Очередь в игре одна на весь аэропорт: вышки работают сообща.
+    const lines = [`📡 Своя ур.${t.level}: ${t.ownInterval} мин`];
+    if (towers > 1) lines.push(`вместе: ${common} мин`);
+    lines.push(queue > 0 ? `в очереди: ${queue}` : 'очереди нет');
+    return lines;
   }
-  if (id === 'hangar') return '🔧 Готов к ремонту';
+
+  if (id === 'hangar') return ['🔧 Готов к ремонту'];
+
   if (id.startsWith('stand')) {
     const o = slotOccupancyOf(building);
-    return o.used > 0 ? `✈️ Занята (${o.used}/${o.total})` : `✈️ Свободна (0/${o.total})`;
+    return [o.used > 0 ? `✈️ Занята (${o.used}/${o.total})` : `✈️ Свободна (0/${o.total})`];
   }
-  return 'В работе';
+
+  return ['В работе'];
+}
+
+// Тот же статус одной строкой — для мест, где нужен простой текст.
+function infraStatusText(building) {
+  return infraStatusLines(building).join(' · ');
+}
+
+// Разметка статуса: каждая строка отдельно, друг под другом.
+function infraStatusHtml(building) {
+  return infraStatusLines(building)
+    .map(line => `<span class="obj-action-line">${escapeHtml(line)}</span>`)
+    .join('');
 }
 
 async function repairBuilding(cellIndex) {

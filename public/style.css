@@ -311,7 +311,15 @@ body.game-open { overflow: hidden; }
   margin: 0 0 8px;
 }
 .obj-desc { color: var(--text-dim); line-height: 1.4; }
-.obj-action { font-family: var(--mono); color: var(--board-amber); white-space: nowrap; }
+.obj-action {
+  font-family: var(--mono); color: var(--board-amber);
+  /* Раньше стоял запрет переноса, и длинный статус вертолётной площадки
+     растягивал таблицу с горизонтальной прокруткой. Теперь строки статуса
+     идут друг под другом, а длинные слова переносятся. */
+  white-space: normal; overflow-wrap: anywhere;
+}
+.obj-action-line { display: block; line-height: 1.45; }
+.obj-action-line + .obj-action-line { color: var(--text-dim); font-size: 11px; }
 .obj-status { display: inline-block; }
 .obj-status.rented { color: var(--green); }
 .obj-status.sold { color: var(--red); }
