@@ -337,7 +337,7 @@ function makeContractOffer(airport, currentTick) {
     // МВЛ только если есть международный терминал и подходящая ВПП
     const mvlPossible = size !== 'small' && canFlyMvl(airport.id);
     const isMvl = mvlPossible && Math.random() < 0.4;
-    const arrivalBase = contractPayPerArrival(airport.reputation, airport.level);
+    const arrivalBase = contractPayPerArrival(airportRating(airport), airport.level);
     const sizeMult = APRON_ECONOMY.PLANE_PAY_MULT[size] || 1;
     const mvlMult = isMvl ? APRON_ECONOMY.MVL_CONTRACT_MULT : 1;
     return {
@@ -355,7 +355,7 @@ function makeContractOffer(airport, currentTick) {
     craft: 'heli',
     size: null,
     flightType: 'vvl',
-    payPerArrival: Math.round(contractPayPerArrival(airport.reputation, airport.level) * priceMarketMult()),
+    payPerArrival: Math.round(contractPayPerArrival(airportRating(airport), airport.level) * priceMarketMult()),
   };
 }
 
@@ -1603,7 +1603,7 @@ app.post('/api/envelope/accept', auth, (req, res) => {
   store.addContract(airport.id, {
     airline: offer.airline,
     payPerTick: offer.payPerTick,
-    payPerArrival: offer.payPerArrival || contractPayPerArrival(airport.reputation, airport.level),
+    payPerArrival: offer.payPerArrival || contractPayPerArrival(airportRating(airport), airport.level),
     craft: offer.craft || 'heli',       // 'heli' | 'plane'
     size: offer.size || null,           // размер самолёта (для plane)
     flightType: offer.flightType || 'vvl',
@@ -1884,12 +1884,22 @@ app.post('/api/build', auth, (req, res) => {
     }
   }
   if (airport.level < def.minLevel) return res.status(400).json({ error: 'level_too_low', message: `Нужен уровень ${def.minLevel}` });
-  // Репутация как ключ: некоторые здания открываются не уровнем, а доверием
-  // авиакомпаний к аэропорту.
-  if (def.minReputation && (airport.reputation || 0) < def.minReputation) {
+  // Рейтинг как ключ: серьёзные объекты доверяют только аэропорту, который
+  // научился хорошо обслуживать людей.
+  if (def.minRating) {
+    const r = airportRating(airport);
+    if (r < def.minRating) {
+      return res.status(400).json({
+        error: 'rating_too_low',
+        message: `Нужен рейтинг ${def.minRating} (сейчас ${r.toFixed(1)})`,
+      });
+    }
+  }
+  // Капитал: объект требует не только денег на постройку, но и запаса.
+  if (def.minMoney && airport.money < def.minMoney) {
     return res.status(400).json({
-      error: 'reputation_too_low',
-      message: `Нужна репутация ${def.minReputation} (сейчас ${Math.floor(airport.reputation || 0)})`,
+      error: 'money_too_low',
+      message: `Нужен капитал ${def.minMoney.toLocaleString('ru-RU')} у.е.`,
     });
   }
   // Цепочка: здание открывается постройкой предыдущего.
@@ -4012,7 +4022,7 @@ function processContractsTick(airport, currentTick, notifications) {
       CONTRACT_ECONOMY.OFFER_CHANCE_BASE
         + pads * CONTRACT_ECONOMY.OFFER_CHANCE_PER_PAD
         + stands * CONTRACT_ECONOMY.OFFER_CHANCE_PER_STAND
-        + fresh.reputation * CONTRACT_ECONOMY.OFFER_CHANCE_PER_REPUTATION
+        + airportRating(fresh) * CONTRACT_ECONOMY.OFFER_CHANCE_PER_RATING
     );
 
     // На малых уровнях предложения идут чаще: договоры — единственный

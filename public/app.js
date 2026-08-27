@@ -448,7 +448,11 @@ function renderStats() {
   // (развёрнуто, с остатком опыта до следующего). Общие расходы — только там.
   const levelEl = $('#statLevel');
   if (levelEl) levelEl.textContent = STATE.level;
-  $('#statRep').textContent = Math.floor(STATE.reputation);
+  // Репутация переехала в панель администрации: рядом с рейтингом в шапке
+  // два похожих числа только путали. Рейтинг решает всё в игре, репутация —
+  // накопленный счёт заслуг.
+  const repEl = $('#statRep');
+  if (repEl) repEl.textContent = Math.floor(STATE.reputation);
   const upkeepEl = $('#statUpkeep');
   if (upkeepEl) upkeepEl.textContent = '−' + Math.round(STATE.upkeepPerTick || 0);
   const expEl = $('#statExpenses');
@@ -941,10 +945,11 @@ function renderBuildMenu() {
     const needsAdminFirst = !hasAdmin && def.id !== 'admin';
     // Репутация как ключ и цепочка построек: здание может ждать не уровня,
     // а доверия авиакомпаний или предыдущего объекта в цепочке.
-    const needsRep = def.minReputation && STATE.reputation < def.minReputation;
+    const needsRating = def.minRating && (STATE.rating || 0) < def.minRating;
+    const needsMoney = def.minMoney && STATE.money < def.minMoney;
     const needsPrev = def.requiresBuilt && !STATE.buildings.some(b =>
       b.buildingId === def.requiresBuilt && !b.constructionType && !b.ruined);
-    const locked = STATE.level < def.minLevel || needsAdminFirst || needsRep || needsPrev;
+    const locked = STATE.level < def.minLevel || needsAdminFirst || needsRating || needsMoney || needsPrev;
     const tooExpensive = STATE.money < def.cost;
     // лимит количества этого здания
     const limit = (STATE.buildLimits || {})[def.id];
@@ -963,7 +968,8 @@ function renderBuildMenu() {
         <span>${
           needsAdminFirst ? 'Ждём администрацию'
           : needsPrev ? `Нужен: ${displayBuildingName(def.requiresBuilt)}`
-          : needsRep ? `Нужна репутация ${def.minReputation}`
+          : needsRating ? `Нужен рейтинг ${def.minRating}`
+          : needsMoney ? `Нужен капитал ${def.minMoney.toLocaleString('ru-RU')}`
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
         }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
@@ -1032,10 +1038,11 @@ function renderTerritoryBuildMenu() {
     const needsAdminFirst = !hasAdmin && def.id !== 'admin';
     // Репутация как ключ и цепочка построек: здание может ждать не уровня,
     // а доверия авиакомпаний или предыдущего объекта в цепочке.
-    const needsRep = def.minReputation && STATE.reputation < def.minReputation;
+    const needsRating = def.minRating && (STATE.rating || 0) < def.minRating;
+    const needsMoney = def.minMoney && STATE.money < def.minMoney;
     const needsPrev = def.requiresBuilt && !STATE.buildings.some(b =>
       b.buildingId === def.requiresBuilt && !b.constructionType && !b.ruined);
-    const locked = STATE.level < def.minLevel || needsAdminFirst || needsRep || needsPrev;
+    const locked = STATE.level < def.minLevel || needsAdminFirst || needsRating || needsMoney || needsPrev;
     const tooExpensive = STATE.money < def.cost;
     const limit = (STATE.buildLimits || {})[def.id];
     const builtCount = STATE.buildings.filter(b => b.buildingId === def.id && (b.state || 'owned') !== 'sold').length;
@@ -1053,7 +1060,8 @@ function renderTerritoryBuildMenu() {
         <span>${
           needsAdminFirst ? 'Ждём администрацию'
           : needsPrev ? `Нужен: ${displayBuildingName(def.requiresBuilt)}`
-          : needsRep ? `Нужна репутация ${def.minReputation}`
+          : needsRating ? `Нужен рейтинг ${def.minRating}`
+          : needsMoney ? `Нужен капитал ${def.minMoney.toLocaleString('ru-RU')}`
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
         }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
@@ -1349,7 +1357,8 @@ function renderBuildingPanel(cellIndex, container) {
         `<span>Прилетело: ${(STATE.paxArrived || 0).toLocaleString('ru-RU')}</span>` +
         `<span>Улетело: ${(STATE.paxDeparted || 0).toLocaleString('ru-RU')}</span>` +
         `<span>Всего через аэропорт: ${(STATE.paxProcessed || 0).toLocaleString('ru-RU')}</span>` +
-        `<span>Рейтинг: ${(STATE.rating || 0).toFixed(1)} — борт берёт до ${STATE.heliSeats || 2} мест</span>`;
+        `<span>Рейтинг: ${(STATE.rating || 0).toFixed(1)} — борт берёт до ${STATE.heliSeats || 2} мест</span>` +
+        `<span>Репутация: ${Math.floor(STATE.reputation || 0).toLocaleString('ru-RU')} — накопленный счёт заслуг за всё время</span>`;
     }
     statsHtml = `${incomeLine}${upkeepLine}${officeInfo}${termInfo}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
   } else if (state === 'listed') {

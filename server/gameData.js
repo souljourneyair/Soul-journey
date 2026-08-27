@@ -569,12 +569,16 @@ const CONTRACT_ECONOMY = {
   // Базовая оплата договора в минуту (заглушка — позже "за прилёт").
   // Итоговая сумма растёт с репутацией и уровнем аэропорта.
   BASE_PAY_PER_TICK: 12,       // было 8; поднято в 1.5 раза ради ранней игры
-  PAY_PER_REPUTATION: 0.02,   // +0.02/мин за единицу репутации
+  // Плата зависит от РЕЙТИНГА, а не от накопленной репутации. Репутация
+  // росла бесконечно (~70 очков в реальную минуту) и разгоняла доход без
+  // потолка: при 1200 очках прибавка к прилёту вдвое превышала базу.
+  // Рейтинг ограничен пятёркой, поэтому прибавка тоже ограничена.
+  PAY_PER_RATING: 3,          // +3/мин за балл рейтинга (до +15)
   PAY_PER_LEVEL: 3,            // +3/мин за уровень аэропорта
   PAY_VARIANCE: 0.3,           // разброс ±30% между предложениями
   // Оплата ЗА ПРИЛЁТ борта (Слой 1): договор платит при каждом прилёте, а не в минуту.
   BASE_PAY_PER_ARRIVAL: 105,   // было 70; поднято в 1.5 раза ради ранней игры       // базовая оплата за один прилёт
-  ARRIVAL_PAY_PER_REPUTATION: 0.15, // +0.15 за единицу репутации
+  ARRIVAL_PAY_PER_RATING: 40,       // +40 за прилёт за балл рейтинга (до +200)
   ARRIVAL_PAY_PER_LEVEL: 12,       // +12 за уровень аэропорта
   // Срок договора — случайно в этом диапазоне (в игровых сутках = 1440 минут)
   MIN_DURATION_DAYS: 3,
@@ -595,7 +599,7 @@ const CONTRACT_ECONOMY = {
   EARLY_OFFER_CHANCE_MULT: 3,  // во сколько раз чаще
   OFFER_CHANCE_PER_PAD: 0.02,    // за каждую вертолётплощадку
   OFFER_CHANCE_PER_STAND: 0.015, // за каждую стоянку ВС
-  OFFER_CHANCE_PER_REPUTATION: 0.0002,
+  OFFER_CHANCE_PER_RATING: 0.02,    // +2% к шансу договора за балл рейтинга
   OFFER_CHANCE_MAX: 0.5,         // потолок шанса за минуту
   // "Подумаю": сколько минут предложение ждёт, если отложили, потом истекает
   THINKING_EXPIRE_MINUTES: 120,
@@ -604,18 +608,18 @@ const CONTRACT_ECONOMY = {
 };
 
 // Рассчитать оплату предложения с учётом репутации и уровня аэропорта.
-function contractPayPerTick(reputation, level) {
+function contractPayPerTick(rating, level) {
   const base = CONTRACT_ECONOMY.BASE_PAY_PER_TICK
-    + reputation * CONTRACT_ECONOMY.PAY_PER_REPUTATION
+    + (rating || 0) * CONTRACT_ECONOMY.PAY_PER_RATING
     + level * CONTRACT_ECONOMY.PAY_PER_LEVEL;
   const variance = 1 + (Math.random() * 2 - 1) * CONTRACT_ECONOMY.PAY_VARIANCE;
   return Math.max(1, Math.round(base * variance));
 }
 
 // Оплата за один прилёт борта по договору (Слой 1) — с учётом репутации/уровня.
-function contractPayPerArrival(reputation, level) {
+function contractPayPerArrival(rating, level) {
   const base = CONTRACT_ECONOMY.BASE_PAY_PER_ARRIVAL
-    + reputation * CONTRACT_ECONOMY.ARRIVAL_PAY_PER_REPUTATION
+    + (rating || 0) * CONTRACT_ECONOMY.ARRIVAL_PAY_PER_RATING
     + level * CONTRACT_ECONOMY.ARRIVAL_PAY_PER_LEVEL;
   const variance = 1 + (Math.random() * 2 - 1) * CONTRACT_ECONOMY.PAY_VARIANCE;
   return Math.max(1, Math.round(base * variance));
@@ -802,12 +806,11 @@ const BUILDINGS = {
     desc: 'Источник дохода — мелкие вертолётные чартеры. Обычное здание: можно строить, улучшать, сдавать, продавать и сносить.',
   },
   tower: {
-    id: 'tower', name: 'Диспетчерская вышка', 
-    cost: 6000, upgradeCostMult: 0.8, income: 0, reputation: 6, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5, minLevel: 3, requiresBuilt: 'runway_small',
-    desc: 'Задаёт интервал между операциями на каждой ВПП: без вышки 20 мин, ур.1 — 15, ур.2 — 12, ур.3 — 9, ур.4 — 6, ур.5 — 4 мин. Интервал действует на каждую полосу отдельно, поэтому вторая и третья ВПП добавляют пропускной способности. Несколько вышек делят интервал между собой. Обязательна для полётов своих самолётов.',
+    id: 'tower', minLevel: 2, name: 'Диспетчерская вышка', 
+    cost: 6000, upgradeCostMult: 0.8, income: 0, reputation: 6, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5, desc: 'Задаёт интервал между операциями на каждой ВПП: без вышки 20 мин, ур.1 — 15, ур.2 — 12, ур.3 — 9, ур.4 — 6, ур.5 — 4 мин. Интервал действует на каждую полосу отдельно, поэтому вторая и третья ВПП добавляют пропускной способности. Несколько вышек делят интервал между собой. Обязательна для полётов своих самолётов.',
   },
   runway_small: {
-    id: 'runway_small', name: 'Малая ВПП', 
+    id: 'runway_small', minLevel: 4, requiresBuilt: 'stand_small', name: 'Малая ВПП', 
     cost: 12000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, reputation: 8, xp: 1600, removable: true, nonRentable: true, maxUpgradeLevel: 5,
     isRunway: true, lineType: 'vvl',
@@ -820,14 +823,12 @@ const BUILDINGS = {
       'Бетон, оснащена рулёжными огнями',
       'Асфальт, оснащена глиссадой и огнями PAPI',
       'Самое современное покрытие, оснащена по последнему слову техники',
-    ], minLevel: 3, requiresBuilt: 'stand_small',
-    desc: 'Принимает только малые самолёты внутренних авиалиний (ВВЛ). Одной полосы мало: самолётные договоры приходят, только когда есть ВПП, стоянка И пассажирский терминал — без терминала возить будет некого. Апгрейд повышает пропускную способность: 40 посадок за игровые сутки на ур.1, 320 на ур.5.',
+    ], desc: 'Принимает только малые самолёты внутренних авиалиний (ВВЛ). Одной полосы мало: самолётные договоры приходят, только когда есть ВПП, стоянка И пассажирский терминал — без терминала возить будет некого. Апгрейд повышает пропускную способность: 40 посадок за игровые сутки на ур.1, 320 на ур.5.',
   },
   terminal_a: {
-    id: 'terminal_a', name: 'Терминал A', 
+    id: 'terminal_a', minLevel: 4, minRating: 4.2, minMoney: 90000, requiresBuilt: 'tower', name: 'Терминал A', 
     cost: 30000, income: 0, reputation: 10, xp: 1900, removable: true, maxUpgradeLevel: 5,
-    lineType: 'vvl', terminalClass: 'A', minLevel: 3, minReputation: 200,
-    desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Увеличивает приём пассажиров.',
+    lineType: 'vvl', terminalClass: 'A', desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Увеличивает приём пассажиров.',
   },
   fuel_depot: {
     id: 'fuel_depot', name: 'Топливный склад', minLevel: 3,
@@ -844,12 +845,11 @@ const BUILDINGS = {
     desc: 'Штаб вашей авиакомпании. Открывает покупку и лизинг самолётов. Сам дохода не приносит — авиакомпания зарабатывает рейсами, а офис только стоит денег. Пока нет ни одного самолёта, сверх содержания списывается штраф за пустой штаб — на первом уровне это −80/мин против −20/мин с флотом. Штраф растёт с уровнем офиса. Нельзя сдать или продать, только снести (все самолёты при этом продаются).',
   },
   stand_small: {
-    id: 'stand_small', name: 'Малая стоянка ВС', 
+    id: 'stand_small', minLevel: 4, requiresBuilt: 'terminal_a', name: 'Малая стоянка ВС', 
     cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, nonRentable: true, reputation: 3, xp: 700, removable: true, maxUpgradeLevel: 5,
     upgradeCostMult: 0.2, standSize: 'small',   // вмещает маленькие самолёты
-    aircraftSlots: 1, minLevel: 3, requiresBuilt: 'terminal_a',
-    desc: 'Стоянка для маленького самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин, то есть вдвое с половиной больше прилётов через ту же стоянку.',
+    aircraftSlots: 1, desc: 'Стоянка для маленького самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин, то есть вдвое с половиной больше прилётов через ту же стоянку.',
   },
   stand_medium: {
     id: 'stand_medium', name: 'Средняя стоянка ВС', minLevel: 6,
@@ -899,9 +899,8 @@ const BUILDINGS = {
     desc: 'Грузовые рейсы — отдельный поток дохода.',
   },
   fire_station: {
-    id: 'fire_station', name: 'Пожарная часть', 
-    cost: 12000, income: 0, reputation: 8, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3, minLevel: 3, minReputation: 200,
-    desc: 'Тушит пожары в аэропорту. Без неё загоревшееся здание выгорает полностью и клетка освобождается; с ней пожар удаётся сбить, и объект отделывается повреждением. Дохода не приносит — это служба безопасности, а не бизнес.',
+    id: 'fire_station', minLevel: 3, name: 'Пожарная часть', 
+    cost: 12000, income: 0, reputation: 8, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3, desc: 'Тушит пожары в аэропорту. Без неё загоревшееся здание выгорает полностью и клетка освобождается; с ней пожар удаётся сбить, и объект отделывается повреждением. Дохода не приносит — это служба безопасности, а не бизнес.',
   },
   terminal_b: {
     id: 'terminal_b', name: 'Терминал B', minLevel: 5,
