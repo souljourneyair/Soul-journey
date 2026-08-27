@@ -457,7 +457,8 @@ function helipadPoints(airportId) {
 // Вместимость договорного борта. У вертолёта она зависит от рейтинга: чем
 // лучше о аэропорте говорят, тем охотнее к нему летят и тем больше мест
 // авиакомпания готова дать. Самолёты возят по типу.
-function contractCraftCapacity(craft, size, airport) {
+function contractCraftCapacity(craft, size, airport, bort) {
+  if (bort && bort.charterSeats) return bort.charterSeats;   // чартер — сколько заказали
   if (craft === 'heli') return airport ? heliSeatsFor(airport) : 8;
   if (size === 'small') return 50;              // малый самолёт
   if (size === 'medium') return 155;            // средний
@@ -613,7 +614,10 @@ function enqueuePax(airportId, count, lineType, ticket, currentTick) {
 function drawFromPool(airportId, lineType, want) {
   const fresh = store.getAirportById(airportId);
   const pool = fresh.paxPool || { heli: 0, vvl: 0, mvl: 0 };
-  const key = lineType === 'mvl' ? 'mvl' : 'vvl';
+  // Пулов три, и вертолётный — отдельный. Раньше любой тип, кроме mvl,
+  // сводился к vvl: вертолёт забирал пассажиров из самолётного пула, то есть
+  // из пустоты, а вертолётная очередь копилась вечно и никем не вывозилась.
+  const key = (lineType === 'mvl' || lineType === 'heli') ? lineType : 'vvl';
   const avail = Math.floor(pool[key] || 0);
   const taken = Math.min(avail, want);
   pool[key] = (pool[key] || 0) - taken;
@@ -1237,6 +1241,7 @@ function serializeAirport(airport) {
     ratingSamples: (airport.ratingScores || []).length,
     ratingMinSamples: RATING.MIN_SAMPLES,
     heliSeats: heliSeatsFor(airport),
+    charter: { options: CHARTER.OPTIONS, costPerSeat: CHARTER.COST_PER_SEAT, arrivesIn: CHARTER.ARRIVES_IN_MINUTES },
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
     level2Bonus: { xp: CONFIG.LEVEL2_BONUS_XP, rep: CONFIG.LEVEL2_BONUS_REP },
@@ -1484,7 +1489,7 @@ app.get('/api/schedule', auth, (req, res) => {
     const waited = now - (w.waitingSinceTick || now);
     rows.push({
       airline: w.airline, craft: craftName(w.craft || 'heli', w.size),
-      arrivalTick: w.waitingSinceTick, pax: contractCraftCapacity(w.craft || 'heli', w.size, airport),
+      arrivalTick: w.waitingSinceTick, pax: contractCraftCapacity(w.craft || 'heli', w.size, airport, w),
       minutesLeft: 0, status: 'delayed', note: `кружит ${waited} мин`,
     });
   }
@@ -1540,6 +1545,36 @@ app.get('/api/schedule', auth, (req, res) => {
     return a.minutesLeft - b.minutesLeft;
   });
   res.json({ now, rows });
+});
+
+// Чартер: аэропорт сам вызывает борт, чтобы вывезти скопившихся туристов.
+// Платит за подачу, зарабатывает комиссию с билетов — при полной загрузке
+// небольшой плюс, при неполной убыток. Смысл в том, чтобы успеть вывезти
+// очередь до того, как люди начнут уходить и портить рейтинг.
+app.post('/api/charter/order', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const seats = Number((req.body || {}).seats);
+  if (!CHARTER.OPTIONS.includes(seats)) {
+    return res.status(400).json({ error: 'bad_seats', message: 'Такого борта нет' });
+  }
+  if (countHelipads(airport.id) === 0) {
+    return res.status(400).json({ error: 'no_pad', message: 'Нужна вертолётная площадка' });
+  }
+  const cost = seats * CHARTER.COST_PER_SEAT;
+  if (airport.money < cost) {
+    return res.status(400).json({ error: 'no_money', message: `Подача стоит ${cost} у.е.` });
+  }
+  const currentTick = store.getTickCounter();
+  const waiting = (airport.waitingBorts || []).slice();
+  waiting.push({
+    contractId: null, airline: 'Чартер', waitingSinceTick: currentTick + CHARTER.ARRIVES_IN_MINUTES,
+    payPerArrival: 0, craft: 'heli', size: null, flightType: 'vvl',
+    charterSeats: seats,
+  });
+  store.updateAirport(airport.id, { money: airport.money - cost, waitingBorts: waiting });
+  logEvent(airport.id, 'build', `Заказан чартер на ${seats} мест за ${cost} у.е.`);
+  res.json({ ...serializeAirport(store.getAirportById(airport.id)), _charter: { seats, cost } });
 });
 
 app.get('/api/envelope', auth, (req, res) => {
@@ -3729,7 +3764,7 @@ function processContractsTick(airport, currentTick, notifications) {
     // тип пула по борту: вертолёт → heli, самолёт → flightType (vvl/mvl)
     const poolType = b.craft === 'heli' ? 'heli' : (b.flightType === 'mvl' ? 'mvl' : 'vvl');
     // сколько борт может увезти (по размеру), берём из очереди на вылет
-    const capacity = contractCraftCapacity(b.craft, b.size, airport);
+    const capacity = contractCraftCapacity(b.craft, b.size, airport, b);
     const taken = drawFromPool(airport.id, poolType, capacity);
     if (taken > 0) {
       // Пассажир улетел — ставит оценку. Она же и есть очки репутации:
@@ -3812,6 +3847,8 @@ function processContractsTick(airport, currentTick, notifications) {
 
   const stillWaiting = [];
   for (const w of waiting) {
+    // Чартер ещё в пути — подача занимает несколько минут.
+    if ((w.waitingSinceTick || 0) > currentTick) { stillWaiting.push(w); continue; }
     const craft = w.craft || 'heli';
     if (craft === 'heli') {
       // берём конкретную площадку, чтобы счётчик показывал занятость по ней
@@ -3823,12 +3860,13 @@ function processContractsTick(airport, currentTick, notifications) {
           departsTick: currentTick + APRON_ECONOMY.HELI_STAND_MINUTES,
           padCell: pad.cellIndex,
           payPerArrival: w.payPerArrival, craft: 'heli', size: null, flightType: 'vvl',
+          charterSeats: w.charterSeats || null,
         });
         income += w.payPerArrival;
         // Борт привёз туристов — столько, сколько согласился взять при
         // нынешнем рейтинге. Они проходят через аэропорт и ставят оценку:
         // прилетевшие тоже формируют мнение о нём.
-        const broughtHeli = contractCraftCapacity('heli', null, airport);
+        const broughtHeli = contractCraftCapacity('heli', null, airport, w);
         const waitedHeli = currentTick - (w.waitingSinceTick || currentTick);
         const ratedIn = addPassengerScores(airport.id, broughtHeli, {
           waitedMinutes: waitedHeli,

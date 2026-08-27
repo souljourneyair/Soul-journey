@@ -86,6 +86,10 @@
         <span class="stat-label">СОДЕРЖ. А/П</span>
         <span class="stat-value flap" id="statUpkeep">0</span>
       </div>
+      <div class="stat" data-tip="Рейтинг — среднее впечатление пассажиров за последние 50 поездок. Решает, сколько людей придёт в аэропорт и сколько мест даст договорной борт. Портится от турбулентности, задержек и долгого ожидания.">
+        <span class="stat-label">РЕЙТИНГ</span>
+        <span class="stat-value" id="statRating"><span class="rating-stars" id="ratingStars"></span><span class="rating-num" id="ratingNum">—</span></span>
+      </div>
       <div class="stat" data-tip="Доверие авиакомпаний. Влияет на пассажиропоток, плату по договорам и частоту новых предложений. Падает от разворотов и изношенных полос.">
         <span class="stat-label">РЕПУТАЦИЯ</span>
         <span class="stat-value flap" id="statRep">0</span>
@@ -299,6 +303,14 @@
     <div class="board-header">
       <span class="board-title">ДОГОВОРЫ С АВИАКОМПАНИЯМИ</span>
       <span class="board-sub" id="envelopeSub">ПРЕДЛОЖЕНИЯ И КОНТРАКТЫ</span>
+    </div>
+    <div class="lb-tabs">
+      <button class="lb-tab lb-tab-active" data-env="offers">Договоры</button>
+      <button class="lb-tab" data-env="charter">Чартеры</button>
+    </div>
+    <div id="envCharter" class="hidden">
+      <p class="build-menu-hint" id="charterHint"></p>
+      <div id="charterList"></div>
     </div>
     <div class="envelope-body">
       <div class="envelope-section-title">Новые предложения</div>

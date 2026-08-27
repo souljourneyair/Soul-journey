@@ -458,6 +458,24 @@ function renderStats() {
     incomeEl.textContent = (lastIncomePerMin >= 0 ? '+' : '') + lastIncomePerMin;
     incomeEl.classList.toggle('stat-negative', lastIncomePerMin < 0);
   }
+  // Рейтинг: пять звёзд с половинками и число рядом. Пока оценок мало —
+  // показываем, что он ещё формируется, чтобы новичка не пугал случайный
+  // провал от одного ворчуна.
+  const starsEl = $('#ratingStars');
+  if (starsEl) {
+    const r = STATE.rating || 0;
+    let html = '';
+    for (let i = 1; i <= 5; i++) {
+      const cls = r >= i ? 'on' : (r >= i - 0.5 ? 'half' : '');
+      html += `<span class="rating-star ${cls}">★</span>`;
+    }
+    starsEl.innerHTML = html;
+    const numEl = $('#ratingNum');
+    const forming = (STATE.ratingSamples || 0) < (STATE.ratingMinSamples || 10);
+    numEl.textContent = forming ? 'формируется' : r.toFixed(1);
+    numEl.classList.toggle('forming', forming);
+  }
+
   const apronEl = $('#statApron');
   if (apronEl && STATE.apronSlots) {
     const s = STATE.apronSlots;
@@ -1314,7 +1332,10 @@ function renderBuildingPanel(cellIndex, container) {
         `<span>Содержание аэропорта: −${Math.round(STATE.upkeepPerTick || 0)}/мин</span>` +
         `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>` +
         `<span>Пассажиров за всё время: ${(STATE.paxServed || 0).toLocaleString('ru-RU')}</span>` +
-        `<span>Из них обработано терминалами: ${(STATE.paxProcessed || 0).toLocaleString('ru-RU')}</span>`;
+        `<span>Прилетело: ${(STATE.paxArrived || 0).toLocaleString('ru-RU')}</span>` +
+        `<span>Улетело: ${(STATE.paxDeparted || 0).toLocaleString('ru-RU')}</span>` +
+        `<span>Всего через аэропорт: ${(STATE.paxProcessed || 0).toLocaleString('ru-RU')}</span>` +
+        `<span>Рейтинг: ${(STATE.rating || 0).toFixed(1)} — борт берёт до ${STATE.heliSeats || 2} мест</span>`;
     }
     statsHtml = `${incomeLine}${upkeepLine}${officeInfo}${termInfo}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
   } else if (state === 'listed') {
@@ -2710,6 +2731,58 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('scroll', hideStatTip, { passive: true });
 window.addEventListener('resize', hideStatTip);
+
+// ---------- Чартеры ----------
+// Вызвать борт немедленно, чтобы вывезти скопившихся туристов. Аэропорт
+// платит за подачу и зарабатывает комиссию с билетов: при полной загрузке
+// небольшой плюс, при неполной убыток — в этом и выбор.
+function renderCharter() {
+  const box = $('#charterList');
+  if (!box || !STATE.charter) return;
+  const c = STATE.charter;
+  const waiting = Math.floor((STATE.paxPool && STATE.paxPool.heli) || 0);
+  $('#charterHint').textContent =
+    `Ждут вылета: ${waiting} чел. Борт подадут через ${c.arrivesIn} мин. ` +
+    `Подача ${c.costPerSeat} у.е. за место — платит аэропорт, комиссия с билетов остаётся ему же. ` +
+    `Полупустой борт уйдёт в убыток.`;
+  box.innerHTML = c.options.map(seats => {
+    const cost = seats * c.costPerSeat;
+    const canAfford = STATE.money >= cost;
+    const enough = waiting >= seats;
+    return `<div class="charter-row">
+      <span class="charter-seats">🚁 ${seats} мест</span>
+      <span class="charter-cost">${cost} у.е.</span>
+      <span class="charter-note">${enough ? 'заполнится' : `в аэропорту ${waiting} чел.`}</span>
+      <button class="btn-secondary" data-seats="${seats}" ${canAfford ? '' : 'disabled'}>Заказать</button>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('button[data-seats]').forEach(btn => {
+    btn.addEventListener('click', () => orderCharter(Number(btn.dataset.seats)));
+  });
+}
+
+async function orderCharter(seats) {
+  try {
+    const res = await api('/api/charter/order', 'POST', { seats });
+    STATE = res;
+    toast(`Чартер на ${seats} мест заказан за ${res._charter.cost} у.е. Борт в пути.`);
+    renderCharter();
+    renderAll();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+document.querySelectorAll('.lb-tab[data-env]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.env;
+    document.querySelectorAll('.lb-tab[data-env]').forEach(b =>
+      b.classList.toggle('lb-tab-active', b.dataset.env === tab));
+    $('#envCharter').classList.toggle('hidden', tab !== 'charter');
+    document.querySelector('.envelope-body').classList.toggle('hidden', tab !== 'offers');
+    if (tab === 'charter') renderCharter();
+  });
+});
 
 // ---------- Лента событий ----------
 // Закреплена внизу панели объектов и остаётся видимой при прокрутке таблицы.

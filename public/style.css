@@ -968,3 +968,25 @@ body.modal-open { overflow: hidden; }
 .lb-hint { font-size: 11px; color: var(--text-dim); margin: 0 0 10px; line-height: 1.4; }
 .lb-me { background: rgba(245,158,11,0.10); }
 .lb-num { font-family: var(--mono); color: var(--board-amber); }
+
+/* --- рейтинг звёздами --- */
+#statRating { display: inline-flex; align-items: center; gap: 8px; }
+.rating-stars { font-size: 15px; letter-spacing: 1px; line-height: 1; white-space: nowrap; }
+.rating-star { color: rgba(124,138,153,0.35); }
+.rating-star.on { color: var(--board-amber); }
+.rating-star.half {
+  background: linear-gradient(90deg, var(--board-amber) 50%, rgba(124,138,153,0.35) 50%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.rating-num { font-family: var(--mono); font-size: 15px; color: var(--board-amber); }
+.rating-num.forming { color: var(--text-dim); font-size: 12px; }
+
+/* --- чартеры --- */
+.charter-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px;
+  margin-bottom: 8px; background: var(--bg-panel);
+}
+.charter-seats { font-family: var(--mono); color: var(--text); min-width: 90px; }
+.charter-cost { font-family: var(--mono); color: var(--board-amber); min-width: 70px; }
+.charter-note { color: var(--text-dim); font-size: 12px; flex: 1; }
