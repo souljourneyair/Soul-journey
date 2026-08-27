@@ -299,6 +299,14 @@ function deleteUser(userId) {
   data.contractOffers = (data.contractOffers || []).filter(o => !airportIds.has(o.airportId));
   data.contracts = (data.contracts || []).filter(c => !airportIds.has(c.airportId));
   data.airports = data.airports.filter(a => a.userId !== userId);
+  // Рекорды привязаны к имени, а не к идентификатору: без чистки новый игрок,
+  // зарегистрировавшийся под тем же логином, унаследовал бы чужое достижение.
+  const gone = data.users.find(u => u.id === userId);
+  if (gone) {
+    const key = normalizeUsername(gone.username);
+    data.leaderboard = (data.leaderboard || [])
+      .filter(r => normalizeUsername(r.username) !== key);
+  }
   data.users = data.users.filter(u => u.id !== userId);
   save(data);
 }

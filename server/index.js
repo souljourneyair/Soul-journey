@@ -2374,6 +2374,15 @@ app.get('/api/admin/players/:username', auth, adminAuth, (req, res) => {
   });
 });
 
+// Для действий, которым аэропорт не нужен: удаление, бан, сброс пароля.
+// Игрок мог зарегистрироваться и не начать игру — такого тоже надо уметь
+// удалить, иначе он висит в базе навсегда и занимает свой логин.
+function getUserOr404(req, res) {
+  const user = store.findUserByUsername(req.params.username);
+  if (!user) { res.status(404).json({ error: 'user_not_found' }); return null; }
+  return user;
+}
+
 function getTargetOr404(req, res) {
   const user = store.findUserByUsername(req.params.username);
   if (!user) { res.status(404).json({ error: 'user_not_found' }); return null; }
@@ -2526,14 +2535,14 @@ app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
 });
 
 app.post('/api/admin/players/:username/delete', auth, adminAuth, (req, res) => {
-  const ctx = getTargetOr404(req, res);
-  if (!ctx) return;
+  const user = getUserOr404(req, res);
+  if (!user) return;
   // нельзя удалить самого себя через админку (защита от случайности)
-  if (ctx.user.id === req.user.id) {
+  if (user.id === req.user.id) {
     return res.status(400).json({ error: 'cannot_delete_self', message: 'Нельзя удалить собственный аккаунт из админки' });
   }
-  store.deleteUser(ctx.user.id);
-  res.json({ deleted: true, username: ctx.user.username });
+  store.deleteUser(user.id);
+  res.json({ deleted: true, username: user.username });
 });
 
 app.post('/api/admin/players/:username/assign-building', auth, adminAuth, (req, res) => {
