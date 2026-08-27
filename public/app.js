@@ -1549,10 +1549,11 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('#eventModalOk')) return;
   closeEventModal();
 });
-// Enter и Escape тоже закрывают: окно блокирующее, из него нужен быстрый выход.
+// Enter засчитывается за нажатие кнопки. Escape намеренно не закрывает:
+// сообщение о происшествии нужно прочитать, а не смахнуть.
 document.addEventListener('keydown', (e) => {
   if ($('#eventModal')?.classList.contains('hidden')) return;
-  if (e.key === 'Enter' || e.key === 'Escape') closeEventModal();
+  if (e.key === 'Enter') closeEventModal();
 });
 
 function closeEventModal() {
@@ -2620,8 +2621,18 @@ function closeModal(modal) {
   if (modal.id === 'territoryModal') { pendingBuildId = null; selectedCell = null; }
 }
 
+// Окна, которые нельзя смахнуть мимоходом: вступление, поздравление с
+// уровнем и происшествие. Игрок должен их прочитать и нажать кнопку — иначе
+// случайный клик по полю закрывает окно вместе с наградой, и человек даже не
+// успевает понять, что ему что-то дали.
+const REQUIRED_MODALS = ['welcomeModal', 'eventModal'];
+function isRequiredModal(modal) {
+  return modal && REQUIRED_MODALS.includes(modal.id);
+}
+
 document.querySelectorAll('.modal').forEach(modal => {
   modal.addEventListener('mousedown', (e) => {
+    if (isRequiredModal(modal)) return;         // закрывается только кнопкой
     if (e.target === modal) closeModal(modal); // клик именно по фону-оверлею
   });
 });
@@ -2636,7 +2647,8 @@ document.querySelectorAll('.modal-close').forEach(btn => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   const open = [...document.querySelectorAll('.modal:not(.hidden)')];
-  if (open.length) closeModal(open[open.length - 1]);
+  const last = open[open.length - 1];
+  if (last && !isRequiredModal(last)) closeModal(last);
 });
 
 function escapeHtml(s) {
