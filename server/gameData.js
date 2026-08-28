@@ -130,7 +130,6 @@ const PASSENGER_ECONOMY = {
   HELIPAD_TRAFFIC_BASE: 2,    // за каждую вертолётплощадку
   VVL_TERMINAL_TRAFFIC_BASE: 3, // за каждый ВВЛ-терминал
   MVL_TERMINAL_TRAFFIC_BASE: 3, // за каждый МВЛ-терминал
-  TRAFFIC_PER_REPUTATION: 0.25, // бонус за единицу репутации (делится по активным пулам)
   TRAFFIC_PER_LEVEL: 1.5,       // бонус за уровень аэропорта (делится по активным пулам)
   POOL_CAP: 1200,               // потолок накопления пула пассажиров
 

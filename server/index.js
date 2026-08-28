@@ -565,7 +565,7 @@ function processTerminalsTick(airport, currentTick, notifications) {
   const patch = { termQueue: queue };
   if (served > 0) {
     patch.paxServed = (airport.paxServed || 0) + served;
-    patch.paxProcessed = (airport.paxProcessed || 0) + served;   // только терминалы
+    patch.paxProcessed = (airport.paxProcessed || 0) + served;   // прошли через терминал
     const stats = { ...(airport.termStats || {}) };
     for (const [cell, n] of Object.entries(servedByCell)) {
       const st = stats[cell] || { arrived: 0, served: 0, departed: 0 };
@@ -3954,6 +3954,23 @@ function processContractsTick(airport, currentTick, notifications) {
         const hit = consumeRunwayLanding(airport.id, rw, currentTick, w.size);
         reputation -= hit.repLoss;
         contractPlaneSizes.push(w.size); // занимаем стоянку
+
+        // Борт привозит пассажиров — столько же, сколько увезёт. Раньше это
+        // делали только вертолёты: самолёт садился, платил за прилёт и никого
+        // не привозил, так что счётчики и рейтинг его не замечали.
+        const broughtPlane = contractCraftCapacity('plane', w.size, airport, w);
+        const waitedPlane = currentTick - (w.waitingSinceTick || currentTick);
+        const ratedPlane = addPassengerScores(airport.id, broughtPlane, {
+          waitedMinutes: waitedPlane,
+          delayed: waitedPlane > RATING.DELAY_AFTER_MINUTES || hit.broke,
+        });
+        reputation += ratedPlane.reputation;
+        const fP = store.getAirportById(airport.id) || airport;
+        store.updateAirport(airport.id, {
+          paxArrived: (fP.paxArrived || 0) + broughtPlane,
+          paxProcessed: (fP.paxProcessed || 0) + broughtPlane,
+        });
+
         // Время обслуживания зависит от уровня доставшейся стоянки: чем выше
         // уровень, тем быстрее борт освободит место (30 мин на ур.1, 12 на ур.5).
         let serviceMinutes = standServiceMinutes(stand.level);
