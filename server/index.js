@@ -1493,13 +1493,19 @@ app.get('/api/schedule', auth, (req, res) => {
   const craftName = (craft, size) => craft === 'heli' ? 'Вертолёт'
     : size === 'large' ? 'Большой самолёт' : size === 'medium' ? 'Средний самолёт' : 'Малый самолёт';
 
-  // 1) борта в очереди — прилетели, но сесть пока некуда
+  // 1) борта из списка ожидающих. Их два вида, и путать их нельзя:
+  //    — заказанный чартер ещё летит к нам: он «по расписанию», с отсчётом;
+  //    — прилетевший борт, которому некуда сесть: он кружит и задерживается.
   for (const w of (airport.waitingBorts || [])) {
-    const waited = now - (w.waitingSinceTick || now);
+    const since = w.waitingSinceTick || now;
+    const inbound = since > now;                  // ещё в пути
     rows.push({
       airline: w.airline, craft: craftName(w.craft || 'heli', w.size),
-      arrivalTick: w.waitingSinceTick, pax: contractCraftCapacity(w.craft || 'heli', w.size, airport, w),
-      minutesLeft: 0, status: 'delayed', note: `кружит ${waited} мин`,
+      arrivalTick: since,
+      pax: contractCraftCapacity(w.craft || 'heli', w.size, airport, w),
+      minutesLeft: inbound ? since - now : 0,
+      status: inbound ? 'scheduled' : 'delayed',
+      note: inbound ? (w.charterSeats ? 'чартер в пути' : 'в пути') : `кружит ${now - since} мин`,
     });
   }
 
