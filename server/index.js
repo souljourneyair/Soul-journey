@@ -1131,10 +1131,12 @@ function serializeAirport(airport) {
     name: airport.name || null,
     airline: airport.airline || null,
     airlineOfferSeen: !!airport.airlineOfferSeen,
-    // предложение создать АК доступно на 5+ уровне, пока АК не создана.
-    // (флаг airlineOfferSeen больше не гасит его — окно всё равно можно закрыть,
-    //  а в шапке всегда есть кнопка «Создать АК»)
-    airlineOfferAvailable: airport.level >= CONFIG.AIRLINE_MIN_LEVEL && !airport.airline,
+    // Предложение создать АК показывается ОДИН РАЗ: игрок нажал «Позже» —
+    // значит уже знает о такой возможности, и кнопка «Создать АК» никуда
+    // не девается. Навязывать окно каждый заход незачем.
+    airlineOfferAvailable: airport.level >= CONFIG.AIRLINE_MIN_LEVEL
+      && !airport.airline && !airport.airlineOfferSeen,
+    airlineMinLevel: CONFIG.AIRLINE_MIN_LEVEL,   // чтобы клиент не зашивал число
     canUseAircraft: !!airport.airline && hasBuiltOffice(airport.id), // самолёты — после АК и офиса
     hasOffice: hasBuiltOffice(airport.id),
     officeAvailable: !!airport.airline, // офис можно строить, когда создана АК

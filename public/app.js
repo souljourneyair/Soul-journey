@@ -314,8 +314,8 @@ async function loadGameLogo() {
   } catch (err) { /* логотип необязателен */ }
 }
 
-// Показать окно «Создать АК», если игрок дорос до 5 уровня и ещё не создал.
-// Показываем один раз за сессию (дальше — постоянная кнопка «Создать АК» в шапке).
+// Показать окно «Создать АК» — один раз за всю игру. Кнопка «Создать АК»
+// в меню остаётся, так что после «Позже» игрок ничего не теряет.
 let airlineOfferShownThisSession = false;
 function checkAirlineOffer() {
   if (!STATE || !STATE.airlineOfferAvailable) return;
@@ -355,11 +355,12 @@ function updateEnvelopeButton() {
   }
 }
 
-// Кнопка «Создать АК» видна, если можно создать (5+ уровень, ещё не создана)
+// Кнопка «Создать АК» видна, если можно создать. Порог берём с сервера,
+// а не зашиваем числом: он уже переезжал с 5 уровня на 10.
 function updateAirlineButton() {
   const btn = $('#createAirlineBtn');
   if (!btn) return;
-  const canCreate = STATE.level >= 5 && !STATE.airline;
+  const canCreate = STATE.level >= (STATE.airlineMinLevel || 10) && !STATE.airline;
   btn.classList.toggle('hidden', !canCreate);
 }
 
@@ -2451,7 +2452,7 @@ $('#bankruptDelete').addEventListener('click', async () => {
 function openFleet() {
   if (!STATE.airline) {
     toast('Сначала создайте авиакомпанию', true);
-    if (STATE.level >= 5) $('#airlineNameModal').classList.remove('hidden');
+    if (STATE.level >= (STATE.airlineMinLevel || 10)) $('#airlineNameModal').classList.remove('hidden');
     return;
   }
   if (!STATE.hasOffice) {
