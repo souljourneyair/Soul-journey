@@ -1318,7 +1318,11 @@ function renderBuildingPanel(cellIndex, container) {
     statsHtml = `<div class="bm-progress">${progressRing(constructionProgress(building), 56)}<span>Идёт строительство.</span></div>`;
   } else if (working === 'upgrade') {
     statsHtml = `<div class="bm-progress">${progressRing(constructionProgress(building), 56)}<span>Идёт улучшение до ур. ${building.pendingUpgradeLevel}.</span></div>${upgradeLine}`;
-  } else if (!def.removable) {
+  } else if (!def.removable && building.buildingId !== 'admin') {
+    // Администрация сюда не попадает: она неснимаемая, но именно у неё
+    // собраны все показатели аэропорта — рейтинг, репутация, расходы,
+    // пассажиры. Раньше эта ветка перехватывала её раньше остальных, и в
+    // панели оставались только «Обязательное здание» и уровень.
     statsHtml = `<span>Обязательное здание — нельзя сдать или снести</span>${upgradeLine}`;
   } else if (state === 'owned') {
     let fuelInfo = '';
@@ -1371,7 +1375,10 @@ function renderBuildingPanel(cellIndex, container) {
     // Показатели штаба — тем же блоком, что и в модальном окне.
     const adminInfo = adminStatsHtml(building);
 
-    statsHtml = `${incomeLine}${upkeepLine}${officeInfo}${termInfo}${adminInfo}${upgradeLine}<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>${fuelInfo}`;
+    const demolishLine = def.removable
+      ? `<span>Снос: +${Math.round(def.cost * econ.DEMOLISH_REFUND_RATE).toLocaleString('ru-RU')} у.е.</span>`
+      : '<span>Обязательное здание — нельзя сдать или снести</span>';
+    statsHtml = `${incomeLine}${upkeepLine}${officeInfo}${termInfo}${adminInfo}${upgradeLine}${demolishLine}${fuelInfo}`;
   } else if (state === 'listed') {
     statsHtml = `<span>На бирже — дохода нет, ждём ботов</span>`;
   } else if (state === 'rented') {
