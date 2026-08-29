@@ -524,7 +524,14 @@ function buildingReputationFor(wear) {
 const CHARTER = {
   COST_PER_SEAT: 12,
   ARRIVES_IN_MINUTES: 5,   // через сколько игровых минут борт подадут
-  OPTIONS: [2, 3, 5, 8],
+  OPTIONS: [2, 3, 5, 8],                    // вертолёты, по местам
+  // Самолётные чартеры: борт по размеру, вместимость как у договорных.
+  // Нужны подходящие стоянка и полоса, иначе сажать будет некуда.
+  PLANE_OPTIONS: [
+    { size: 'small', seats: 50 },
+    { size: 'medium', seats: 155 },
+    { size: 'large', seats: 310 },
+  ],
 };
 
 function byRating(table, rating) {

@@ -2331,6 +2331,31 @@ async function openEnvelope() {
   }
 }
 
+// Внутри окна договоров две оси: вкладка (договоры/чартеры) и тип борта.
+// Плюс аккордеоны — чтобы длинные списки не сливались в одну ленту.
+let envCraft = 'heli';
+const envAccOpen = { offers: true, contracts: true, order: true, inbound: true };
+
+function isHeliItem(x) { return (x.craft || 'heli') !== 'plane'; }
+
+document.querySelectorAll('#envCraftTabs .lb-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    envCraft = btn.dataset.craft;
+    document.querySelectorAll('#envCraftTabs .lb-tab').forEach(b =>
+      b.classList.toggle('lb-tab-active', b.dataset.craft === envCraft));
+    renderEnvelope();
+    renderCharter();
+  });
+});
+
+document.querySelectorAll('[data-acc-toggle]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const key = btn.dataset.accToggle;
+    envAccOpen[key] = !envAccOpen[key];
+    btn.closest('.env-accordion').classList.toggle('collapsed', !envAccOpen[key]);
+  });
+});
+
 function renderEnvelope() {
   const offersEl = $('#envelopeOffers');
   const contractsEl = $('#envelopeContracts');
@@ -2344,17 +2369,23 @@ function renderEnvelope() {
   }
 
   offersEl.innerHTML = '';
-  if (envelopeData.offers.length === 0) {
-    offersEl.innerHTML = '<div class="envelope-empty">Пока нет новых предложений. Развивайте аэропорт и поднимайте репутацию — предложения будут приходить чаще и щедрее.</div>';
+  const offers = envelopeData.offers.filter(o => isHeliItem(o) === (envCraft === 'heli'));
+  const offCnt = $('#offersCount');
+  if (offCnt) offCnt.textContent = offers.length;
+  if (offers.length === 0) {
+    offersEl.innerHTML = `<div class="envelope-empty">Нет предложений на ${envCraft === 'heli' ? 'вертолёты' : 'самолёты'}.</div>`;
   } else {
-    envelopeData.offers.forEach(o => offersEl.appendChild(renderOfferCard(o)));
+    offers.forEach(o => offersEl.appendChild(renderOfferCard(o)));
   }
 
   contractsEl.innerHTML = '';
-  if (envelopeData.contracts.length === 0) {
-    contractsEl.innerHTML = '<div class="envelope-empty">Нет действующих договоров.</div>';
+  const contracts = envelopeData.contracts.filter(c => isHeliItem(c) === (envCraft === 'heli'));
+  const cntEl = $('#contractsCount');
+  if (cntEl) cntEl.textContent = contracts.length;
+  if (contracts.length === 0) {
+    contractsEl.innerHTML = `<div class="envelope-empty">Нет договоров на ${envCraft === 'heli' ? 'вертолёты' : 'самолёты'}.</div>`;
   } else {
-    envelopeData.contracts.forEach(c => contractsEl.appendChild(renderContractCard(c)));
+    contracts.forEach(c => contractsEl.appendChild(renderContractCard(c)));
   }
 }
 
@@ -2893,32 +2924,60 @@ function renderCharter() {
   const box = $('#charterList');
   if (!box || !STATE.charter) return;
   const c = STATE.charter;
-  const waiting = Math.floor((STATE.paxPool && STATE.paxPool.heli) || 0);
+  const isHeli = envCraft === 'heli';
+  const waiting = Math.floor(isHeli
+    ? ((STATE.paxPool || {}).heli || 0)
+    : ((STATE.paxPool || {}).vvl || 0) + ((STATE.paxPool || {}).mvl || 0));
+
   $('#charterHint').textContent =
     `Ждут вылета: ${waiting} чел. Борт подадут через ${c.arrivesIn} мин. ` +
     `Подача ${c.costPerSeat} у.е. за место — платит аэропорт, комиссия с билетов остаётся ему же. ` +
     `Полупустой борт уйдёт в убыток.`;
-  box.innerHTML = c.options.map(seats => {
-    const cost = seats * c.costPerSeat;
+
+  const rows = isHeli
+    ? c.options.map(seats => ({ seats, craft: 'heli', label: `🚁 ${seats} мест` }))
+    : (c.planeOptions || []).map(o => ({
+        seats: o.seats, craft: 'plane', size: o.size,
+        label: `✈ ${o.size === 'large' ? 'Большой' : o.size === 'medium' ? 'Средний' : 'Малый'} — ${o.seats} мест`,
+      }));
+
+  box.innerHTML = rows.map(r => {
+    const cost = r.seats * c.costPerSeat;
     const canAfford = STATE.money >= cost;
-    const enough = waiting >= seats;
+    const enough = waiting >= r.seats;
     return `<div class="charter-row">
-      <span class="charter-seats">🚁 ${seats} мест</span>
-      <span class="charter-cost">${cost} у.е.</span>
+      <span class="charter-seats">${r.label}</span>
+      <span class="charter-cost">${cost.toLocaleString('ru-RU')} у.е.</span>
       <span class="charter-note">${enough ? 'заполнится' : `в аэропорту ${waiting} чел.`}</span>
-      <button class="btn-secondary" data-seats="${seats}" ${canAfford ? '' : 'disabled'}>Заказать</button>
+      <button class="btn-secondary" data-seats="${r.seats}" data-craft="${r.craft}"
+        data-size="${r.size || ''}" ${canAfford ? '' : 'disabled'}>Заказать</button>
     </div>`;
   }).join('');
+
   box.querySelectorAll('button[data-seats]').forEach(btn => {
-    btn.addEventListener('click', () => orderCharter(Number(btn.dataset.seats)));
+    btn.addEventListener('click', () => orderCharter(btn.dataset.craft, Number(btn.dataset.seats), btn.dataset.size));
   });
+
+  // Раздел «В пути»: заказанные борта, которые ещё летят.
+  const inbound = (c.inbound || []).filter(x => (x.craft || 'heli') === envCraft);
+  const cnt = $('#charterInboundCount');
+  if (cnt) cnt.textContent = inbound.length;
+  const inboxEl = $('#charterInbound');
+  if (inboxEl) {
+    inboxEl.innerHTML = inbound.length
+      ? inbound.map(x => `<div class="charter-inbound-row">
+          <span class="charter-seats">${x.craft === 'plane' ? '✈' : '🚁'} ${x.seats} мест</span>
+          <span class="charter-cost">подача через ${x.minutesLeft} мин</span>
+        </div>`).join('')
+      : '<div class="envelope-empty">Нет бортов в пути.</div>';
+  }
 }
 
-async function orderCharter(seats) {
+async function orderCharter(craft, seats, size) {
   try {
-    const res = await api('/api/charter/order', 'POST', { seats });
+    const res = await api('/api/charter/order', 'POST', { craft, seats, size: size || undefined });
     STATE = res;
-    toast(`Чартер на ${seats} мест заказан за ${res._charter.cost} у.е. Борт в пути.`);
+    toast(`Чартер на ${seats} мест заказан за ${res._charter.cost.toLocaleString('ru-RU')} у.е. Борт в пути.`);
     renderCharter();
     renderAll();
   } catch (err) {

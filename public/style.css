@@ -1016,3 +1016,29 @@ body.modal-open { overflow: hidden; }
 .obj-working { display: inline-flex; align-items: center; gap: 8px; }
 .obj-working > span { line-height: 1.35; }
 .bm-progress { display: flex; align-items: center; gap: 12px; }
+
+/* --- вложенные вкладки и аккордеоны в окне договоров --- */
+.sub-tabs { margin-top: -4px; margin-bottom: 10px; }
+.sub-tabs .lb-tab { font-size: 12px; padding: 6px 10px; }
+.env-accordion { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
+.env-acc-head {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  background: rgba(124,138,153,0.08); border: none; cursor: pointer;
+  padding: 10px 12px; color: var(--text);
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px; text-align: left;
+}
+.env-acc-head:hover { background: rgba(124,138,153,0.14); }
+.env-acc-arrow { color: var(--board-amber); transition: transform 0.15s ease; }
+.env-accordion.collapsed .env-acc-arrow { transform: rotate(-90deg); }
+.env-acc-count {
+  margin-left: auto; font-family: var(--mono); font-size: 11px;
+  color: var(--board-amber); background: rgba(245,158,11,0.12);
+  padding: 2px 8px; border-radius: 8px;
+}
+.env-acc-body { padding: 10px 12px; max-height: 42vh; overflow-y: auto; }
+.env-accordion.collapsed .env-acc-body { display: none; }
+.charter-inbound-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border-bottom: 1px solid rgba(124,138,153,0.12); font-size: 13px;
+}
+.charter-inbound-row:last-child { border-bottom: none; }

@@ -1371,7 +1371,15 @@ function serializeAirport(airport) {
     ratingSamples: (airport.ratingScores || []).length,
     ratingMinSamples: RATING.MIN_SAMPLES,
     heliSeats: heliSeatsFor(airport),
-    charter: { options: CHARTER.OPTIONS, costPerSeat: CHARTER.COST_PER_SEAT, arrivesIn: CHARTER.ARRIVES_IN_MINUTES },
+    charter: {
+      options: CHARTER.OPTIONS, planeOptions: CHARTER.PLANE_OPTIONS,
+      costPerSeat: CHARTER.COST_PER_SEAT, arrivesIn: CHARTER.ARRIVES_IN_MINUTES,
+      // заказанные и ещё летящие — для вкладки «В пути»
+      inbound: (airport.waitingBorts || [])
+        .filter(w => w.charterSeats && (w.waitingSinceTick || 0) > store.getTickCounter())
+        .map(w => ({ craft: w.craft, size: w.size, seats: w.charterSeats,
+          minutesLeft: w.waitingSinceTick - store.getTickCounter() })),
+    },
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
     level2Bonus: { xp: CONFIG.LEVEL2_BONUS_XP, rep: CONFIG.LEVEL2_BONUS_REP },
@@ -1690,27 +1698,48 @@ app.get('/api/schedule', auth, (req, res) => {
 app.post('/api/charter/order', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  const seats = Number((req.body || {}).seats);
-  if (!CHARTER.OPTIONS.includes(seats)) {
-    return res.status(400).json({ error: 'bad_seats', message: 'Такого борта нет' });
+  const body = req.body || {};
+  const craft = body.craft === 'plane' ? 'plane' : 'heli';
+  const currentTick = store.getTickCounter();
+
+  let seats, size = null;
+  if (craft === 'heli') {
+    seats = Number(body.seats);
+    if (!CHARTER.OPTIONS.includes(seats)) {
+      return res.status(400).json({ error: 'bad_seats', message: 'Такого борта нет' });
+    }
+    if (countHelipads(airport.id) === 0) {
+      return res.status(400).json({ error: 'no_pad', message: 'Нужна вертолётная площадка' });
+    }
+  } else {
+    const opt = CHARTER.PLANE_OPTIONS.find(o => o.size === body.size);
+    if (!opt) return res.status(400).json({ error: 'bad_size', message: 'Такого борта нет' });
+    seats = opt.seats; size = opt.size;
+    // Самолёту нужны и стоянка его размера, и полоса, которая его примет.
+    const stands = listStands(airport.id);
+    if (!stands.some(st => st.accepts.includes(size))) {
+      return res.status(400).json({ error: 'no_stand', message: 'Нет стоянки под такой борт' });
+    }
+    if (!hasRunwayForSize(airport.id, size, currentTick)) {
+      return res.status(400).json({ error: 'no_runway', message: 'Нет ВПП, принимающей такой борт' });
+    }
   }
-  if (countHelipads(airport.id) === 0) {
-    return res.status(400).json({ error: 'no_pad', message: 'Нужна вертолётная площадка' });
-  }
+
   const cost = seats * CHARTER.COST_PER_SEAT;
   if (airport.money < cost) {
-    return res.status(400).json({ error: 'no_money', message: `Подача стоит ${cost} у.е.` });
+    return res.status(400).json({ error: 'no_money', message: `Подача стоит ${cost.toLocaleString('ru-RU')} у.е.` });
   }
-  const currentTick = store.getTickCounter();
+
   const waiting = (airport.waitingBorts || []).slice();
   waiting.push({
     contractId: null, airline: 'Чартер', waitingSinceTick: currentTick + CHARTER.ARRIVES_IN_MINUTES,
-    payPerArrival: 0, craft: 'heli', size: null, flightType: 'vvl',
+    payPerArrival: 0, craft, size, flightType: 'vvl',
     charterSeats: seats,
   });
   store.updateAirport(airport.id, { money: airport.money - cost, waitingBorts: waiting });
-  logEvent(airport.id, 'build', `Заказан чартер на ${seats} мест за ${cost} у.е.`);
-  res.json({ ...serializeAirport(store.getAirportById(airport.id)), _charter: { seats, cost } });
+  logEvent(airport.id, 'build',
+    `Заказан чартер (${craft === 'plane' ? 'самолёт' : 'вертолёт'}) на ${seats} мест за ${cost.toLocaleString('ru-RU')} у.е.`);
+  res.json({ ...serializeAirport(store.getAirportById(airport.id)), _charter: { seats, cost, craft } });
 });
 
 app.get('/api/envelope', auth, (req, res) => {

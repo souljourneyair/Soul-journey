@@ -309,15 +309,57 @@
       <button class="lb-tab lb-tab-active" data-env="offers">Договоры</button>
       <button class="lb-tab" data-env="charter">Чартеры</button>
     </div>
-    <div id="envCharter" class="hidden">
-      <p class="build-menu-hint" id="charterHint"></p>
-      <div id="charterList"></div>
+    <!-- Внутри каждой вкладки — свой борт, чтобы окно не превращалось
+         в длинную ленту: сначала выбираем тип, потом раскрываем раздел. -->
+    <div class="lb-tabs sub-tabs" id="envCraftTabs">
+      <button class="lb-tab lb-tab-active" data-craft="heli">🚁 Вертолёты</button>
+      <button class="lb-tab" data-craft="plane">✈ Самолёты</button>
     </div>
+
     <div class="envelope-body">
-      <div class="envelope-section-title">Новые предложения</div>
-      <div id="envelopeOffers" class="envelope-list"></div>
-      <div class="envelope-section-title">Действующие договоры</div>
-      <div id="envelopeContracts" class="envelope-list"></div>
+      <div class="env-accordion" data-acc="offers">
+        <button class="env-acc-head" data-acc-toggle="offers">
+          <span class="env-acc-arrow">▾</span>
+          <span>Новые предложения</span>
+          <span class="env-acc-count" id="offersCount">0</span>
+        </button>
+        <div class="env-acc-body" id="envelopeOffersWrap">
+          <div id="envelopeOffers" class="envelope-list"></div>
+        </div>
+      </div>
+      <div class="env-accordion" data-acc="contracts">
+        <button class="env-acc-head" data-acc-toggle="contracts">
+          <span class="env-acc-arrow">▾</span>
+          <span>Заключённые договоры</span>
+          <span class="env-acc-count" id="contractsCount">0</span>
+        </button>
+        <div class="env-acc-body" id="envelopeContractsWrap">
+          <div id="envelopeContracts" class="envelope-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="envCharter" class="hidden">
+      <div class="env-accordion" data-acc="order">
+        <button class="env-acc-head" data-acc-toggle="order">
+          <span class="env-acc-arrow">▾</span>
+          <span>Заказать</span>
+        </button>
+        <div class="env-acc-body" id="charterOrderWrap">
+          <p class="build-menu-hint" id="charterHint"></p>
+          <div id="charterList"></div>
+        </div>
+      </div>
+      <div class="env-accordion" data-acc="inbound">
+        <button class="env-acc-head" data-acc-toggle="inbound">
+          <span class="env-acc-arrow">▾</span>
+          <span>В пути</span>
+          <span class="env-acc-count" id="charterInboundCount">0</span>
+        </button>
+        <div class="env-acc-body" id="charterInboundWrap">
+          <div id="charterInbound"></div>
+        </div>
+      </div>
     </div>
     <button id="closeEnvelope" class="btn-secondary">Закрыть</button>
   </div>
