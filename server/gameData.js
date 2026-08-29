@@ -446,6 +446,19 @@ const DISASTER_KINDS = ['storm', 'flood', 'earthquake', 'birds', 'fire', 'meteor
 // Репутация — накопленный «стаж» (пороги, плата по договорам). Рейтинг —
 // среднее впечатление за последние поездки, от 0 до 5. Именно он решает,
 // сколько людей придёт и сколько борт согласится взять.
+// Потолок очереди на вылет привязан к тому, сколько реально можно вывезти.
+// Раньше стоял общий потолок в 1200 человек и приток, пропорциональный сумме
+// уровней площадок: пять площадок пятого уровня давали множитель 25, очередь
+// росла лавиной, вывезти её вертолётами по 8 мест было невозможно, люди
+// уходили и роняли рейтинг. Теперь очередь не может стать больше нескольких
+// бортов, а при её росте приток сам замедляется: люди видят толпу и не идут.
+const QUEUE = {
+  BORT_LOADS: 4,          // очередь не длиннее четырёх бортов
+  PLANE_REFERENCE: 155,   // за «борт» для терминалов считаем средний самолёт
+  SLOWDOWN_FROM: 0.5,     // с какой заполненности очереди приток замедляется
+  SLOWDOWN_MULT: 0.35,    // во сколько раз
+};
+
 const RATING = {
   WINDOW: 50,              // по скольким последним оценкам считаем среднее
   MIN_SAMPLES: 10,         // пока меньше — показываем стартовое значение
@@ -1175,7 +1188,7 @@ module.exports = {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON, RATING, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
+  EVENT_LOG, SEASON, RATING, QUEUE, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,

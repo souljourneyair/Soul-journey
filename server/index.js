@@ -17,7 +17,7 @@ const {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON, RATING, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
+  EVENT_LOG, SEASON, RATING, QUEUE, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
@@ -331,8 +331,13 @@ function makeContractOffer(airport, currentTick) {
 
   // с некоторой вероятностью — самолётный договор (если есть куда принимать)
   if (canPlanes && Math.random() < APRON_ECONOMY.PLANE_CONTRACT_SHARE) {
-    // выбираем размер среди тех, под кого есть стоянка
-    const availSizes = [...new Set(stands.flatMap(s => s.accepts))];
+    // Размер выбираем среди тех, кого примут И стоянка, И полоса. Раньше
+    // смотрели только на стоянки: если стоянка брала средний борт, а полоса
+    // была малой, самолёт прилетал и уходил на запасной при пустой стоянке.
+    const standSizes = new Set(stands.flatMap(s => s.accepts));
+    const runwaySizes = new Set(listRunways(airport.id, store.getTickCounter()).flatMap(r => r.accepts));
+    const availSizes = [...standSizes].filter(sz => runwaySizes.has(sz));
+    if (!availSizes.length) return base;   // принимать самолёты пока нечем
     const size = availSizes[Math.floor(Math.random() * availSizes.length)];
     // МВЛ только если есть международный терминал и подходящая ВПП
     const mvlPossible = size !== 'small' && canFlyMvl(airport.id);
@@ -422,7 +427,13 @@ function generateTraffic(airport) {
   const mvlPts = terminalPoints(airport.id, 'mvl');
 
   const pool = airport.paxPool || { heli: 0, vvl: 0, mvl: 0 };
-  const cap = PASSENGER_ECONOMY.POOL_CAP;
+  // Потолок очереди — несколько бортов, а не абстрактная тысяча: копиться
+  // может лишь то, что реально есть надежда вывезти.
+  const caps = {
+    heli: heliSeatsFor(airport) * QUEUE.BORT_LOADS,
+    vvl: QUEUE.PLANE_REFERENCE * QUEUE.BORT_LOADS,
+    mvl: QUEUE.PLANE_REFERENCE * QUEUE.BORT_LOADS,
+  };
   // Приток пропорционален числу и уровню площадок и терминалов: расширяться
   // должно быть выгодно, но потолок задаёт рейтинг.
   // Помним, когда очередь на вылет начала копиться: по этому считается,
@@ -433,7 +444,11 @@ function generateTraffic(airport) {
     if (pts <= 0) { since[key] = null; return 0; }
     const before = base || 0;
     if (before <= 0) since[key] = tick;          // очередь только появилась
-    return Math.min(cap, before + perPad * pts);
+    const cap = caps[key];
+    // Чем длиннее очередь, тем меньше желающих: люди видят толпу и не идут.
+    const crowded = before >= cap * QUEUE.SLOWDOWN_FROM;
+    const rate = perPad * pts * (crowded ? QUEUE.SLOWDOWN_MULT : 1);
+    return Math.min(cap, before + rate);
   };
   pool.heli = grow('heli', heliPts, pool.heli);
   pool.vvl = grow('vvl', vvlPts, pool.vvl);
