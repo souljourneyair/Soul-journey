@@ -17,7 +17,7 @@ const {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON, RATING, QUEUE, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
+  EVENT_LOG, SEASON, RATING, QUEUE, TAX, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
@@ -230,6 +230,64 @@ function addPassengerScores(airportId, count, opts) {
 // Сколько мест даст договорной вертолёт при нынешнем рейтинге.
 function heliSeatsFor(airport) {
   return byRating(RATING.HELI_SEATS_BY_RATING, airportRating(airport)).seats;
+}
+
+// Общая проверка условий: и для постройки, и для апгрейда. Условия задаются
+// в каталоге, поэтому новое требование не нужно вписывать в код отдельно.
+//   requiresBuilt   — построены все перечисленные (строка или список)
+//   requiresAnyOf   — построено хотя бы одно из перечисленных
+//   requiresBuildingLevel — здание прокачано до уровня { id: уровень }
+//   minMoney, minLevel, minRating, minPaxProcessed
+function checkRequirements(airport, rules) {
+  if (!rules) return null;
+  const built = store.getBuildingsByAirport(airport.id)
+    .filter(b => !isUnderConstruction(b) && !b.ruined && (b.state || 'owned') === 'owned');
+  const nameOf = (id) => (BUILDINGS[id] ? BUILDINGS[id].name : id);
+
+  if (rules.minLevel && (airport.level || 0) < rules.minLevel) {
+    return { error: 'level_too_low', message: `Нужен уровень аэропорта ${rules.minLevel}` };
+  }
+  if (rules.minRating) {
+    const r = airportRating(airport);
+    if (r < rules.minRating) {
+      return { error: 'rating_too_low', message: `Нужен рейтинг ${rules.minRating} (сейчас ${r.toFixed(1)})` };
+    }
+  }
+  if (rules.minMoney && airport.money < rules.minMoney) {
+    return { error: 'money_too_low', message: `Нужен капитал ${rules.minMoney.toLocaleString('ru-RU')} у.е.` };
+  }
+  if (rules.minPaxProcessed && (airport.paxProcessed || 0) < rules.minPaxProcessed) {
+    return {
+      error: 'pax_too_low',
+      message: `Нужно обслужить ${rules.minPaxProcessed.toLocaleString('ru-RU')} пассажиров ` +
+        `(сейчас ${Math.floor(airport.paxProcessed || 0).toLocaleString('ru-RU')})`,
+    };
+  }
+  const needAll = rules.requiresBuilt
+    ? (Array.isArray(rules.requiresBuilt) ? rules.requiresBuilt : [rules.requiresBuilt]) : [];
+  for (const id of needAll) {
+    if (!built.some(b => b.buildingId === id)) {
+      return { error: 'requires_building', message: `Сначала постройте: ${nameOf(id)}` };
+    }
+  }
+  if (rules.requiresAnyOf && rules.requiresAnyOf.length) {
+    if (!rules.requiresAnyOf.some(id => built.some(b => b.buildingId === id))) {
+      return {
+        error: 'requires_building',
+        message: `Нужно одно из: ${rules.requiresAnyOf.map(nameOf).join(' или ')}`,
+      };
+    }
+  }
+  for (const [id, lvl] of Object.entries(rules.requiresBuildingLevel || {})) {
+    const b = built.find(x => x.buildingId === id);
+    if (!b || (b.upgradeLevel || 1) < lvl) {
+      return {
+        error: 'requires_building_level',
+        message: `Нужен ${nameOf(id)} уровня ${lvl}` + (b ? ` (сейчас ${b.upgradeLevel || 1})` : ''),
+      };
+    }
+  }
+  return null;
 }
 
 // Уровень здания администрации (0 — не построена).
@@ -1152,6 +1210,12 @@ function serializeAirport(airport) {
     airlineOfferAvailable: airport.level >= CONFIG.AIRLINE_MIN_LEVEL
       && !airport.airline && !airport.airlineOfferSeen,
     airlineMinLevel: CONFIG.AIRLINE_MIN_LEVEL,   // чтобы клиент не зашивал число
+    tax: {
+      rate: TAX.RATE,
+      profit: Math.round(airport.taxProfit || 0),          // накоплено с прошлой уплаты
+      ticksLeft: Math.max(0, (airport.taxSinceTick || 0) + TAX.PERIOD_TICKS - store.getTickCounter()),
+      last: airport.lastTax || 0,
+    },
     canUseAircraft: !!airport.airline && hasBuiltOffice(airport.id), // самолёты — после АК и офиса
     hasOffice: hasBuiltOffice(airport.id),
     officeAvailable: !!airport.airline, // офис можно строить, когда создана АК
@@ -1925,18 +1989,10 @@ app.post('/api/build', auth, (req, res) => {
       message: `Нужен капитал ${def.minMoney.toLocaleString('ru-RU')} у.е.`,
     });
   }
-  // Цепочка: здание открывается постройкой предыдущего.
-  if (def.requiresBuilt) {
-    const req = BUILDINGS[def.requiresBuilt];
-    const built = store.getBuildingsByAirport(airport.id)
-      .some(b => b.buildingId === def.requiresBuilt && !isUnderConstruction(b) && !b.ruined);
-    if (!built) {
-      return res.status(400).json({
-        error: 'requires_building',
-        message: `Сначала постройте: ${req ? req.name : def.requiresBuilt}`,
-      });
-    }
-  }
+  // Цепочка: здание открывается постройкой других. Проверка общая — те же
+  // правила применяются и к апгрейдам (см. checkRequirements).
+  const reqErr = checkRequirements(airport, def);
+  if (reqErr) return res.status(400).json(reqErr);
   if (airport.money < def.cost) return res.status(400).json({ error: 'not_enough_money' });
 
   const maxCells = airport.gridSize * airport.gridSize;
@@ -2223,6 +2279,10 @@ app.post('/api/building/upgrade', auth, (req, res) => {
     return res.status(400).json({ error: 'max_level_reached', message: 'Достигнут максимальный уровень апгрейда' });
   }
   const nextLevel = currentLevel + 1;
+  // У некоторых зданий каждый уровень открывается своими условиями —
+  // например, кафе требует обслуженных пассажиров и прокачанной пожарной части.
+  const upErr = checkRequirements(airport, (def.upgradeRequires || {})[nextLevel]);
+  if (upErr) return res.status(400).json(upErr);
   const cost = upgradeCost(def, nextLevel);
   if (airport.money < cost) return res.status(400).json({ error: 'not_enough_money' });
 
@@ -3372,7 +3432,16 @@ function runTick() {
       const repairingNow = b.repairEndsTick != null && currentTick < b.repairEndsTick;
       const damageMult = b.ruined ? 0 : damageMultiplier(b.wear || 0, repairingNow);
       let income;
-      if (def.id === 'airline_office') {
+      if (def.seatsByLevel) {
+        // Коммерция зарабатывает на людях, а не на факте существования:
+        // сколько посетителей поместилось, столько и выручка. Вместимость
+        // растёт с уровнем, но упирается в реальный поток пассажиров.
+        const lvl = b.upgradeLevel || 1;
+        const seats = def.seatsByLevel[Math.min(lvl, def.seatsByLevel.length) - 1] || 0;
+        const flow = airport.lastPaxFlow || 0;    // пассажиров прошло за прошлый тик
+        const visitors = Math.min(seats, flow);
+        income = Math.round(visitors * PASSENGER_ECONOMY.VISITOR_SPEND * damageMult * workPenalty);
+      } else if (def.id === 'airline_office') {
         // Офис дохода не приносит — авиакомпания зарабатывает рейсами. Пока
         // нет ни одного самолёта, сверх обычного содержания списывается
         // штраф за пустой штаб. Он растёт с уровнем по той же ставке, что и
@@ -3532,7 +3601,38 @@ function runTick() {
       repLoss: (st.repLoss || 0) + Math.max(0, -repDelta),
     };
 
-    const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince, periodStats };
+    // Поток пассажиров за прошлый тик — по нему кормится коммерция.
+    const paxNow = freshAirport.paxProcessed || 0;
+    const paxFlow = Math.max(0, paxNow - (freshAirport.paxProcessedPrev || paxNow));
+
+    const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince, periodStats,
+      lastPaxFlow: paxFlow, paxProcessedPrev: paxNow };
+
+    // --- Налог на прибыль ---
+    // Раз в игровую неделю государство забирает долю от заработанного за
+    // период. Убыточная неделя не облагается: платим с прибыли, а не с оборота.
+    const taxSince = freshAirport.taxSinceTick != null ? freshAirport.taxSinceTick : currentTick;
+    const taxProfit = (freshAirport.taxProfit || 0) + (incomePerTick - upkeep);
+    if (currentTick - taxSince >= TAX.PERIOD_TICKS) {
+      const taxable = Math.max(0, taxProfit);
+      const tax = Math.round(taxable * TAX.RATE);
+      if (tax > 0) {
+        patch.money = newMoney - tax;
+        logEvent(airport.id, 'tax',
+          `Налог на прибыль ${Math.round(TAX.RATE * 100)}%: −${tax.toLocaleString('ru-RU')} у.е. ` +
+          `(прибыль за неделю ${Math.round(taxable).toLocaleString('ru-RU')})`);
+        notifications.push(`🧾 Налог на прибыль: −${tax.toLocaleString('ru-RU')} у.е.`);
+      } else {
+        logEvent(airport.id, 'tax', 'Налог на прибыль: неделя закрыта в убыток, платить не с чего');
+      }
+      patch.taxSinceTick = currentTick;
+      patch.taxProfit = 0;
+      patch.lastTax = tax;
+    } else {
+      patch.taxSinceTick = taxSince;
+      patch.taxProfit = taxProfit;
+    }
+
     // Починка старых сохранений: у аэропортов, начатых до появления бонуса,
     // флаг мог остаться поднятым с прошлой жизни аккаунта. Если игрок ещё не
     // добрался до второго уровня, бонус впереди — снимаем флаг.

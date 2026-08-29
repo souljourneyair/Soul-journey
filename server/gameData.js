@@ -119,6 +119,9 @@ function terminalThroughput(terminalClass, upgradeLevel) {
 
 // ==================== ПАССАЖИРЫ: ТРАФИК И ТЕРМИНАЛЫ ====================
 const PASSENGER_ECONOMY = {
+  // Сколько оставляет в кафе один посетитель. Кафе обслуживает не больше
+  // своей вместимости и не больше, чем прошло пассажиров.
+  VISITOR_SPEND: 12,
   // Пропускная способность терминалов — базовые пасс/мин на ур.1, +40% за уровень апгрейда.
   TERMINAL_THROUGHPUT: {
     terminal_a: 60, terminal_b: 120, terminal_d: 220,   // ВВЛ
@@ -452,6 +455,13 @@ const DISASTER_KINDS = ['storm', 'flood', 'earthquake', 'birds', 'fire', 'meteor
 // росла лавиной, вывезти её вертолётами по 8 мест было невозможно, люди
 // уходили и роняли рейтинг. Теперь очередь не может стать больше нескольких
 // бортов, а при её росте приток сам замедляется: люди видят толпу и не идут.
+// Налог на прибыль: раз в игровую неделю государство забирает долю от того,
+// что аэропорт заработал за период. Убыточная неделя не облагается.
+const TAX = {
+  PERIOD_TICKS: 7 * 1440,   // игровая неделя
+  RATE: 0.20,
+};
+
 const QUEUE = {
   BORT_LOADS: 4,          // очередь не длиннее четырёх бортов
   PLANE_REFERENCE: 155,   // за «борт» для терминалов считаем средний самолёт
@@ -916,19 +926,27 @@ const BUILDINGS = {
   },
   fire_station: {
     id: 'fire_station', minLevel: 3, name: 'Пожарная часть', 
-    cost: 12000, income: 0, reputation: 8, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 3, desc: 'Тушит пожары в аэропорту. Без неё загоревшееся здание выгорает полностью и клетка освобождается; с ней пожар удаётся сбить, и объект отделывается повреждением. Дохода не приносит — это служба безопасности, а не бизнес.',
+    cost: 12000, income: 0, reputation: 8, xp: 800, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5, desc: 'Тушит пожары в аэропорту. Без неё загоревшееся здание выгорает полностью и клетка освобождается; с ней пожар удаётся сбить, и объект отделывается повреждением. Дохода не приносит — это служба безопасности, а не бизнес.',
   },
   terminal_b: {
-    id: 'terminal_b', name: 'Терминал B', minLevel: 5,
-    cost: 60000, income: 0, reputation: 15, xp: 3800, removable: true, maxUpgradeLevel: 5,
-    lineType: 'vvl', terminalClass: 'B',
+    id: 'terminal_b', minLevel: 5, income: 0, maxUpgradeLevel: 5,
+    requiresBuilt: ['terminal_a', 'tower', 'runway_small'],
+    requiresAnyOf: ['stand_small', 'stand_medium'],
+    minMoney: 200000, name: 'Терминал B', cost: 60000, reputation: 15, xp: 3800, removable: true, lineType: 'vvl', terminalClass: 'B',
     desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Больше пассажиров, чем терминал A. Ценность терминала — в пропускной способности: аэропорт зарабатывает на обслуженных пассажирах.',
   },
   cafe: {
-    id: 'cafe', name: 'Кафе / дьюти-фри', minLevel: 6,
-    cost: 6000, income: 35, reputation: 3, xp: 700, removable: true, maxUpgradeLevel: 3,
-    hidden: true,
-    desc: 'Доп. доход с пассажиропотока, растит репутацию.',
+    id: 'cafe', minLevel: 5, income: 0, maxUpgradeLevel: 5,
+    requiresBuilt: ['terminal_a', 'fire_station'],
+    seatsByLevel: [20, 30, 40, 50, 60],
+    upgradeRequires: {
+      2: { minPaxProcessed: 150000, minLevel: 5, requiresBuildingLevel: { fire_station: 3 } },
+      3: { minPaxProcessed: 300000, minLevel: 7, requiresBuildingLevel: { fire_station: 4 },
+           minMoney: 500000, requiresBuilt: ['terminal_b'] },
+      4: { minPaxProcessed: 500000, minLevel: 8, requiresBuildingLevel: { fire_station: 5 },
+           minMoney: 700000 },
+      5: { minPaxProcessed: 1000000, minLevel: 10, requiresBuilt: ['terminal_c'] },
+    }, name: 'Кафе / дьюти-фри', cost: 6000, reputation: 3, xp: 700, removable: true, desc: 'Доп. доход с пассажиропотока, растит репутацию.',
   },
   hotel: {
     id: 'hotel', name: 'Гостиница', minLevel: 6,
@@ -966,9 +984,9 @@ const BUILDINGS = {
     desc: 'Крупнейший пассажирский терминал внутренних авиалиний (ВВЛ).',
   },
   terminal_c: {
-    id: 'terminal_c', name: 'Терминал C', minLevel: 5,
-    cost: 70000, income: 0, reputation: 15, xp: 4200, removable: true, maxUpgradeLevel: 5,
-    lineType: 'mvl', terminalClass: 'C',
+    id: 'terminal_c', minLevel: 10, income: 0, maxUpgradeLevel: 5,
+    requiresBuilt: ['terminal_a', 'terminal_b'],
+    minMoney: 1500000, name: 'Терминал C', cost: 70000, reputation: 15, xp: 4200, removable: true, lineType: 'mvl', terminalClass: 'C',
     desc: 'Пассажирский терминал международных авиалиний (МВЛ). Обслуживает зарубежные рейсы.',
   },
   terminal_e: {
@@ -1192,7 +1210,7 @@ module.exports = {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON, RATING, QUEUE, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
+  EVENT_LOG, SEASON, RATING, QUEUE, TAX, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
