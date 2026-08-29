@@ -929,6 +929,34 @@ function selectCell(i) {
   renderTerritoryBuildMenu();
 }
 
+// Чего не хватает для постройки — короткой строкой для меню. Зеркалит
+// серверную проверку checkRequirements: правила живут в каталоге, поэтому
+// новое условие подхватывается здесь само.
+function missingRequirement(rules) {
+  if (!rules) return null;
+  const built = (STATE.buildings || []).filter(b => !b.constructionType && !b.ruined && (b.state || 'owned') === 'owned');
+  const has = (id) => built.some(b => b.buildingId === id);
+  const nameOf = (id) => (STATE.catalog[id] ? displayBuildingName(id) : id);
+
+  if (rules.minLevel && STATE.level < rules.minLevel) return `Ур. ${rules.minLevel}+`;
+  if (rules.minRating && (STATE.rating || 0) < rules.minRating) return `Нужен рейтинг ${rules.minRating}`;
+  if (rules.minMoney && STATE.money < rules.minMoney) return `Нужен капитал ${rules.minMoney.toLocaleString('ru-RU')}`;
+  if (rules.minPaxProcessed && (STATE.paxProcessed || 0) < rules.minPaxProcessed) {
+    return `Нужно ${rules.minPaxProcessed.toLocaleString('ru-RU')} пассажиров`;
+  }
+  const all = rules.requiresBuilt
+    ? (Array.isArray(rules.requiresBuilt) ? rules.requiresBuilt : [rules.requiresBuilt]) : [];
+  for (const id of all) if (!has(id)) return `Нужен: ${nameOf(id)}`;
+  if (rules.requiresAnyOf && rules.requiresAnyOf.length && !rules.requiresAnyOf.some(has)) {
+    return `Нужно одно из: ${rules.requiresAnyOf.map(nameOf).join(' или ')}`;
+  }
+  for (const [id, lvl] of Object.entries(rules.requiresBuildingLevel || {})) {
+    const b = built.find(x => x.buildingId === id);
+    if (!b || (b.upgradeLevel || 1) < lvl) return `Нужен ${nameOf(id)} ур. ${lvl}`;
+  }
+  return null;
+}
+
 function purchasableBuildings() {
   const builtIds = new Set(STATE.buildings.map(b => b.buildingId));
   // Уникальные здания (админздание) скрываем после постройки; остальные,
@@ -955,11 +983,12 @@ function renderBuildMenu() {
     const needsAdminFirst = !hasAdmin && def.id !== 'admin';
     // Репутация как ключ и цепочка построек: здание может ждать не уровня,
     // а доверия авиакомпаний или предыдущего объекта в цепочке.
-    const needsRating = def.minRating && (STATE.rating || 0) < def.minRating;
-    const needsMoney = def.minMoney && STATE.money < def.minMoney;
-    const needsPrev = def.requiresBuilt && !STATE.buildings.some(b =>
-      b.buildingId === def.requiresBuilt && !b.constructionType && !b.ruined);
-    const locked = STATE.level < def.minLevel || needsAdminFirst || needsRating || needsMoney || needsPrev;
+    // Условия те же, что проверяет сервер (checkRequirements). requiresBuilt
+    // может быть списком: раньше клиент сравнивал его со строкой, и здание
+    // с несколькими требованиями считалось заблокированным навсегда — даже
+    // когда всё нужное построено.
+    const missing = missingRequirement(def);
+    const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing;
     const tooExpensive = STATE.money < def.cost;
     // лимит количества этого здания
     const limit = (STATE.buildLimits || {})[def.id];
@@ -977,9 +1006,7 @@ function renderBuildMenu() {
       <div class="build-item-meta">
         <span>${
           needsAdminFirst ? 'Ждём администрацию'
-          : needsPrev ? `Нужен: ${displayBuildingName(def.requiresBuilt)}`
-          : needsRating ? `Нужен рейтинг ${def.minRating}`
-          : needsMoney ? `Нужен капитал ${def.minMoney.toLocaleString('ru-RU')}`
+          : missing ? missing
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
         }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
@@ -1048,11 +1075,12 @@ function renderTerritoryBuildMenu() {
     const needsAdminFirst = !hasAdmin && def.id !== 'admin';
     // Репутация как ключ и цепочка построек: здание может ждать не уровня,
     // а доверия авиакомпаний или предыдущего объекта в цепочке.
-    const needsRating = def.minRating && (STATE.rating || 0) < def.minRating;
-    const needsMoney = def.minMoney && STATE.money < def.minMoney;
-    const needsPrev = def.requiresBuilt && !STATE.buildings.some(b =>
-      b.buildingId === def.requiresBuilt && !b.constructionType && !b.ruined);
-    const locked = STATE.level < def.minLevel || needsAdminFirst || needsRating || needsMoney || needsPrev;
+    // Условия те же, что проверяет сервер (checkRequirements). requiresBuilt
+    // может быть списком: раньше клиент сравнивал его со строкой, и здание
+    // с несколькими требованиями считалось заблокированным навсегда — даже
+    // когда всё нужное построено.
+    const missing = missingRequirement(def);
+    const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing;
     const tooExpensive = STATE.money < def.cost;
     const limit = (STATE.buildLimits || {})[def.id];
     const builtCount = STATE.buildings.filter(b => b.buildingId === def.id && (b.state || 'owned') !== 'sold').length;
@@ -1069,9 +1097,7 @@ function renderTerritoryBuildMenu() {
       <div class="build-item-meta">
         <span>${
           needsAdminFirst ? 'Ждём администрацию'
-          : needsPrev ? `Нужен: ${displayBuildingName(def.requiresBuilt)}`
-          : needsRating ? `Нужен рейтинг ${def.minRating}`
-          : needsMoney ? `Нужен капитал ${def.minMoney.toLocaleString('ru-RU')}`
+          : missing ? missing
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
         }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
@@ -1440,7 +1466,17 @@ function renderBuildingPanel(cellIndex, container) {
     hint.textContent = 'Апгрейд недоступен, пока объект повреждён — сначала ремонт.';
     actions.appendChild(hint);
   } else if (state === 'owned' && building.nextUpgradeCost) {
-    const canAfford = STATE.money >= building.nextUpgradeCost;
+    // У некоторых зданий каждый уровень открывается своими условиями —
+    // показываем, чего не хватает, вместо молчаливой блокировки.
+    const upRules = (def.upgradeRequires || {})[(building.upgradeLevel || 1) + 1];
+    const upMissing = missingRequirement(upRules);
+    if (upMissing) {
+      const hint = document.createElement('div');
+      hint.className = 'build-menu-hint';
+      hint.textContent = `Для следующего уровня: ${upMissing}`;
+      actions.appendChild(hint);
+    }
+    const canAfford = STATE.money >= building.nextUpgradeCost && !upMissing;
     const btn = actionBtn(canAfford ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${building.nextUpgradeCost.toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств', () => buildingActionAcc(cellIndex, 'upgrade'));
     btn.disabled = !canAfford;
     actions.appendChild(btn);
