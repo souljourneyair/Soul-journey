@@ -2335,7 +2335,13 @@ function renderEnvelope() {
   const offersEl = $('#envelopeOffers');
   const contractsEl = $('#envelopeContracts');
   const sub = $('#envelopeSub');
-  if (sub) sub.textContent = `ПРЕДЛОЖЕНИЙ: ${envelopeData.offers.length} · ДОГОВОРОВ: ${envelopeData.contracts.length}`;
+  if (sub) {
+    const caps = STATE.contractCaps || {}; const act = STATE.contractsByCraft || {};
+    const load = caps.heli || caps.plane
+      ? ` · 🚁 ${act.heli || 0}/${caps.heli || 0} · ✈ ${act.plane || 0}/${caps.plane || 0}`
+      : '';
+    sub.textContent = `ПРЕДЛОЖЕНИЙ: ${envelopeData.offers.length} · ДОГОВОРОВ: ${envelopeData.contracts.length}${load}`;
+  }
 
   offersEl.innerHTML = '';
   if (envelopeData.offers.length === 0) {
@@ -2452,7 +2458,12 @@ function renderContractCard(c) {
       <button class="btn-secondary btn-danger" data-act="terminate" data-id="${c.id}">Расторгнуть</button>
     </div>
   `;
-  card.querySelector('button').addEventListener('click', () => envelopeAction('terminate', c.id));
+  card.querySelector('button').addEventListener('click', () => {
+    const fee = Math.round((c.payPerArrival || 100) * 3);
+    if (confirm(`Расторгнуть договор с «${c.airline}»?\n\nНеустойка ${fee.toLocaleString('ru-RU')} у.е. и −30 репутации.`)) {
+      envelopeAction('terminate', c.id);
+    }
+  });
   return card;
 }
 
@@ -2474,7 +2485,9 @@ async function envelopeAction(act, id) {
     // обновим состояние игры (индикатор в шапке, доход)
     STATE = await api('/api/state');
     updateTopboard();
-    const msgs = { accept: 'Договор заключён!', decline: 'Предложение отклонено', think: 'Отложено — предложение подождёт', terminate: 'Договор расторгнут', haggleAccept: 'Договор заключён по договорной цене!' };
+    const msgs = { accept: 'Договор заключён!', decline: 'Предложение отклонено', think: 'Отложено — предложение подождёт', terminate: envelopeData && envelopeData._cancel
+        ? `Договор расторгнут: неустойка ${envelopeData._cancel.penalty.toLocaleString('ru-RU')} у.е.`
+        : 'Договор расторгнут', haggleAccept: 'Договор заключён по договорной цене!' };
     toast(msgs[act] || 'Готово');
   } catch (err) {
     toast(err.message, true);
