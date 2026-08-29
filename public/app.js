@@ -12,27 +12,36 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 // Заполняющийся круговой индикатор прогресса (сектор-пирог, как на референсе).
 // progress: 0..1. Заполненный сектор растёт по часовой стрелке.
-function progressRing(progress, size = 40) {
+// Кольцо прогресса с обратным отсчётом в центре. Раньше рисовался сплошной
+// сектор-«пирог», да ещё и вращался: понять по нему, сколько осталось, было
+// невозможно. Теперь это привычное кольцо, которое заполняется по часовой,
+// а внутри — минуты до конца работ.
+function progressRing(progress, size = 40, minutesLeft = null) {
   const p = Math.max(0, Math.min(1, progress));
-  const cx = size / 2, cy = size / 2, r = size / 2;
-  // угол заполнения
-  const angle = p * 360;
-  const rad = (angle - 90) * Math.PI / 180;
-  const x = cx + r * Math.cos(rad);
-  const y = cy + r * Math.sin(rad);
-  const largeArc = angle > 180 ? 1 : 0;
-  // путь заполненного сектора (от центра, вверх, по дуге)
-  const startX = cx, startY = cy - r;
-  let filled = '';
-  if (p >= 0.999) {
-    filled = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--progress-fill,#12b5c4)"/>`;
-  } else if (p > 0.001) {
-    filled = `<path d="M ${cx} ${cy} L ${startX} ${startY} A ${r} ${r} 0 ${largeArc} 1 ${x.toFixed(2)} ${y.toFixed(2)} Z" fill="var(--progress-fill,#12b5c4)"/>`;
+  const stroke = Math.max(3, Math.round(size * 0.12));
+  const r = (size - stroke) / 2;
+  const c = size / 2;
+  const circumference = 2 * Math.PI * r;
+  const dash = circumference * p;
+
+  // Текст в центре: минуты, а если счёт пошёл на доли — проценты.
+  let label = '';
+  if (minutesLeft != null && size >= 36) {
+    label = `<text x="${c}" y="${c}" class="ring-label" text-anchor="middle" dominant-baseline="central">${minutesLeft}м</text>`;
+  } else if (size >= 36) {
+    label = `<text x="${c}" y="${c}" class="ring-label" text-anchor="middle" dominant-baseline="central">${Math.round(p * 100)}%</text>`;
   }
+
   return `
-    <svg class="progress-ring spin-slow" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-      <circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--progress-rest,#f97a6d)"/>
-      ${filled}
+    <svg class="progress-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${c}" cy="${c}" r="${r}" fill="none"
+        stroke="var(--progress-rest, rgba(124,138,153,0.25))" stroke-width="${stroke}"/>
+      <circle cx="${c}" cy="${c}" r="${r}" fill="none"
+        stroke="var(--progress-fill, #f5a623)" stroke-width="${stroke}"
+        stroke-linecap="round"
+        stroke-dasharray="${dash.toFixed(2)} ${(circumference - dash).toFixed(2)}"
+        transform="rotate(-90 ${c} ${c})"/>
+      ${label}
     </svg>`;
 }
 
@@ -752,9 +761,9 @@ function renderBuildingRow(building, tbody, indent) {
 
   let actionText = '';
   if (building.constructionType === 'build') {
-    actionText = `<span class="obj-working">${progressRing(constructionProgress(building), 28)}<span>Строится</span></span>`;
+    actionText = `<span class="obj-working">${progressRing(constructionProgress(building), 28, building.constructionTicksLeft)}<span>Строится<br><span class="obj-action-line">осталось ${building.constructionTicksLeft} мин</span></span></span>`;
   } else if (building.constructionType === 'upgrade') {
-    actionText = `<span class="obj-working">${progressRing(constructionProgress(building), 28)}<span>Улучшается до ур. ${building.pendingUpgradeLevel}</span></span>`;
+    actionText = `<span class="obj-working">${progressRing(constructionProgress(building), 28, building.constructionTicksLeft)}<span>Улучшается до ур. ${building.pendingUpgradeLevel}<br><span class="obj-action-line">осталось ${building.constructionTicksLeft} мин</span></span></span>`;
   } else if (state === 'sold') {
     actionText = `<span class="obj-status sold">Продано ${escapeHtml(building.botName || '')}</span>`;
   } else if (state === 'listed') {
@@ -850,7 +859,7 @@ function renderGrid() {
       if (building.constructionType) {
         const prog = constructionProgress(building);
         cell.classList.add('state-working');
-        workingOverlay = `<div class="cell-progress">${progressRing(prog, 48)}</div>`;
+        workingOverlay = `<div class="cell-progress">${progressRing(prog, 48, building.constructionTicksLeft)}</div>`;
       }
 
       const globalSkin = resolveBuildingImage(building.buildingId, building.upgradeLevel);
@@ -1174,9 +1183,9 @@ function renderBuildingModal() {
   const upgradeLine = `<span>Уровень апгрейда: ${building.upgradeLevel}/${building.maxUpgradeLevel}${building.nextUpgradeCost ? ` · след. за ${building.nextUpgradeCost.toLocaleString('ru-RU')} у.е.` : ' (макс.)'}</span>`;
 
   if (working === 'build') {
-    stats.innerHTML = `<div class="bm-progress">${progressRing(constructionProgress(building), 56)}<span>Идёт строительство. Здание начнёт работать после завершения.</span></div>`;
+    stats.innerHTML = `<div class="bm-progress">${progressRing(constructionProgress(building), 56, building.constructionTicksLeft)}<span>Идёт строительство — осталось ${building.constructionTicksLeft} мин. Здание начнёт работать после завершения.</span></div>`;
   } else if (working === 'upgrade') {
-    stats.innerHTML = `<div class="bm-progress">${progressRing(constructionProgress(building), 56)}<span>Идёт улучшение до уровня ${building.pendingUpgradeLevel}. Пока показатели снижены.</span></div>${upgradeLine}`;
+    stats.innerHTML = `<div class="bm-progress">${progressRing(constructionProgress(building), 56, building.constructionTicksLeft)}<span>Идёт улучшение до уровня ${building.pendingUpgradeLevel} — осталось ${building.constructionTicksLeft} мин. Пока показатели снижены.</span></div>${upgradeLine}`;
   } else if (!def.removable) {
     // Администрация сюда попадает как несносимая — раньше это значило, что
     // в модалке у неё не было вообще ничего, кроме одной строки: ни рейтинга,
@@ -1326,9 +1335,9 @@ function renderBuildingPanel(cellIndex, container) {
   let statsHtml = '';
   const isInfra = def.infrastructure;
   if (working === 'build') {
-    statsHtml = `<div class="bm-progress">${progressRing(constructionProgress(building), 56)}<span>Идёт строительство.</span></div>`;
+    statsHtml = `<div class="bm-progress">${progressRing(constructionProgress(building), 56, building.constructionTicksLeft)}<span>Идёт строительство — осталось ${building.constructionTicksLeft} мин.</span></div>`;
   } else if (working === 'upgrade') {
-    statsHtml = `<div class="bm-progress">${progressRing(constructionProgress(building), 56)}<span>Идёт улучшение до ур. ${building.pendingUpgradeLevel}.</span></div>${upgradeLine}`;
+    statsHtml = `<div class="bm-progress">${progressRing(constructionProgress(building), 56, building.constructionTicksLeft)}<span>Идёт улучшение до ур. ${building.pendingUpgradeLevel} — осталось ${building.constructionTicksLeft} мин.</span></div>${upgradeLine}`;
   } else if (!def.removable && building.buildingId !== 'admin') {
     // Администрация сюда не попадает: она неснимаемая, но именно у неё
     // собраны все показатели аэропорта — рейтинг, репутация, расходы,

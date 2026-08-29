@@ -1005,3 +1005,14 @@ body.modal-open { overflow: hidden; }
   width: 100%; max-width: 220px; height: auto; border-radius: 8px;
   border: 1px solid var(--board-amber-dim);
 }
+
+/* --- кольцо прогресса строительства и апгрейда --- */
+.progress-ring { display: block; flex: 0 0 auto; }
+.progress-ring circle:last-of-type { transition: stroke-dasharray 0.4s linear; }
+.ring-label {
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  fill: var(--board-amber);
+}
+.obj-working { display: inline-flex; align-items: center; gap: 8px; }
+.obj-working > span { line-height: 1.35; }
+.bm-progress { display: flex; align-items: center; gap: 12px; }
