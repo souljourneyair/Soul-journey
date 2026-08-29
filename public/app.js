@@ -1278,6 +1278,16 @@ function adminStatsHtml(building) {
     `<span>Уровень аэропорта: ${STATE.level}${STATE.level >= 10 ? ' (максимум)' : ` · до следующего ${xpLeft.toLocaleString('ru-RU')} XP`}</span>` +
     `<span>Рейтинг: ${(STATE.rating || 0).toFixed(1)} — борт берёт до ${STATE.heliSeats || 2} мест</span>` +
     `<span>Репутация: ${n(STATE.reputation)} — накопленный счёт заслуг</span>` +
+    // Налог: сколько накоплено прибыли за период и когда спишут. Убыточная
+    // неделя не облагается, поэтому при минусе так и пишем.
+    (STATE.tax ? `<span>Прибыль за неделю: ${n(STATE.tax.profit)} у.е.` +
+      (STATE.tax.profit > 0
+        ? ` — налог ${Math.round(STATE.tax.rate * 100)}% составит ${n(Math.round(STATE.tax.profit * STATE.tax.rate))} у.е.`
+        : ' — неделя в убыток, налога не будет') +
+      `</span>` +
+      `<span>Списание налога через ${n(STATE.tax.ticksLeft)} мин` +
+      (STATE.tax.last ? `, в прошлый раз −${n(STATE.tax.last)} у.е.` : '') +
+      `</span>` : '') +
     `<span>Содержание аэропорта: −${Math.round(STATE.upkeepPerTick || 0)}/мин</span>` +
     `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>` +
     `<span>Прилетело: ${n(STATE.paxArrived)} · улетело: ${n(STATE.paxDeparted)}</span>` +
