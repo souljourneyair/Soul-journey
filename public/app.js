@@ -1313,6 +1313,8 @@ function adminStatsHtml(building) {
     `<span>Уровень аэропорта: ${STATE.level}${STATE.level >= 10 ? ' (максимум)' : ` · до следующего ${xpLeft.toLocaleString('ru-RU')} XP`}</span>` +
     `<span>Рейтинг: ${(STATE.rating || 0).toFixed(1)} — борт берёт до ${STATE.heliSeats || 2} мест</span>` +
     `<span>Репутация: ${n(STATE.reputation)} — накопленный счёт заслуг</span>` +
+    `<span>Договоров: ${STATE.activeContracts || 0} из ${STATE.maxActiveContracts || 0} — ` +
+      `потолок растёт от площадок и стоянок</span>` +
     // Налог: сколько накоплено прибыли за период и когда спишут. Убыточная
     // неделя не облагается, поэтому при минусе так и пишем.
     (STATE.tax ? `<span>Прибыль за неделю: ${n(STATE.tax.profit)} у.е.` +

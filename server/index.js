@@ -290,6 +290,17 @@ function checkRequirements(airport, rules) {
   return null;
 }
 
+// Сколько договоров аэропорт может вести одновременно. Привязано к местам:
+// договор шлёт борт раз в 30 минут, и если договоров больше, чем мест,
+// очередь не разойдётся никогда.
+function maxActiveContracts(airportId) {
+  const pads = countHelipads(airportId);
+  const stands = listStands(airportId).length;
+  return CONTRACT_ECONOMY.MAX_ACTIVE_BASE
+    + pads * CONTRACT_ECONOMY.MAX_ACTIVE_PER_PAD
+    + stands * CONTRACT_ECONOMY.MAX_ACTIVE_PER_STAND;
+}
+
 // Уровень здания администрации (0 — не построена).
 // Записать событие в ленту игрока. В отличие от уведомлений по вебсокету,
 // лента переживает перезаход: игрок видит, что происходило, пока его не было.
@@ -1225,6 +1236,7 @@ function serializeAirport(airport) {
     bankrupt: !!airport.bankrupt,               // игра окончена банкротством
     envelopeOffers: store.getContractOffers(airport.id).length,   // предложений в конверте
     activeContracts: store.getContracts(airport.id).length,        // активных договоров
+    maxActiveContracts: maxActiveContracts(airport.id),            // сколько тянет аэропорт
     canAcceptContracts: canAcceptContracts(airport.id),
     apronSlots: (() => {
       const borts = airport.apronBorts || [];
@@ -1685,6 +1697,18 @@ app.post('/api/envelope/accept', auth, (req, res) => {
   const offer = store.getContractOfferById(offerId);
   if (!offer || offer.airportId !== airport.id) return res.status(404).json({ error: 'no_offer' });
 
+  // Больше договоров, чем мест, принимать нельзя: борта будут кружить
+  // и разворачиваться, а очередь копиться бесконечно.
+  const activeNow = store.getContracts(airport.id).length;
+  const maxActive = maxActiveContracts(airport.id);
+  if (activeNow >= maxActive) {
+    return res.status(400).json({
+      error: 'too_many_contracts',
+      message: `Сейчас аэропорт тянет ${maxActive} договоров. Постройте площадку или стоянку, ` +
+        `или дождитесь окончания действующих.`,
+    });
+  }
+
   const nowTick = store.getTickCounter();
   const arrivalInterval = arrivalIntervalFor(airport.level);
   store.addContract(airport.id, {
@@ -1759,6 +1783,18 @@ app.post('/api/envelope/haggle/accept', auth, (req, res) => {
   if (offer.botCounter == null) return res.status(400).json({ error: 'no_counter', message: 'Нет встречного предложения' });
   // фиксируем цену встречного предложения и заключаем договор
   store.updateContractOffer(offer.id, { payPerArrival: offer.botCounter });
+  // Больше договоров, чем мест, принимать нельзя: борта будут кружить
+  // и разворачиваться, а очередь копиться бесконечно.
+  const activeNow = store.getContracts(airport.id).length;
+  const maxActive = maxActiveContracts(airport.id);
+  if (activeNow >= maxActive) {
+    return res.status(400).json({
+      error: 'too_many_contracts',
+      message: `Сейчас аэропорт тянет ${maxActive} договоров. Постройте площадку или стоянку, ` +
+        `или дождитесь окончания действующих.`,
+    });
+  }
+
   const nowTick = store.getTickCounter();
   const arrivalInterval = arrivalIntervalFor(airport.level);
   store.addContract(airport.id, {
@@ -4154,7 +4190,10 @@ function processContractsTick(airport, currentTick, notifications) {
   // 5) Появление новых предложений
   const activeOffers = store.getContractOffers(airport.id);
   const maxOffers = adminMaxOffers(adminLevel(airport.id));
-  if (canAcceptContracts(airport.id) && activeOffers.length < maxOffers) {
+  // Если договоров уже столько, сколько аэропорт тянет, новых не предлагаем:
+  // иначе конверт забивается предложениями, которые невозможно принять.
+  const atContractCap = store.getContracts(airport.id).length >= maxActiveContracts(airport.id);
+  if (canAcceptContracts(airport.id) && !atContractCap && activeOffers.length < maxOffers) {
     const pads = countHelipads(airport.id);
     const stands = listStands(airport.id).length;
     let chance = Math.min(
