@@ -9,6 +9,7 @@ const CONFIG = {
   HELI_XP_UNTIL_LEVEL: 3,      // ...только пока уровень ниже этого
   LEVEL2_BONUS_XP: 1000,       // подарок за второй уровень
   LEVEL2_BONUS_REP: 5,
+  LEVEL5_BONUS_XP: 2000,       // подарок за пятый уровень
   START_GRID_SIZE: 4,      // 4x4 = 16 стартовых клеток
   MAX_GRID_SIZE: 8,        // максимум 8x8 = 64 клетки после всех покупок земли
   TICK_MS: 10 * 1000,      // 1 тик = 10 секунд реального времени (игровая минута)
@@ -860,8 +861,12 @@ function upgradeDurationTicks(def, targetLevel) {
 // экземпляр здания (админ и вертолётная стоянка — 5, всё остальное — 3).
 const BUILDINGS = {
   admin: {
-    id: 'admin', nameByLevel: ['Рухлядь'], name: 'Здание администрации', minLevel: 0,
-    cost: 3000, income: 0, reputation: 5, xp: 500, removable: false, maxUpgradeLevel: 5,
+    id: 'admin', minLevel: 0,
+    upgradeRequires: {
+      3: { minLevel: 5 },
+      4: { minLevel: 6 },
+      5: { minLevel: 7 },
+    }, nameByLevel: ['Рухлядь'], name: 'Здание администрации', cost: 3000, income: 0, reputation: 5, xp: 500, removable: false, maxUpgradeLevel: 5,
     starter: true, unique: true,
     desc: 'Штаб аэропорта — первая постройка, без неё строить больше нечего. Дохода не приносит: аэропорт зарабатывает на перевозках, а управление стоит денег. Но уровень штаба управляет всем аэропортом: снижает содержание (1% на ур.1, 3% на ур.5), ускоряет любые работы (2% за уровень) и расширяет переговоры — от 4 предложений договоров на первом уровне до 8 на пятом. В единственном экземпляре, снести нельзя.',
   },
@@ -873,7 +878,7 @@ const BUILDINGS = {
     desc: 'Источник дохода — мелкие вертолётные чартеры. Обычное здание: можно строить, улучшать, сдавать, продавать и сносить.',
   },
   tower: {
-    id: 'tower', minLevel: 2, name: 'Диспетчерская вышка', 
+    id: 'tower', minLevel: 2, requiresBuilt: ['terminal_a'], name: 'Диспетчерская вышка', 
     cost: 6000, upgradeCostMult: 0.8, income: 0, reputation: 6, xp: 1200, infrastructure: true, removable: true, nonRentable: true, maxUpgradeLevel: 5, desc: 'Задаёт интервал между операциями на каждой ВПП: без вышки 20 мин, ур.1 — 15, ур.2 — 12, ур.3 — 9, ур.4 — 6, ур.5 — 4 мин. Интервал действует на каждую полосу отдельно, поэтому вторая и третья ВПП добавляют пропускной способности. Несколько вышек делят интервал между собой. Обязательна для полётов своих самолётов.',
   },
   runway_small: {
@@ -897,13 +902,12 @@ const BUILDINGS = {
     ], desc: 'Принимает только малые самолёты внутренних авиалиний (ВВЛ). Одной полосы мало: самолётные договоры приходят, только когда есть ВПП, стоянка И пассажирский терминал — без терминала возить будет некого. Апгрейд повышает пропускную способность: 100 посадок за игровые сутки на ур.1, 380 на ур.5.',
   },
   terminal_a: {
-    id: 'terminal_a', nonRentable: true, minLevel: 4, minRating: 4.2, minMoney: 90000, requiresBuilt: 'tower', name: 'Терминал A', 
+    id: 'terminal_a', minLevel: 4, minRating: 4.2, minMoney: 90000, nonRentable: true, name: 'Терминал A', 
     cost: 30000, income: 0, reputation: 10, xp: 1900, removable: true, maxUpgradeLevel: 5,
     lineType: 'vvl', terminalClass: 'A', desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Увеличивает приём пассажиров.',
   },
   fuel_depot: {
-    id: 'fuel_depot', nonRentable: true, name: 'Топливный склад', minLevel: 3,
-    cost: 10000, income: 0, reputation: 4, xp: 1400, removable: true, maxUpgradeLevel: 5,
+    id: 'fuel_depot', minLevel: 3, requiresBuilt: ['terminal_a', 'tower', 'stand_small', 'runway_small'], nonRentable: true, name: 'Топливный склад', cost: 10000, income: 0, reputation: 4, xp: 1400, removable: true, maxUpgradeLevel: 5,
     desc: 'Компания-поставщик авиатоплива. Прямого дохода не приносит, но даёт дешёвую домашнюю заправку. Можно выбрать поставщика.',
   },
   airline_office: {
@@ -939,8 +943,7 @@ const BUILDINGS = {
     desc: 'Стоянка для большого (широкофюзеляжного) самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также средние и маленькие самолёты.',
   },
   hangar: {
-    id: 'hangar', nonRentable: true, name: 'Ангар', minLevel: 3,
-    cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
+    id: 'hangar', minLevel: 3, requiresBuilt: ['stand_small'], nonRentable: true, name: 'Ангар', cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, reputation: 4, xp: 900, removable: true, maxUpgradeLevel: 4,
     aircraftSlots: 1, // базово 1 место, +1 за каждый уровень апгрейда (ур.1→1 ... ур.4→4)
     aircraftSlotsPerLevel: true,
@@ -979,6 +982,20 @@ const BUILDINGS = {
     requiresAnyOf: ['stand_small', 'stand_medium'],
     minMoney: 200000, name: 'Терминал B', cost: 60000, reputation: 15, xp: 3800, removable: true, lineType: 'vvl', terminalClass: 'B',
     desc: 'Пассажирский терминал внутренних авиалиний (ВВЛ). Больше пассажиров, чем терминал A. Ценность терминала — в пропускной способности: аэропорт зарабатывает на обслуженных пассажирах.',
+  },
+  small_cafe: {
+    id: 'small_cafe', name: 'Малое кафе', minLevel: 2,
+    cost: 2500, income: 0, reputation: 4, xp: 600, removable: true, nonRentable: true,
+    maxUpgradeLevel: 1,
+    seatsByLevel: [10],
+    // Открывается, когда вертолётное хозяйство уже работает: либо три
+    // площадки, либо две прокачанные. Первый источник живых денег до того,
+    // как появятся терминалы.
+    requiresAnySet: [
+      { requiresBuildingCount: { helipad: 3 } },
+      { requiresBuildingLevelCount: { helipad: { level: 2, count: 2 } } },
+    ],
+    desc: 'Небольшое кафе у вертолётной площадки. Кормит туристов, пока их немного: вмещает 10 человек. Зарабатывает на посетителях, а не на факте существования — сколько людей прошло через аэропорт, столько и выручка. Строится один раз.',
   },
   cafe: {
     id: 'cafe', nonRentable: true, minLevel: 5, income: 0, maxUpgradeLevel: 5,
@@ -1080,6 +1097,7 @@ const BUILD_LIMITS = {
   terminal_d: 1, terminal_e: 1, terminal_f: 1, // терминалы — по одному каждого типа
   fire_station: 1,     // пожарная часть — одна на аэропорт
   cafe: 1,             // кафе / дьюти-фри
+  small_cafe: 1,       // малое кафе
 };
 
 function xpRequiredForLevel(level) {

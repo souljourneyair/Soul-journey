@@ -283,6 +283,30 @@ function checkRequirements(airport, rules) {
       };
     }
   }
+  // Сколько зданий этого типа построено (не важно какого уровня).
+  for (const [id, need] of Object.entries(rules.requiresBuildingCount || {})) {
+    const have = built.filter(b => b.buildingId === id).length;
+    if (have < need) {
+      return { error: 'requires_count', message: `Нужно ${need} шт.: ${nameOf(id)} (сейчас ${have})` };
+    }
+  }
+  // Сколько зданий этого типа прокачано до уровня.
+  for (const [id, req] of Object.entries(rules.requiresBuildingLevelCount || {})) {
+    const have = built.filter(b => b.buildingId === id && (b.upgradeLevel || 1) >= req.level).length;
+    if (have < req.count) {
+      return {
+        error: 'requires_level_count',
+        message: `Нужно ${req.count} шт. ${nameOf(id)} уровня ${req.level} (сейчас ${have})`,
+      };
+    }
+  }
+  // Достаточно выполнить любой из наборов условий.
+  if (rules.requiresAnySet && rules.requiresAnySet.length) {
+    const results = rules.requiresAnySet.map(set => checkRequirements(airport, set));
+    if (!results.some(r => r === null)) {
+      return { error: 'requires_any_set', message: results[0].message };
+    }
+  }
   for (const [id, lvl] of Object.entries(rules.requiresBuildingLevel || {})) {
     const b = built.find(x => x.buildingId === id);
     if (!b || (b.upgradeLevel || 1) < lvl) {
@@ -1391,6 +1415,8 @@ function serializeAirport(airport) {
     },
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
+    pendingLevel5Bonus: !!airport.pendingLevel5Bonus,
+    level5Bonus: { xp: CONFIG.LEVEL5_BONUS_XP },
     level2Bonus: { xp: CONFIG.LEVEL2_BONUS_XP, rep: CONFIG.LEVEL2_BONUS_REP },
     username: owner ? owner.username : null,   // чтобы подсветить себя в рейтинге
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
@@ -1524,6 +1550,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     // бонус за второй уровень тоже с чистого листа — иначе после «Начать
     // сначала» он считался бы уже выданным и окно не показывалось
     level2BonusGiven: false, pendingLevel2Bonus: false,
+    level5BonusGiven: false, pendingLevel5Bonus: false,
   });
   res.json(serializeAirport(updated));
 });
@@ -1543,6 +1570,13 @@ app.get('/api/state', auth, (req, res) => {
 // Приветствие новичка: разовые 500 XP за вход. Начисляются один раз на
 // аэропорт и заново после «Начать сначала» — там флаги сбрасываются.
 // Игрок увидел окно с бонусом за второй уровень — гасим флаг.
+app.post('/api/level5-bonus/ack', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  store.updateAirport(airport.id, { pendingLevel5Bonus: false });
+  res.json(serializeAirport(store.getAirportById(airport.id)));
+});
+
 app.post('/api/level2-bonus/ack', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
@@ -2780,6 +2814,7 @@ app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
     // бонус за второй уровень тоже с чистого листа — иначе после «Начать
     // сначала» он считался бы уже выданным и окно не показывалось
     level2BonusGiven: false, pendingLevel2Bonus: false,
+    level5BonusGiven: false, pendingLevel5Bonus: false,
   });
   res.json(serializeAirport(updated));
 });
@@ -3796,6 +3831,7 @@ function runTick() {
     // флаг мог остаться поднятым с прошлой жизни аккаунта. Если игрок ещё не
     // добрался до второго уровня, бонус впереди — снимаем флаг.
     if (freshAirport.level < 2 && freshAirport.level2BonusGiven) patch.level2BonusGiven = false;
+    if (freshAirport.level < 5 && freshAirport.level5BonusGiven) patch.level5BonusGiven = false;
     // Сводка за период: раз в игровые сутки подводим итог заработка и репутации.
     if (currentTick - periodStats.sinceTick >= EVENT_LOG.SUMMARY_PERIOD_TICKS) {
       const m = Math.round(periodStats.money);
@@ -3842,6 +3878,25 @@ function runTick() {
       store.updateAirport(airport.id, { level2BonusGiven: true });
       logEvent(airport.id, 'level',
         `Бонус за второй уровень: +${CONFIG.LEVEL2_BONUS_XP} XP и +${CONFIG.LEVEL2_BONUS_REP} репутации`);
+    }
+
+    // Подарок за пятый уровень — тоже по факту уровня, а не по событию.
+    if (newLevel >= 5 && !freshAirport.level5BonusGiven) {
+      const baseXp = patch.xp != null ? patch.xp : newXp;
+      patch.xp = baseXp + CONFIG.LEVEL5_BONUS_XP;
+      patch.level = levelFromXp(patch.xp);
+      patch.level5BonusGiven = true;
+      patch.pendingLevel5Bonus = true;
+      // Отметку ставим сразу: между начислением и сохранением патча успевает
+      // пройти ещё один тик, и запись в ленту дублируется.
+      // Сверяемся с уже сохранённым состоянием, а не с freshAirport: он был
+      // прочитан в начале тика и об отметке ещё не знает.
+      const saved = store.getAirportById(airport.id);
+      const alreadyLogged = saved && saved.level5BonusGiven;
+      store.updateAirport(airport.id, { level5BonusGiven: true });
+      if (!alreadyLogged) {
+        logEvent(airport.id, 'level', `Бонус за пятый уровень: +${CONFIG.LEVEL5_BONUS_XP} XP`);
+      }
     }
 
     if (newLevel > freshAirport.level) {

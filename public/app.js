@@ -441,6 +441,7 @@ function bumpStat(el) {
 function renderAll() {
   checkWelcome();
   checkLevel2Bonus();
+  checkLevel5Bonus();
   renderFeed();
   checkPendingDisasters();
   renderStats();
@@ -3130,7 +3131,20 @@ function showWelcome() {
   $('#welcomeModal').classList.remove('hidden');
 }
 
+// Крестик делает то же, что кнопка: награда засчитывается, окно гасится.
+document.querySelector('.welcome-close')?.addEventListener('click', () => {
+  $('#welcomeNext')?.click();
+});
+
 $('#welcomeNext')?.addEventListener('click', async () => {
+  // окно бонуса за пятый уровень
+  if (welcomeStep === 98) {
+    $('#welcomeModal').classList.add('hidden');
+    welcomeStep = 0; level5Shown = false;
+    try { STATE = await api('/api/level5-bonus/ack', 'POST', {}); renderAll(); updateTopboard(); }
+    catch (err) { /* покажем снова при следующем заходе */ }
+    return;
+  }
   // окно бонуса за второй уровень
   if (welcomeStep === 99) {
     $('#welcomeModal').classList.add('hidden');
@@ -3168,6 +3182,26 @@ async function checkLevel2Bonus() {
   $('#welcomeNext').textContent = 'Забрать';
   $('#welcomeModal').classList.remove('hidden');
   welcomeStep = 99;   // отличаем от вступления
+}
+
+// Поздравление с пятым уровнем. Текст в двух абзацах, закрыть можно только
+// кнопкой или крестиком — как и остальные окна с наградой.
+let level5Shown = false;
+async function checkLevel5Bonus() {
+  if (!STATE.pendingLevel5Bonus || level5Shown) return;
+  if (!$('#welcomeModal').classList.contains('hidden')) return;
+  level5Shown = true;
+  const xp = (STATE.level5Bonus || {}).xp || 2000;
+  $('#welcomeTitle').textContent = 'ПЯТЫЙ УРОВЕНЬ';
+  $('#welcomeIcon').textContent = '🏅';
+  $('#welcomeText').innerHTML =
+    'Вы наш герой, наш посёлок гордится вами! К нам стали приезжать туристы, ' +
+    'и это не может не радовать. Удачи вам!' +
+    `<br><br>Матрица сама не поняла, но откуда-то вам упали ${xp} очков опыта. ` +
+    'Наверное, это дело рук архитектора.';
+  $('#welcomeNext').textContent = 'Понял';
+  $('#welcomeModal').classList.remove('hidden');
+  welcomeStep = 98;   // отличаем от вступления и от бонуса за 2 уровень
 }
 
 function checkWelcome() {
