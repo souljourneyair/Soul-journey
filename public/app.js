@@ -772,7 +772,17 @@ function renderBuildingRow(building, tbody, indent) {
   } else if (state === 'rented') {
     actionText = `<span class="obj-status rented">Аренда: +${building.rentPrice} у.е./мин</span><br>${escapeHtml(building.botName || '')}`;
   } else {
-    if (def.infrastructure) {
+    if (def.seatsByLevel) {
+      // Кафе: сколько человек зашло за минуту и сколько это принесло.
+      // Пустой аэропорт — пустое кафе, и это должно быть видно.
+      const seats = def.seatsByLevel[Math.min(level, def.seatsByLevel.length) - 1] || 0;
+      const visitors = building.cafeVisitors != null ? building.cafeVisitors : 0;
+      const spend = (STATE.visitorSpend || 12);
+      actionText =
+        `<span class="obj-action-line">☕ Посетителей: ${visitors} из ${seats}</span>` +
+        `<span class="obj-action-line">+${(visitors * spend).toLocaleString('ru-RU')} у.е./мин</span>` +
+        (visitors > 0 ? `<span class="obj-action-line">опыт: каждый 10-й гость</span>` : '');
+    } else if (def.infrastructure) {
       actionText = infraStatusHtml(building);
     } else {
       const income = Math.round(def.income * upgradeMult(level));

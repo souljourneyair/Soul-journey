@@ -1350,6 +1350,7 @@ function serializeAirport(airport) {
     // а не по порядку клеток, поэтому отдаём фактическую привязку
     standLoad: occupiedStands(airport.id),
     repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
+    visitorSpend: PASSENGER_ECONOMY.VISITOR_SPEND,   // сколько оставляет гость кафе
     // что даёт текущий уровень администрации
     adminBonuses: (() => {
       const lvl = adminLevel(airport.id);
@@ -1469,6 +1470,11 @@ function serializeAirport(airport) {
         repairTicksLeft: b.repairEndsTick ? Math.max(0, b.repairEndsTick - nowTick) : 0,
         repairCost: (b.wear || 0) >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR && def ? damageRepairCost(def, b.wear || 0) : 0,
         // полная цена апгрейда с учётом ремонта: игрок видит, за что платит
+        // для кафе — сколько посетителей и сколько принесли за минуту
+        cafeVisitors: def && def.seatsByLevel
+          ? Math.min(def.seatsByLevel[Math.min(level, def.seatsByLevel.length) - 1] || 0,
+              Math.floor(airport.lastPaxFlow || 0))
+          : null,
         upgradeWithRepair: (def && level < def.maxUpgradeLevel)
           ? upgradeCost(def, level + 1) +
             ((b.wear || 0) >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR ? damageRepairCost(def, b.wear || 0) : 0)
@@ -3526,6 +3532,9 @@ function runTick() {
       }
     }
     let reputationPerTick = 0;
+    // Посетители кафе за тик: опыт даёт каждый десятый, поэтому считаем
+    // людей, а не очки, и храним остаток.
+    let cafeVisitors = 0;
     const notifications = [];
 
     for (const b of buildings) {
@@ -3635,6 +3644,9 @@ function runTick() {
         const flow = airport.lastPaxFlow || 0;    // пассажиров прошло за прошлый тик
         const visitors = Math.min(seats, flow);
         income = Math.round(visitors * PASSENGER_ECONOMY.VISITOR_SPEND * damageMult * workPenalty);
+        // Опыт даёт каждый десятый посетитель. Остаток копится между тиками,
+        // иначе при малом потоке округление съедало бы его целиком.
+        cafeVisitors += visitors * damageMult;
       } else if (def.id === 'airline_office') {
         // Офис дохода не приносит — авиакомпания зарабатывает рейсами. Пока
         // нет ни одного самолёта, сверх обычного содержания списывается
@@ -3782,7 +3794,11 @@ function runTick() {
 
     // Пассивный опыт за тик (растёт с уровнем) — вторая половина прогрессии.
     const xpPerTick = CONFIG.XP_PER_TICK_BASE + freshAirport.level * CONFIG.XP_PER_TICK_PER_LEVEL;
-    const newXp = freshAirport.xp + xpPerTick + heliXp;
+    // Опыт от кафе: каждый десятый посетитель. Дробный остаток переносим
+    // на следующий тик, иначе при потоке меньше десяти он терялся бы весь.
+    const cafePool = (freshAirport.cafeXpPool || 0) + cafeVisitors;
+    const cafeXp = Math.floor(cafePool / PASSENGER_ECONOMY.VISITORS_PER_XP);
+    const newXp = freshAirport.xp + xpPerTick + heliXp + cafeXp;
     const newLevel = levelFromXp(newXp);
     // Копим итоги периода для сводки в ленте: сколько заработано и как
     // изменилась репутация. Считаем чистый результат — доход минус содержание.
@@ -3800,7 +3816,8 @@ function runTick() {
     const paxFlow = Math.max(0, paxNow - (freshAirport.paxProcessedPrev || paxNow));
 
     const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince, periodStats,
-      lastPaxFlow: paxFlow, paxProcessedPrev: paxNow };
+      lastPaxFlow: paxFlow, paxProcessedPrev: paxNow,
+      cafeXpPool: cafePool - cafeXp * PASSENGER_ECONOMY.VISITORS_PER_XP };
 
     // --- Налог на прибыль ---
     // Раз в игровую неделю государство забирает долю от заработанного за
