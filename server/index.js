@@ -182,8 +182,13 @@ function isUnderConstruction(b) {
 // (кроме проданных боту), растёт со стоимостью и уровнем апгрейда здания.
 // Как часто борт по договору хочет прилететь. До третьего уровня втрое чаще:
 // ждать полчаса первого вертолёта, когда это всё содержание игры, слишком долго.
-function arrivalIntervalFor(level) {
-  const base = APRON_ECONOMY.CONTRACT_ARRIVAL_INTERVAL;
+function arrivalIntervalFor(level, craft) {
+  // У вертолётов свой интервал: он равен времени обслуживания, поэтому одно
+  // место обслуживает ровно один договор. У самолётов от интервала посчитаны
+  // квоты ВПП и потолки договоров — его трогать нельзя.
+  const base = craft === 'plane'
+    ? APRON_ECONOMY.CONTRACT_ARRIVAL_INTERVAL
+    : APRON_ECONOMY.HELI_ARRIVAL_INTERVAL;
   if ((level || 0) >= APRON_ECONOMY.EARLY_ARRIVAL_UNTIL_LEVEL) return base;
   return Math.max(2, Math.round(base / APRON_ECONOMY.EARLY_ARRIVAL_DIVISOR));
 }
@@ -306,9 +311,13 @@ function maxActiveContracts(airportId) {
   const over = CONTRACT_ECONOMY.MAX_ACTIVE_OVERBOOK;
   const base = CONTRACT_ECONOMY.MAX_ACTIVE_BASE;
 
+  // Вертолёты: обслуживание равно интервалу, поэтому одно место = один
+  // договор. Сверху 20% перегрузки, чтобы очередь могла возникнуть, и
+  // потолок в дюжину — дальше управлять договорами утомительно.
   const heliSlots = totalApronSlots(airportId);
   const heliCap = heliSlots > 0
-    ? Math.max(1, Math.round(base + (heliSlots * (60 / APRON_ECONOMY.HELI_STAND_MINUTES)) / perContract * over))
+    ? Math.min(CONTRACT_ECONOMY.HELI_MAX,
+        Math.max(1, Math.round(heliSlots * CONTRACT_ECONOMY.HELI_OVERBOOK)))
     : 0;
 
   let planeThroughput = 0;
@@ -1773,7 +1782,7 @@ app.post('/api/envelope/accept', auth, (req, res) => {
   }
 
   const nowTick = store.getTickCounter();
-  const arrivalInterval = arrivalIntervalFor(airport.level);
+  const arrivalInterval = arrivalIntervalFor(airport.level, offer.craft);
   store.addContract(airport.id, {
     airline: offer.airline,
     payPerTick: offer.payPerTick,
@@ -1863,7 +1872,7 @@ app.post('/api/envelope/haggle/accept', auth, (req, res) => {
   }
 
   const nowTick = store.getTickCounter();
-  const arrivalInterval = arrivalIntervalFor(airport.level);
+  const arrivalInterval = arrivalIntervalFor(airport.level, offer.craft);
   store.addContract(airport.id, {
     airline: offer.airline,
     payPerTick: offer.payPerTick,
@@ -4105,7 +4114,7 @@ function processContractsTick(airport, currentTick, notifications) {
         size: c.size || null,
         flightType: c.flightType || 'vvl',
       });
-      const iv = arrivalIntervalFor(fresh.level);
+      const iv = arrivalIntervalFor(fresh.level, c.craft);
       const variance = 1 + (Math.random() * 2 - 1) * APRON_ECONOMY.ARRIVAL_INTERVAL_VARIANCE;
       store.updateContract(c.id, { nextArrivalTick: currentTick + Math.round(iv * variance) });
     }
