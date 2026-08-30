@@ -1442,6 +1442,11 @@ function serializeAirport(airport) {
         repairing: b.repairEndsTick != null && nowTick < b.repairEndsTick,
         repairTicksLeft: b.repairEndsTick ? Math.max(0, b.repairEndsTick - nowTick) : 0,
         repairCost: (b.wear || 0) >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR && def ? damageRepairCost(def, b.wear || 0) : 0,
+        // полная цена апгрейда с учётом ремонта: игрок видит, за что платит
+        upgradeWithRepair: (def && level < def.maxUpgradeLevel)
+          ? upgradeCost(def, level + 1) +
+            ((b.wear || 0) >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR ? damageRepairCost(def, b.wear || 0) : 0)
+          : 0,
         // содержание именно этого объекта на его текущем уровне
         upkeep: def ? Math.round(
           (CONFIG.UPKEEP_BASE_PER_BUILDING + (def.cost || 0) *
@@ -2163,7 +2168,17 @@ app.post('/api/building/rent-offers', auth, (req, res) => {
   if (def.nonRentable) return res.status(400).json({ error: 'non_rentable', message: 'Это здание нельзя сдавать в аренду' });
   if (building.state !== 'owned') return res.status(400).json({ error: 'wrong_state', message: 'Здание сейчас не свободно' });
 
+  // Аренда считается от собственного дохода здания. У инфраструктуры он
+  // нулевой (аэропорт зарабатывает на перевозках), поэтому предложения были
+  // бы по 0 у.е. Проверяем на всякий случай, даже если флаг nonRentable
+  // где-то забыли проставить.
   const effIncome = def.income * upgradeMultiplier(building.upgradeLevel || 1);
+  if (effIncome <= 0) {
+    return res.status(400).json({
+      error: 'no_income',
+      message: 'Это здание не приносит дохода само по себе — сдавать его некому',
+    });
+  }
   res.json({ offers: generateRentOffers(def, effIncome) });
 });
 
@@ -2412,8 +2427,21 @@ app.post('/api/building/upgrade', auth, (req, res) => {
   // например, кафе требует обслуженных пассажиров и прокачанной пожарной части.
   const upErr = checkRequirements(airport, (def.upgradeRequires || {})[nextLevel]);
   if (upErr) return res.status(400).json(upErr);
-  const cost = upgradeCost(def, nextLevel);
-  if (airport.money < cost) return res.status(400).json({ error: 'not_enough_money' });
+  // Апгрейд повреждённого здания разрешён: стоимость ремонта включается
+  // в цену. Игрок сам решает — чинить отдельно и потом улучшать или сделать
+  // всё разом. Раньше апгрейд блокировался при любом износе, даже в 1%.
+  const wearNow = building.wear || 0;
+  const repairPart = wearNow >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR
+    ? damageRepairCost(def, wearNow) : 0;
+  const cost = upgradeCost(def, nextLevel) + repairPart;
+  if (airport.money < cost) {
+    return res.status(400).json({
+      error: 'not_enough_money',
+      message: repairPart > 0
+        ? `Нужно ${cost.toLocaleString('ru-RU')} у.е. — апгрейд ${upgradeCost(def, nextLevel).toLocaleString('ru-RU')} плюс ремонт ${repairPart.toLocaleString('ru-RU')}`
+        : `Нужно ${cost.toLocaleString('ru-RU')} у.е.`,
+    });
+  }
 
   // Деньги списываются сразу, уровень применится при ЗАВЕРШЕНИИ (в тике).
   const endsTick = store.getTickCounter()
@@ -3511,6 +3539,8 @@ function runTick() {
             store.updateBuildingAtCell(airport.id, b.cellIndex, {
               upgradeLevel: b.pendingUpgradeLevel || (b.upgradeLevel || 1),
               constructionEndsTick: null, constructionType: null, pendingUpgradeLevel: null,
+              // ремонт был оплачен вместе с апгрейдом — объект выходит как новый
+              wear: 0,
             });
             // Опыт за апгрейд — доля от опыта за постройку. Раньше апгрейд не
             // давал XP вовсе, и расти можно было только вширь.

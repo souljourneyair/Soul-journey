@@ -1262,7 +1262,7 @@ function renderBuildingModal() {
   if (state === 'owned' && building.nextUpgradeCost) {
     const canAffordUpgrade = STATE.money >= building.nextUpgradeCost;
     const upgradeBtn = actionBtn(
-      canAffordUpgrade ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${building.nextUpgradeCost.toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств для апгрейда',
+      canAffordUpgrade ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${(building.upgradeWithRepair || building.nextUpgradeCost).toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств для апгрейда',
       () => buildingAction('upgrade')
     );
     upgradeBtn.disabled = !canAffordUpgrade;
@@ -1461,13 +1461,7 @@ function renderBuildingPanel(cellIndex, container) {
     return;
   }
 
-  if (state === 'owned' && building.nextUpgradeCost && building.repairCost > 0) {
-    // Сначала ремонт: иначе апгрейд стал бы способом чинить в обход механики.
-    const hint = document.createElement('div');
-    hint.className = 'build-menu-hint';
-    hint.textContent = 'Апгрейд недоступен, пока объект повреждён — сначала ремонт.';
-    actions.appendChild(hint);
-  } else if (state === 'owned' && building.nextUpgradeCost) {
+  if (state === 'owned' && building.nextUpgradeCost) {
     // У некоторых зданий каждый уровень открывается своими условиями —
     // показываем, чего не хватает, вместо молчаливой блокировки.
     const upRules = (def.upgradeRequires || {})[(building.upgradeLevel || 1) + 1];
@@ -1478,8 +1472,19 @@ function renderBuildingPanel(cellIndex, container) {
       hint.textContent = `Для следующего уровня: ${upMissing}`;
       actions.appendChild(hint);
     }
-    const canAfford = STATE.money >= building.nextUpgradeCost && !upMissing;
-    const btn = actionBtn(canAfford ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${building.nextUpgradeCost.toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств', () => buildingActionAcc(cellIndex, 'upgrade'));
+    // Повреждённое здание улучшать можно: ремонт включён в цену. Игрок сам
+    // решает — чинить отдельно и потом улучшать или сделать всё разом.
+    const fullCost = building.upgradeWithRepair || building.nextUpgradeCost;
+    const repairPart = fullCost - building.nextUpgradeCost;
+    if (repairPart > 0) {
+      const hint = document.createElement('div');
+      hint.className = 'build-menu-hint';
+      hint.textContent = `В цену апгрейда включён ремонт ${repairPart.toLocaleString('ru-RU')} у.е. ` +
+        `Можно сначала отремонтировать отдельно — апгрейд тогда обойдётся в ${building.nextUpgradeCost.toLocaleString('ru-RU')}.`;
+      actions.appendChild(hint);
+    }
+    const canAfford = STATE.money >= fullCost && !upMissing;
+    const btn = actionBtn(canAfford ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${fullCost.toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств', () => buildingActionAcc(cellIndex, 'upgrade'));
     btn.disabled = !canAfford;
     actions.appendChild(btn);
   }
