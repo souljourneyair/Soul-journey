@@ -1351,6 +1351,7 @@ function serializeAirport(airport) {
     standLoad: occupiedStands(airport.id),
     repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
     visitorSpend: PASSENGER_ECONOMY.VISITOR_SPEND,   // сколько оставляет гость кафе
+    visitorsPerXp: PASSENGER_ECONOMY.VISITORS_PER_XP, // сколько гостей на очко опыта
     // что даёт текущий уровень администрации
     adminBonuses: (() => {
       const lvl = adminLevel(airport.id);

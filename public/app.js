@@ -781,7 +781,7 @@ function renderBuildingRow(building, tbody, indent) {
       actionText =
         `<span class="obj-action-line">☕ Посетителей: ${visitors} из ${seats}</span>` +
         `<span class="obj-action-line">+${(visitors * spend).toLocaleString('ru-RU')} у.е./мин</span>` +
-        (visitors > 0 ? `<span class="obj-action-line">опыт: каждый 10-й гость</span>` : '');
+        `<span class="obj-action-line">опыт: каждый ${STATE.visitorsPerXp || 10}-й гость = 1 XP</span>`;
     } else if (def.infrastructure) {
       actionText = infraStatusHtml(building);
     } else {
