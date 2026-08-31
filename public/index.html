@@ -133,6 +133,7 @@
       <button id="createAirlineBtn" class="left-menu-btn hidden">🏢 Создать АК</button>
       <button id="leaderboardBtn" class="left-menu-btn">🏆 Рейтинг</button>
       <button id="restartBtn" class="left-menu-btn left-menu-btn-danger">↺ Начать сначала</button>
+      <button id="supportBtn" class="left-menu-btn left-menu-btn-support">💛 Поддержать</button>
       <button id="logoutBtn" class="left-menu-btn">⎋ Выход</button>
     </nav>
 
@@ -443,6 +444,20 @@
       <div class="form-msg" id="bmMsg"></div>
     </div>
     <button id="closeBuildingModal" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== ОКНО «ПОДДЕРЖАТЬ» ===== -->
+<div id="supportModal" class="modal hidden">
+  <div class="modal-card board-frame support-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">ПОДДЕРЖАТЬ</span>
+    </div>
+    <div class="building-modal-body">
+      <p class="support-text" id="supportText"></p>
+      <div class="support-links" id="supportLinks"></div>
+    </div>
   </div>
 </div>
 

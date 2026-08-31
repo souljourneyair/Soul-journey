@@ -150,6 +150,26 @@
     </div>
 
     <div class="gallery-upload" style="margin-top:20px;">
+      <div class="panel-title">БЛОК «ПОДДЕРЖАТЬ»</div>
+      <p class="build-menu-hint">
+        Текст и ссылки, которые увидит игрок при нажатии кнопки «Поддержать» в меню.
+        В названии можно указать ссылку на картинку (png, jpg, svg) — тогда вместо
+        текста покажется логотип.
+      </p>
+      <label style="display:block; margin-top:10px;">
+        <span class="build-menu-hint">Текст</span>
+        <textarea id="supportTextInput" rows="4" class="admin-input" style="width:100%; resize:vertical;"></textarea>
+      </label>
+      <div style="margin-top:12px;">
+        <span class="build-menu-hint">Ссылки</span>
+        <div id="supportLinksAdmin"></div>
+        <button class="btn-secondary" id="supportAddLink" style="margin-top:6px;">+ Добавить ссылку</button>
+      </div>
+      <button class="btn-primary" id="supportSave" style="margin-top:12px;">Сохранить</button>
+      <div class="build-menu-hint" id="supportMsg"></div>
+    </div>
+
+    <div class="gallery-upload" style="margin-top:20px;">
       <div class="panel-title">НАСТРОЙКИ ГЕЙМПЛЕЯ</div>
       <p class="build-menu-hint">Цены на нефть и золото влияют на рыночную цену авиатоплива для всех игроков. Выше нефть/золото — дороже топливо (в пределах ±30% от базы поставщика).</p>
       <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px; max-width:320px;">

@@ -107,7 +107,7 @@ function switchView(view) {
   $('#settingsView').classList.toggle('hidden', view !== 'settings');
   if (view === 'gallery' && !galleryData) loadGallery();
   if (view === 'objects') loadObjectsSection();
-  if (view === 'settings') { loadLogoSettings(); loadGameplaySettings(); loadBackgroundSettings(); loadDisasterPanel(); }
+  if (view === 'settings') { loadLogoSettings(); loadGameplaySettings(); loadBackgroundSettings(); loadDisasterPanel(); loadSupportSettings(); }
 }
 
 // ===== НАСТРОЙКИ: ЛОГОТИП =====
@@ -1000,4 +1000,59 @@ document.querySelectorAll('.disaster-btn').forEach(btn => {
       $('#disasterMsg').textContent = err.message;
     }
   });
+});
+
+
+// ---------- Блок «Поддержать» ----------
+// Текст и произвольное число ссылок. Каждая строка — название (или адрес
+// картинки) и сама ссылка; строки добавляются кнопкой и удаляются крестиком.
+let supportLinks = [];
+
+function renderSupportLinks() {
+  const box = $('#supportLinksAdmin');
+  if (!box) return;
+  box.innerHTML = '';
+  supportLinks.forEach((l, i) => {
+    const row = document.createElement('div');
+    row.className = 'support-row';
+    row.innerHTML = `
+      <input class="admin-input" placeholder="название или ссылка на картинку" value="${escapeAttr(l.label || '')}">
+      <input class="admin-input" placeholder="https://..." value="${escapeAttr(l.url || '')}">
+      <button class="btn-danger-sm" title="Удалить">×</button>`;
+    const [labelEl, urlEl] = row.querySelectorAll('input');
+    labelEl.addEventListener('input', () => { supportLinks[i].label = labelEl.value; });
+    urlEl.addEventListener('input', () => { supportLinks[i].url = urlEl.value; });
+    row.querySelector('button').addEventListener('click', () => {
+      supportLinks.splice(i, 1);
+      renderSupportLinks();
+    });
+    box.appendChild(row);
+  });
+}
+
+async function loadSupportSettings() {
+  try {
+    const data = await api('/api/support');
+    const ta = $('#supportTextInput');
+    if (ta) ta.value = data.text || '';
+    supportLinks = (data.links || []).map(l => ({ label: l.label || '', url: l.url || '' }));
+    renderSupportLinks();
+  } catch (err) { /* блок необязательный */ }
+}
+
+$('#supportAddLink')?.addEventListener('click', () => {
+  supportLinks.push({ label: '', url: '' });
+  renderSupportLinks();
+});
+
+$('#supportSave')?.addEventListener('click', async () => {
+  try {
+    await api('/api/admin/support', 'POST', {
+      text: $('#supportTextInput').value,
+      links: supportLinks,
+    });
+    $('#supportMsg').textContent = 'Сохранено.';
+  } catch (err) {
+    $('#supportMsg').textContent = err.message;
+  }
 });

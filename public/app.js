@@ -2822,6 +2822,14 @@ document.addEventListener('keydown', (e) => {
   if (last && !isRequiredModal(last)) closeModal(last);
 });
 
+// Экранирование для значений атрибутов: без него ссылка с кавычкой
+// сломала бы разметку.
+function escapeAttr(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function escapeHtml(s) {
   return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -2931,6 +2939,34 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('scroll', hideStatTip, { passive: true });
 window.addEventListener('resize', hideStatTip);
+
+// ---------- Окно «Поддержать» ----------
+// Текст и ссылки задаёт администратор. Ссылка может быть с картинкой —
+// тогда вместо названия показывается логотип платежной системы.
+$('#supportBtn')?.addEventListener('click', async () => {
+  const modal = $('#supportModal');
+  const textEl = $('#supportText');
+  const linksEl = $('#supportLinks');
+  textEl.textContent = 'Загрузка…';
+  linksEl.innerHTML = '';
+  modal.classList.remove('hidden');
+  try {
+    const data = await api('/api/support');
+    textEl.textContent = data.text || 'Спасибо, что играете!';
+    const links = data.links || [];
+    linksEl.innerHTML = links.length
+      ? links.map(l => {
+          const looksImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(l.label || '');
+          const inner = looksImage
+            ? `<img src="${escapeAttr(l.label)}" alt="">`
+            : escapeHtml(l.label || l.url);
+          return `<a class="support-link" href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+        }).join('')
+      : '<div class="support-empty">Ссылки пока не добавлены.</div>';
+  } catch (err) {
+    textEl.textContent = 'Не удалось загрузить.';
+  }
+});
 
 // ---------- Чартеры ----------
 // Вызвать борт немедленно, чтобы вывезти скопившихся туристов. Аэропорт

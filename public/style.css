@@ -1042,3 +1042,25 @@ body.modal-open { overflow: hidden; }
   border-bottom: 1px solid rgba(124,138,153,0.12); font-size: 13px;
 }
 .charter-inbound-row:last-child { border-bottom: none; }
+
+/* --- окно «Поддержать» --- */
+.left-menu-btn-support { color: var(--board-amber); }
+.support-modal { max-width: 480px; }
+.support-text { font-size: 14px; line-height: 1.6; color: var(--text); margin: 0 0 16px; white-space: pre-wrap; }
+.support-links { display: flex; flex-direction: column; gap: 8px; }
+.support-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg-panel); color: var(--text); text-decoration: none;
+  font-size: 14px; transition: border-color 0.15s ease;
+}
+.support-link:hover { border-color: var(--board-amber); }
+.support-link img { height: 24px; width: auto; max-width: 90px; object-fit: contain; }
+.support-empty { color: var(--text-dim); font-size: 13px; }
+/* --- админка: ссылки поддержки --- */
+.support-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.support-row input { flex: 1; }
+.support-row .btn-danger-sm {
+  background: none; border: 1px solid var(--red); color: var(--red);
+  border-radius: 4px; cursor: pointer; padding: 6px 10px;
+}

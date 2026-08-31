@@ -3064,6 +3064,56 @@ app.get('/api/settings', auth, (req, res) => {
 });
 
 // Публичные визуальные настройки — доступны БЕЗ авторизации (нужны на входном экране).
+// ==================== БЛОК «ПОДДЕРЖАТЬ» ====================
+// Текст и ссылки задаёт админ. Ссылки хранятся списком, чтобы их можно было
+// добавлять и убирать без правки кода.
+app.get('/api/support', (req, res) => {
+  const st = store.getSettings();
+  res.json({
+    text: st.supportText || '',
+    links: Array.isArray(st.supportLinks) ? st.supportLinks : [],
+  });
+});
+
+app.post('/api/admin/support', auth, adminAuth, (req, res) => {
+  const { text, links } = req.body || {};
+  const clean = Array.isArray(links)
+    ? links
+        .map(l => ({ label: String(l.label || '').trim(), url: String(l.url || '').trim() }))
+        .filter(l => l.label || l.url)
+        .slice(0, 20)
+    : [];
+  store.setSetting('supportText', String(text || '').slice(0, 4000));
+  store.setSetting('supportLinks', clean);
+  res.json({ ok: true, text: String(text || ''), links: clean });
+});
+
+// Настройки блока «Поддержать»: текст и список ссылок. Доступны всем —
+// окно открывается из игрового меню.
+app.get('/api/support', (req, res) => {
+  const st = store.getSettings();
+  res.json({
+    text: st.supportText || '',
+    links: Array.isArray(st.supportLinks) ? st.supportLinks : [],
+  });
+});
+
+app.post('/api/admin/support', auth, adminAuth, (req, res) => {
+  const { text, links } = req.body || {};
+  if (typeof text === 'string') store.setSetting('supportText', text.slice(0, 2000));
+  if (Array.isArray(links)) {
+    // Оставляем только заполненные строки: пустые появляются, когда админ
+    // нажал «плюс» и не заполнил поле.
+    const clean = links
+      .filter(l => l && (l.label || l.url))
+      .map(l => ({ label: String(l.label || '').slice(0, 120), url: String(l.url || '').slice(0, 500) }))
+      .slice(0, 20);
+    store.setSetting('supportLinks', clean);
+  }
+  const st = store.getSettings();
+  res.json({ text: st.supportText || '', links: st.supportLinks || [] });
+});
+
 app.get('/api/public-settings', (req, res) => {
   const s = store.getSettings();
   // Сначала папка uploads/screens/<screen>/ (случайный файл из лежащих там),
