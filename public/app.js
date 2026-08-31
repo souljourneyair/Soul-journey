@@ -1637,6 +1637,11 @@ function infraStatusLines(building) {
 
   if (id.startsWith('stand')) {
     const o = slotOccupancyOf(building);
+    // Изношенная стоянка выглядела свободной, хотя борта на неё не встают:
+    // игрок видел пустое место и кружащий самолёт и не понимал причины.
+    if (building.standBlocked) {
+      return ['🔧 Не принимает борта', `износ ${Math.round((building.wear || 0) * 100)}% — нужен ремонт`];
+    }
     return [o.used > 0 ? `✈️ Занята (${o.used}/${o.total})` : `✈️ Свободна (0/${o.total})`];
   }
 

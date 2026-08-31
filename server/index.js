@@ -1472,6 +1472,9 @@ function serializeAirport(airport) {
         repairCost: (b.wear || 0) >= DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR && def ? damageRepairCost(def, b.wear || 0) : 0,
         // полная цена апгрейда с учётом ремонта: игрок видит, за что платит
         // для кафе — сколько посетителей и сколько принесли за минуту
+        // стоянка с износом от 50% борта не принимает — показываем это прямо
+        standBlocked: !!(def && def.standSize && !b.ruined
+          && (b.wear || 0) >= DAMAGE_ECONOMY.WRENCH_WEAR),
         cafeVisitors: def && def.seatsByLevel
           ? Math.min(def.seatsByLevel[Math.min(level, def.seatsByLevel.length) - 1] || 0,
               Math.floor(airport.lastPaxFlow || 0))
@@ -4284,7 +4287,13 @@ function processContractsTick(airport, currentTick, notifications) {
   let heliFree = heliTotal - heliOccupied;
 
   // занятость стоянок: свои самолёты + договорные самолёты на земле
-  const ownPlaneSizes = store.getAircraftByAirport(airport.id).map(a => aircraftSize(a.typeId));
+  // Занимают стоянки только те свои борта, что реально на земле. Летящие
+  // раньше тоже считались занимающими место, и договорной самолёт не мог
+  // сесть на физически свободную стоянку — ровно та же ошибка, что когда-то
+  // была у своих бортов при возвращении из рейса.
+  const ownPlaneSizes = store.getAircraftByAirport(airport.id)
+    .filter(a => a.status !== 'flying')
+    .map(a => aircraftSize(a.typeId));
   const contractPlaneSizes = apron.filter(b => b.craft === 'plane').map(b => b.size);
 
   // одна полоса принимает не больше одного борта за тик
