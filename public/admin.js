@@ -1015,14 +1015,47 @@ function renderSupportLinks() {
   supportLinks.forEach((l, i) => {
     const row = document.createElement('div');
     row.className = 'support-row';
+    // Картинку загружаем файлом, а не ссылкой: свои файлы лежат в uploads
+    // и не пропадут, если внешний хостинг однажды отключится.
     row.innerHTML = `
-      <input class="admin-input" placeholder="название или ссылка на картинку" value="${escapeAttr(l.label || '')}">
-      <input class="admin-input" placeholder="https://..." value="${escapeAttr(l.url || '')}">
-      <button class="btn-danger-sm" title="Удалить">×</button>`;
-    const [labelEl, urlEl] = row.querySelectorAll('input');
-    labelEl.addEventListener('input', () => { supportLinks[i].label = labelEl.value; });
-    urlEl.addEventListener('input', () => { supportLinks[i].url = urlEl.value; });
-    row.querySelector('button').addEventListener('click', () => {
+      <div class="support-icon-cell">
+        ${l.icon ? `<img class="support-icon-preview" src="${escapeAttr(l.icon)}" alt="">` : '<span class="support-icon-empty">нет картинки</span>'}
+        <button class="btn-secondary support-pick">Обзор…</button>
+        ${l.icon ? '<button class="btn-danger-sm support-icon-clear" title="Убрать картинку">×</button>' : ''}
+        <input type="file" accept="image/*" hidden>
+      </div>
+      <input class="admin-input support-label" placeholder="название" value="${escapeAttr(l.label || '')}">
+      <input class="admin-input support-url" placeholder="https://..." value="${escapeAttr(l.url || '')}">
+      <button class="btn-danger-sm support-del" title="Удалить строку">×</button>`;
+
+    const fileInput = row.querySelector('input[type=file]');
+    row.querySelector('.support-pick').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+      const f = fileInput.files && fileInput.files[0];
+      if (!f) return;
+      try {
+        const dataUrl = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result);
+          r.onerror = () => rej(new Error('Не удалось прочитать файл'));
+          r.readAsDataURL(f);
+        });
+        const out = await api('/api/admin/support/icon', 'POST', { dataUrl, name: f.name });
+        supportLinks[i].icon = out.url;
+        renderSupportLinks();
+        $('#supportMsg').textContent = 'Картинка загружена. Не забудьте сохранить.';
+      } catch (err) {
+        $('#supportMsg').textContent = err.message;
+      }
+    });
+
+    row.querySelector('.support-icon-clear')?.addEventListener('click', () => {
+      supportLinks[i].icon = '';
+      renderSupportLinks();
+    });
+    row.querySelector('.support-label').addEventListener('input', (e) => { supportLinks[i].label = e.target.value; });
+    row.querySelector('.support-url').addEventListener('input', (e) => { supportLinks[i].url = e.target.value; });
+    row.querySelector('.support-del').addEventListener('click', () => {
       supportLinks.splice(i, 1);
       renderSupportLinks();
     });
@@ -1035,13 +1068,13 @@ async function loadSupportSettings() {
     const data = await api('/api/support');
     const ta = $('#supportTextInput');
     if (ta) ta.value = data.text || '';
-    supportLinks = (data.links || []).map(l => ({ label: l.label || '', url: l.url || '' }));
+    supportLinks = (data.links || []).map(l => ({ label: l.label || '', url: l.url || '', icon: l.icon || '' }));
     renderSupportLinks();
   } catch (err) { /* блок необязательный */ }
 }
 
 $('#supportAddLink')?.addEventListener('click', () => {
-  supportLinks.push({ label: '', url: '' });
+  supportLinks.push({ label: '', url: '', icon: '' });
   renderSupportLinks();
 });
 

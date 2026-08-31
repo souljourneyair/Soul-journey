@@ -2956,11 +2956,9 @@ $('#supportBtn')?.addEventListener('click', async () => {
     const links = data.links || [];
     linksEl.innerHTML = links.length
       ? links.map(l => {
-          const looksImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(l.label || '');
-          const inner = looksImage
-            ? `<img src="${escapeAttr(l.label)}" alt="">`
-            : escapeHtml(l.label || l.url);
-          return `<a class="support-link" href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer">${inner}</a>`;
+          const img = l.icon ? `<img src="${escapeAttr(l.icon)}" alt="">` : '';
+          const text = l.label ? `<span>${escapeHtml(l.label)}</span>` : '';
+          return `<a class="support-link" href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer">${img}${text || (img ? '' : escapeHtml(l.url))}</a>`;
         }).join('')
       : '<div class="support-empty">Ссылки пока не добавлены.</div>';
   } catch (err) {

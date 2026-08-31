@@ -3075,43 +3075,46 @@ app.get('/api/support', (req, res) => {
   });
 });
 
+// Загрузка иконки для ссылки поддержки. Файлы кладём в uploads/logo/support:
+// сама папка logo сканируется на логотип игры и ждёт там строго default и
+// small, поэтому иконкам нужна своя подпапка.
+const SUPPORT_ICON_DIR = path.join(__dirname, '..', 'public', 'uploads', 'logo', 'support');
+
+app.post('/api/admin/support/icon', auth, adminAuth, (req, res) => {
+  const { dataUrl, name } = req.body || {};
+  const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается картинка' });
+  const ext = ALLOWED_IMAGE_TYPES[match[1]];
+  if (!ext) return res.status(400).json({ error: 'unsupported_type', message: 'PNG, JPEG, GIF, WEBP или SVG' });
+  const buffer = Buffer.from(match[2], 'base64');
+  if (buffer.length > MAX_UPLOAD_BYTES) return res.status(400).json({ error: 'file_too_large', message: 'Максимум 5MB' });
+
+  fs.mkdirSync(SUPPORT_ICON_DIR, { recursive: true });
+  // Имя из исходного файла, очищенное от всего лишнего, плюс метка времени —
+  // чтобы одинаковые названия не затирали друг друга.
+  const base = String(name || 'icon').replace(/\.[^.]+$/, '').replace(/[^a-zA-Z0-9а-яА-Я_-]/g, '').slice(0, 40) || 'icon';
+  const file = `${base}-${Date.now()}.${ext}`;   // ext хранится без точки
+  fs.writeFileSync(path.join(SUPPORT_ICON_DIR, file), buffer);
+  res.json({ url: `/uploads/logo/support/${file}` });
+});
+
 app.post('/api/admin/support', auth, adminAuth, (req, res) => {
   const { text, links } = req.body || {};
   const clean = Array.isArray(links)
     ? links
-        .map(l => ({ label: String(l.label || '').trim(), url: String(l.url || '').trim() }))
-        .filter(l => l.label || l.url)
+        // icon — путь к загруженной картинке; без него иконки терялись
+        // при каждом сохранении.
+        .map(l => ({
+          label: String(l.label || '').trim(),
+          url: String(l.url || '').trim(),
+          icon: String(l.icon || '').trim(),
+        }))
+        .filter(l => l.label || l.url || l.icon)
         .slice(0, 20)
     : [];
   store.setSetting('supportText', String(text || '').slice(0, 4000));
   store.setSetting('supportLinks', clean);
   res.json({ ok: true, text: String(text || ''), links: clean });
-});
-
-// Настройки блока «Поддержать»: текст и список ссылок. Доступны всем —
-// окно открывается из игрового меню.
-app.get('/api/support', (req, res) => {
-  const st = store.getSettings();
-  res.json({
-    text: st.supportText || '',
-    links: Array.isArray(st.supportLinks) ? st.supportLinks : [],
-  });
-});
-
-app.post('/api/admin/support', auth, adminAuth, (req, res) => {
-  const { text, links } = req.body || {};
-  if (typeof text === 'string') store.setSetting('supportText', text.slice(0, 2000));
-  if (Array.isArray(links)) {
-    // Оставляем только заполненные строки: пустые появляются, когда админ
-    // нажал «плюс» и не заполнил поле.
-    const clean = links
-      .filter(l => l && (l.label || l.url))
-      .map(l => ({ label: String(l.label || '').slice(0, 120), url: String(l.url || '').slice(0, 500) }))
-      .slice(0, 20);
-    store.setSetting('supportLinks', clean);
-  }
-  const st = store.getSettings();
-  res.json({ text: st.supportText || '', links: st.supportLinks || [] });
 });
 
 app.get('/api/public-settings', (req, res) => {

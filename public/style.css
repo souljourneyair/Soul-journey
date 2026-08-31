@@ -1058,8 +1058,14 @@ body.modal-open { overflow: hidden; }
 .support-link img { height: 24px; width: auto; max-width: 90px; object-fit: contain; }
 .support-empty { color: var(--text-dim); font-size: 13px; }
 /* --- админка: ссылки поддержки --- */
-.support-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.support-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+.support-icon-cell { display: flex; align-items: center; gap: 6px; }
+.support-icon-preview { height: 28px; width: auto; max-width: 70px; object-fit: contain; border-radius: 4px; }
+.support-icon-empty { font-size: 11px; color: var(--text-dim); }
 .support-row input { flex: 1; }
+.support-icon-cell { display: flex; align-items: center; gap: 6px; flex: 1; }
+.support-icon-cell img { height: 28px; max-width: 90px; object-fit: contain; border-radius: 4px; }
+.support-browse { cursor: pointer; padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 .support-row .btn-danger-sm {
   background: none; border: 1px solid var(--red); color: var(--red);
   border-radius: 4px; cursor: pointer; padding: 6px 10px;
