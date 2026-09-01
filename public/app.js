@@ -442,6 +442,7 @@ function renderAll() {
   checkWelcome();
   checkLevel2Bonus();
   checkLevel5Bonus();
+  checkHubFinale();
   renderFeed();
   checkPendingDisasters();
   renderStats();
@@ -3252,6 +3253,36 @@ async function checkLevel5Bonus() {
   $('#welcomeModal').classList.remove('hidden');
   welcomeStep = 98;   // отличаем от вступления и от бонуса за 2 уровень
 }
+
+// Финал: хаб достроен. Окно с выбором — основать авиакомпанию, остаться
+// в песочнице или начать заново. Закрывается только кнопкой: это развилка,
+// а не уведомление.
+let hubFinaleShown = false;
+function checkHubFinale() {
+  if (!STATE.pendingHubFinale || hubFinaleShown) return;
+  if (!$('#welcomeModal').classList.contains('hidden')) return;
+  hubFinaleShown = true;
+  $('#hubFinaleModal').classList.remove('hidden');
+}
+
+async function hubFinaleChoice(choice) {
+  $('#hubFinaleModal').classList.add('hidden');
+  hubFinaleShown = false;
+  try {
+    STATE = await api('/api/hub-finale/ack', 'POST', { choice });
+    renderAll();
+    updateAirlineButton();
+  } catch (err) { /* покажем снова при следующем заходе */ }
+  if (choice === 'continue') $('#airlineNameModal')?.classList.remove('hidden');
+}
+
+$('#hubContinue')?.addEventListener('click', () => hubFinaleChoice('continue'));
+$('#hubSandbox')?.addEventListener('click', () => hubFinaleChoice('sandbox'));
+$('#hubRestart')?.addEventListener('click', () => {
+  $('#hubFinaleModal').classList.add('hidden');
+  hubFinaleShown = false;
+  $('#restartBtn')?.click();
+});
 
 function checkWelcome() {
   if (STATE.welcomeSeen) return;

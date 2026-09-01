@@ -1070,3 +1070,8 @@ body.modal-open { overflow: hidden; }
   background: none; border: 1px solid var(--red); color: var(--red);
   border-radius: 4px; cursor: pointer; padding: 6px 10px;
 }
+
+/* --- финальное окно достроенного хаба --- */
+.hub-finale-buttons { display: flex; flex-direction: column; gap: 8px; }
+.hub-finale-buttons button { width: 100%; }
+.hub-restart { color: var(--red); border-color: var(--red); }

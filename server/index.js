@@ -363,6 +363,15 @@ function activeContractsByCraft(airportId) {
   };
 }
 
+// Хаб достроен: стоят все терминалы, большая ВПП и большая стоянка.
+// Это финал основной игры — дальше игроку предлагается выбор.
+function isHubComplete(airportId) {
+  const built = store.getBuildingsByAirport(airportId)
+    .filter(b => !isUnderConstruction(b) && !b.ruined && (b.state || 'owned') === 'owned')
+    .map(b => b.buildingId);
+  return CONFIG.HUB_BUILDINGS.every(id => built.includes(id));
+}
+
 // Уровень здания администрации (0 — не построена).
 // Записать событие в ленту игрока. В отличие от уведомлений по вебсокету,
 // лента переживает перезаход: игрок видит, что происходило, пока его не было.
@@ -1280,8 +1289,8 @@ function serializeAirport(airport) {
     // Предложение создать АК показывается ОДИН РАЗ: игрок нажал «Позже» —
     // значит уже знает о такой возможности, и кнопка «Создать АК» никуда
     // не девается. Навязывать окно каждый заход незачем.
-    airlineOfferAvailable: airport.level >= CONFIG.AIRLINE_MIN_LEVEL
-      && !airport.airline && !airport.airlineOfferSeen,
+    // Авиакомпания открывается достроенным хабом, а не уровнем как таковым.
+    airlineOfferAvailable: isHubComplete(airport.id) && !airport.airline && !airport.airlineOfferSeen,
     airlineMinLevel: CONFIG.AIRLINE_MIN_LEVEL,   // чтобы клиент не зашивал число
     tax: {
       rate: TAX.RATE,
@@ -1418,6 +1427,8 @@ function serializeAirport(airport) {
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
     pendingLevel5Bonus: !!airport.pendingLevel5Bonus,
+    pendingHubFinale: !!airport.pendingHubFinale,
+    hubComplete: isHubComplete(airport.id),
     level5Bonus: { xp: CONFIG.LEVEL5_BONUS_XP },
     level2Bonus: { xp: CONFIG.LEVEL2_BONUS_XP, rep: CONFIG.LEVEL2_BONUS_REP },
     username: owner ? owner.username : null,   // чтобы подсветить себя в рейтинге
@@ -1434,7 +1445,7 @@ function serializeAirport(airport) {
     reputation: airport.reputation,
     xp: airport.xp,
     level: airport.level,
-    xpForNextLevel: xpRequiredForLevel(Math.min(airport.level + 1, CONFIG.TARGET_LEVEL)),
+    xpForNextLevel: xpRequiredForLevel(Math.min(airport.level + 1, CONFIG.MAX_LEVEL)),
     gridSize: airport.gridSize,
     maxGridSize: CONFIG.MAX_GRID_SIZE,
     landExpansionsBought: airport.landExpansionsBought,
@@ -1580,6 +1591,17 @@ app.get('/api/state', auth, (req, res) => {
 // Приветствие новичка: разовые 500 XP за вход. Начисляются один раз на
 // аэропорт и заново после «Начать сначала» — там флаги сбрасываются.
 // Игрок увидел окно с бонусом за второй уровень — гасим флаг.
+// Игрок сделал выбор в финальном окне.
+app.post('/api/hub-finale/ack', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  // choice: continue — основать АК, sandbox — играть дальше без неё
+  const patch = { pendingHubFinale: false };
+  if ((req.body || {}).choice === 'sandbox') patch.airlineOfferSeen = true;
+  store.updateAirport(airport.id, patch);
+  res.json(serializeAirport(store.getAirportById(airport.id)));
+});
+
 app.post('/api/level5-bonus/ack', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
@@ -2714,7 +2736,7 @@ app.post('/api/admin/players/:username/set-level', auth, adminAuth, (req, res) =
   if (!ctx) return;
   let { level } = req.body || {};
   if (typeof level !== 'number') return res.status(400).json({ error: 'invalid_value' });
-  level = Math.max(1, Math.min(CONFIG.TARGET_LEVEL, Math.round(level)));
+  level = Math.max(1, Math.min(CONFIG.MAX_LEVEL, Math.round(level)));
   const xp = xpRequiredForLevel(level); // держим xp согласованным с уровнем
   const updated = store.updateAirport(ctx.airport.id, { level, xp });
   res.json(serializeAirport(updated));
@@ -2766,7 +2788,7 @@ app.post('/api/admin/players/:username/save-all', auth, adminAuth, (req, res) =>
     patch.level = levelFromXp(xp);
   } else if (levelChanged) {
     if (typeof level !== 'number') return res.status(400).json({ error: 'invalid_level' });
-    level = Math.max(0, Math.min(CONFIG.TARGET_LEVEL, Math.round(level)));
+    level = Math.max(0, Math.min(CONFIG.MAX_LEVEL, Math.round(level)));
     patch.level = level;
     patch.xp = xpRequiredForLevel(level);
   }
@@ -3957,6 +3979,14 @@ function runTick() {
       store.updateAirport(airport.id, { level2BonusGiven: true });
       logEvent(airport.id, 'level',
         `Бонус за второй уровень: +${CONFIG.LEVEL2_BONUS_XP} XP и +${CONFIG.LEVEL2_BONUS_REP} репутации`);
+    }
+
+    // Хаб достроен — показываем финальное окно с выбором. Один раз.
+    if (!freshAirport.hubFinaleSeen && isHubComplete(airport.id)) {
+      patch.pendingHubFinale = true;
+      patch.hubFinaleSeen = true;
+      store.updateAirport(airport.id, { hubFinaleSeen: true });
+      logEvent(airport.id, 'level', 'Международный хаб достроен! Можно основать авиакомпанию.');
     }
 
     // Подарок за пятый уровень — тоже по факту уровня, а не по событию.
