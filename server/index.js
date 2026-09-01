@@ -2457,6 +2457,11 @@ app.post('/api/building/upgrade', auth, (req, res) => {
   // Апгрейд доступен для любого здания, включая несносимое админздание —
   // это отдельная механика от продажи/сноса.
   if (building.state !== 'owned') return res.status(400).json({ error: 'wrong_state', message: 'Нельзя улучшать здание, пока оно в аренде или продано' });
+  // Разрушенное здание не работает и ремонту не подлежит — только снос.
+  // Апгрейд был бы способом воскресить его в обход механики.
+  if (building.ruined) {
+    return res.status(400).json({ error: 'ruined', message: 'Здание разрушено — его можно только снести' });
+  }
   // нельзя запустить второй процесс, пока идёт стройка/апгрейд
   if (building.constructionEndsTick != null) {
     return res.status(400).json({ error: 'busy', message: 'Здание сейчас в работе — дождитесь завершения' });

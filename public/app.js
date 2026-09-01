@@ -1270,7 +1270,7 @@ function renderBuildingModal() {
     return;
   }
 
-  if (state === 'owned' && building.nextUpgradeCost) {
+  if (state === 'owned' && building.nextUpgradeCost && !building.ruined) {
     const canAffordUpgrade = STATE.money >= building.nextUpgradeCost;
     const upgradeBtn = actionBtn(
       canAffordUpgrade ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${(building.upgradeWithRepair || building.nextUpgradeCost).toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств для апгрейда',
@@ -1472,7 +1472,7 @@ function renderBuildingPanel(cellIndex, container) {
     return;
   }
 
-  if (state === 'owned' && building.nextUpgradeCost) {
+  if (state === 'owned' && building.nextUpgradeCost && !building.ruined) {
     // У некоторых зданий каждый уровень открывается своими условиями —
     // показываем, чего не хватает, вместо молчаливой блокировки.
     const upRules = (def.upgradeRequires || {})[(building.upgradeLevel || 1) + 1];
