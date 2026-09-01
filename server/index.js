@@ -17,7 +17,7 @@ const {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON, RATING, QUEUE, TAX, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
+  EVENT_LOG, SEASON, RATING, QUEUE, TAX, BANK, bankRate, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
@@ -1360,6 +1360,7 @@ function serializeAirport(airport) {
     standLoad: occupiedStands(airport.id),
     repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
     visitorSpend: PASSENGER_ECONOMY.VISITOR_SPEND,   // сколько оставляет гость кафе
+    bank: bankState(airport),
     visitorsPerXp: PASSENGER_ECONOMY.VISITORS_PER_XP, // сколько гостей на очко опыта
     // что даёт текущий уровень администрации
     adminBonuses: (() => {
@@ -3097,6 +3098,87 @@ app.get('/api/settings', auth, (req, res) => {
 // ==================== БЛОК «ПОДДЕРЖАТЬ» ====================
 // Текст и ссылки задаёт админ. Ссылки хранятся списком, чтобы их можно было
 // добавлять и убирать без правки кода.
+// ==================== БАНК ====================
+// Кредит под залог построенного: взять можно долю от стоимости аэропорта.
+// Возврат — равными долями раз в игровые сутки, автоматически.
+function bankState(airport) {
+  const st = store.getSettings();
+  const rate = bankRate(st.oilPrice, st.goldPrice);
+  const value = airportValue(airport.id, airport);
+  const loan = airport.loan || null;
+  const limit = Math.max(0, Math.floor(value * BANK.MAX_SHARE_OF_VALUE));
+  return {
+    rate,
+    oilPrice: st.oilPrice != null ? st.oilPrice : BANK.OIL_BASE,
+    goldPrice: st.goldPrice != null ? st.goldPrice : BANK.GOLD_BASE,
+    limit: loan ? 0 : limit,           // второй кредит не выдаём
+    minAmount: BANK.MIN_AMOUNT,
+    termDays: BANK.TERM_DAYS,
+    payments: BANK.PAYMENTS,
+    loan: loan ? {
+      amount: loan.amount, rate: loan.rate, total: loan.total,
+      paid: loan.paid, left: loan.total - loan.paid,
+      perPayment: loan.perPayment,
+      paymentsLeft: Math.max(0, loan.payments - loan.done),
+      nextInTicks: Math.max(0, (loan.nextTick || 0) - store.getTickCounter()),
+    } : null,
+  };
+}
+
+app.get('/api/bank', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  res.json(bankState(airport));
+});
+
+app.post('/api/bank/borrow', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (airport.loan) {
+    return res.status(400).json({ error: 'has_loan', message: 'Сначала погасите текущий кредит' });
+  }
+  const amount = Math.floor(Number((req.body || {}).amount) || 0);
+  const state = bankState(airport);
+  if (amount < BANK.MIN_AMOUNT) {
+    return res.status(400).json({ error: 'too_small', message: `Минимальная сумма ${BANK.MIN_AMOUNT.toLocaleString('ru-RU')} у.е.` });
+  }
+  if (amount > state.limit) {
+    return res.status(400).json({
+      error: 'over_limit',
+      message: `Больше ${state.limit.toLocaleString('ru-RU')} у.е. банк не даст: кредит под залог построенного`,
+    });
+  }
+  const total = Math.round(amount * (1 + state.rate));
+  const perPayment = Math.ceil(total / BANK.PAYMENTS);
+  const now = store.getTickCounter();
+  store.updateAirport(airport.id, {
+    money: airport.money + amount,
+    loan: {
+      amount, rate: state.rate, total, perPayment,
+      payments: BANK.PAYMENTS, done: 0, paid: 0,
+      nextTick: now + 1440,       // первое списание через игровые сутки
+    },
+  });
+  logEvent(airport.id, 'tax',
+    `Взят кредит ${amount.toLocaleString('ru-RU')} у.е. под ${(state.rate * 100).toFixed(1)}%. ` +
+    `К возврату ${total.toLocaleString('ru-RU')} за ${BANK.PAYMENTS} платежей.`);
+  res.json({ ...serializeAirport(store.getAirportById(airport.id)), _bank: bankState(store.getAirportById(airport.id)) });
+});
+
+app.post('/api/bank/repay', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const loan = airport.loan;
+  if (!loan) return res.status(400).json({ error: 'no_loan', message: 'Кредита нет' });
+  const left = loan.total - loan.paid;
+  if (airport.money < left) {
+    return res.status(400).json({ error: 'no_money', message: `Для досрочного погашения нужно ${left.toLocaleString('ru-RU')} у.е.` });
+  }
+  store.updateAirport(airport.id, { money: airport.money - left, loan: null });
+  logEvent(airport.id, 'tax', `Кредит погашен досрочно: ${left.toLocaleString('ru-RU')} у.е.`);
+  res.json(serializeAirport(store.getAirportById(airport.id)));
+});
+
 app.get('/api/support', (req, res) => {
   const st = store.getSettings();
   res.json({
@@ -3902,6 +3984,26 @@ function runTick() {
     const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince, periodStats,
       lastPaxFlow: paxFlow, paxProcessedPrev: paxNow,
       cafeXpPool: cafePool - cafeXp * PASSENGER_ECONOMY.VISITORS_PER_XP };
+
+    // --- Платёж по кредиту ---
+    // Раз в игровые сутки списывается равная доля. Денег не хватает — долг
+    // просто уходит в минус, как и любые другие расходы.
+    const loan = freshAirport.loan;
+    if (loan && currentTick >= (loan.nextTick || 0)) {
+      const left = loan.total - loan.paid;
+      const pay = Math.min(loan.perPayment, left);
+      patch.money = (patch.money != null ? patch.money : newMoney) - pay;
+      const done = loan.done + 1;
+      const paid = loan.paid + pay;
+      if (paid >= loan.total || done >= loan.payments) {
+        patch.loan = null;
+        logEvent(airport.id, 'tax', 'Кредит выплачен полностью.');
+      } else {
+        patch.loan = { ...loan, done, paid, nextTick: currentTick + 1440 };
+        logEvent(airport.id, 'tax',
+          `Платёж по кредиту: −${pay.toLocaleString('ru-RU')} у.е., осталось ${(loan.total - paid).toLocaleString('ru-RU')}`);
+      }
+    }
 
     // --- Налог на прибыль ---
     // Раз в игровую неделю государство забирает долю от заработанного за

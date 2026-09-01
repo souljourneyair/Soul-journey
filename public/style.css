@@ -669,6 +669,14 @@ body.game-open { overflow: hidden; }
   padding: 16px;
 }
 .modal-card { width: 480px; max-width: 100%; max-height: 85vh; overflow-y: auto; position: relative; }
+@media (max-width: 700px) {
+  /* На телефоне окно должно помещаться целиком: раньше высокие окна
+     (рейтинг с тремя вкладками) выходили за экран и выглядели пустыми. */
+  .modal { padding: 8px; align-items: flex-start; }
+  .modal-card { max-height: calc(100dvh - 16px); width: 100%; }
+  .leaderboard-table { font-size: 12px; }
+  .leaderboard-table th, .leaderboard-table td { padding: 6px 4px; }
+}
 /* пока открыто модальное окно, страница под ним не прокручивается */
 body.modal-open { overflow: hidden; }
 .modal-close {
@@ -709,15 +717,21 @@ body.modal-open { overflow: hidden; }
   .game-main > * { max-height: none; overflow-y: visible; }
   #gameScreen.screen { height: auto; overflow: visible; display: block; }
   body.game-open { overflow: visible; }   /* на телефоне прокрутка страницы нужна */
-  /* меню сворачивается/разворачивается по кнопке, стоит в потоке над таблицей */
+  /* Меню выпадает прямо у кнопки в шапке, а не разворачивается в потоке над
+     таблицей: раньше оно уезжало под шапку и приходилось искать его глазами. */
   .left-menu {
-    order: 0;
-    max-height: 0; overflow: hidden; padding: 0 14px;
-    border-width: 0; transition: max-height 0.28s ease, padding 0.28s ease, border-width 0.1s;
-    min-width: 0;
+    position: fixed; z-index: 8000;
+    top: auto; left: 10px;
+    width: 220px; max-width: calc(100vw - 20px);
+    max-height: 0; overflow: hidden; padding: 0;
+    border: 1px solid var(--board-amber-dim); border-radius: 8px;
+    background: var(--bg-panel);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+    transition: max-height 0.22s ease, padding 0.22s ease, opacity 0.15s ease;
+    opacity: 0; min-width: 0;
   }
   .left-menu.open {
-    max-height: 500px; padding: 14px; border-width: 1px;
+    max-height: min(70vh, 560px); overflow-y: auto; padding: 10px; opacity: 1;
   }
   .left-menu-title { display: none; }
   .objects-panel { order: 1; }
@@ -1075,3 +1089,8 @@ body.modal-open { overflow: hidden; }
 .hub-finale-buttons { display: flex; flex-direction: column; gap: 8px; }
 .hub-finale-buttons button { width: 100%; }
 .hub-restart { color: var(--red); border-color: var(--red); }
+
+/* --- банк --- */
+.bank-loan { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.bank-loan b { color: var(--board-amber); font-family: var(--mono); }
+.bank-loan button { margin-top: 8px; }

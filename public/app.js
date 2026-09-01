@@ -2020,8 +2020,19 @@ $('#closeLeaderboard').addEventListener('click', () => $('#leaderboardModal').cl
 
 // ===== TERRITORY MODAL =====
 // гамбургер: показать/скрыть левое меню на телефоне
-$('#menuToggle').addEventListener('click', () => {
+$('#menuToggle').addEventListener('click', (e) => {
+  e.stopPropagation();
+  positionMobileMenu();          // считаем положение до показа
   $('#leftMenu').classList.toggle('open');
+});
+// Клик мимо меню закрывает его: выпадающее меню поверх содержимого
+// иначе перекрывает игру и мешает.
+document.addEventListener('click', (e) => {
+  const menu = $('#leftMenu');
+  if (!menu || !menu.classList.contains('open')) return;
+  if (window.innerWidth > 700) return;
+  if (menu.contains(e.target) || e.target.closest('.menu-toggle')) return;
+  menu.classList.remove('open');
 });
 // закрываем меню при клике на пункт (на телефоне)
 document.querySelectorAll('.left-menu-btn').forEach(btn => {
@@ -2899,6 +2910,19 @@ const EVENT_TEXTS = {
   },
 };
 
+// Меню на телефоне выпадает под кнопкой «Меню», поэтому его положение
+// зависит от того, где эта кнопка оказалась после переноса строк в шапке.
+function positionMobileMenu() {
+  const menu = document.querySelector('.left-menu');
+  const btn = document.querySelector('.menu-toggle');
+  if (!menu || !btn) return;
+  if (window.innerWidth > 700) { menu.style.top = ''; menu.style.left = ''; return; }
+  const r = btn.getBoundingClientRect();
+  menu.style.top = `${r.bottom + 6}px`;
+  menu.style.left = `${Math.max(8, r.left)}px`;
+}
+window.addEventListener('resize', positionMobileMenu);
+
 // ---------- Подсказки в шапке ----------
 // На телефоне атрибут title бесполезен: по тапу он не показывается, а долгое
 // нажатие выделяет текст и открывает системное меню с поиском в Google.
@@ -2945,6 +2969,76 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('scroll', hideStatTip, { passive: true });
 window.addEventListener('resize', hideStatTip);
+
+// ---------- Банк ----------
+// Кредит под залог построенного. Ставка зависит от цен на сырьё и не бывает
+// ниже 17%. Возврат — равными долями раз в игровые сутки, автоматически.
+function renderBank(b) {
+  const n = (v) => Math.round(v).toLocaleString('ru-RU');
+  $('#bankSub').textContent = `СТАВКА ${(b.rate * 100).toFixed(1)}%`;
+  $('#bankRateNote').textContent =
+    `Ставка считается по рынку: нефть ${b.oilPrice}, золото ${b.goldPrice}. ` +
+    `Дорогая нефть поднимает ставку, дорогое золото опускает, но ниже 17% банк не идёт.`;
+
+  const loanBox = $('#bankLoanBox');
+  const borrowBox = $('#bankBorrowBox');
+  if (b.loan) {
+    borrowBox.classList.add('hidden');
+    loanBox.innerHTML = `
+      <div class="bank-loan">
+        <div>Взято: <b>${n(b.loan.amount)}</b> у.е. под ${(b.loan.rate * 100).toFixed(1)}%</div>
+        <div>К возврату всего: <b>${n(b.loan.total)}</b>, осталось <b>${n(b.loan.left)}</b></div>
+        <div>Платёж ${n(b.loan.perPayment)} у.е. раз в игровые сутки, осталось платежей: ${b.loan.paymentsLeft}</div>
+        <div class="build-menu-hint">Следующее списание через ${b.loan.nextInTicks} мин</div>
+        <button class="btn-secondary" id="bankRepay">Погасить досрочно — ${n(b.loan.left)} у.е.</button>
+      </div>`;
+    $('#bankRepay').addEventListener('click', async () => {
+      try {
+        STATE = await api('/api/bank/repay', 'POST', {});
+        renderBank(STATE.bank); renderAll();
+        toast('Кредит погашен');
+      } catch (err) { $('#bankMsg').textContent = err.message; }
+    });
+  } else {
+    loanBox.innerHTML = '';
+    borrowBox.classList.remove('hidden');
+    $('#bankLimitNote').textContent =
+      `Доступно до ${n(b.limit)} у.е. — это половина стоимости аэропорта. ` +
+      `Возврат ${b.payments} платежами, по одному в игровые сутки.`;
+    const input = $('#bankAmount');
+    const preview = $('#bankPreview');
+    const update = () => {
+      const v = Number(input.value) || 0;
+      preview.textContent = v >= b.minAmount
+        ? `К возврату ${n(v * (1 + b.rate))} у.е., по ${n(Math.ceil(v * (1 + b.rate) / b.payments))} за платёж`
+        : `Минимум ${n(b.minAmount)} у.е.`;
+    };
+    input.oninput = update;
+    update();
+  }
+}
+
+$('#bankBtn')?.addEventListener('click', async () => {
+  $('#bankMsg').textContent = '';
+  $('#bankModal').classList.remove('hidden');
+  try {
+    const b = await api('/api/bank');
+    renderBank(b);
+  } catch (err) { $('#bankMsg').textContent = err.message; }
+});
+
+$('#bankBorrow')?.addEventListener('click', async () => {
+  const amount = Number($('#bankAmount').value) || 0;
+  try {
+    const res = await api('/api/bank/borrow', 'POST', { amount });
+    STATE = res;
+    renderBank(res._bank);
+    renderAll();
+    toast(`Кредит получен: +${amount.toLocaleString('ru-RU')} у.е.`);
+  } catch (err) {
+    $('#bankMsg').textContent = err.message;
+  }
+});
 
 // ---------- Окно «Поддержать» ----------
 // Текст и ссылки задаёт администратор. Ссылка может быть с картинкой —

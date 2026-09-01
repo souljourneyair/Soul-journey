@@ -468,6 +468,35 @@ const DISASTER_KINDS = ['storm', 'flood', 'earthquake', 'birds', 'fire', 'meteor
 // бортов, а при её росте приток сам замедляется: люди видят толпу и не идут.
 // Налог на прибыль: раз в игровую неделю государство забирает долю от того,
 // что аэропорт заработал за период. Убыточная неделя не облагается.
+// ---------- Банк ----------
+// Кредит на развитие. Ставка зависит от цен на сырьё: дорогая нефть и дешёвое
+// золото означают неспокойный рынок, и деньги дорожают. Ниже 17% банк
+// не опускается никогда.
+const BANK = {
+  MIN_RATE: 0.17,
+  // Опорные цены, от которых считается отклонение.
+  OIL_BASE: 70,
+  GOLD_BASE: 2000,
+  OIL_WEIGHT: 0.12,     // насколько дорогая нефть поднимает ставку
+  GOLD_WEIGHT: 0.08,    // насколько дешёвое золото поднимает ставку
+  MAX_RATE: 0.45,
+  // Сколько можно взять: доля от стоимости аэропорта. Кредит под залог
+  // построенного, а не под честное слово.
+  MAX_SHARE_OF_VALUE: 0.5,
+  MIN_AMOUNT: 5000,
+  TERM_DAYS: 14,        // срок в игровых сутках
+  PAYMENTS: 14,         // столько равных списаний, по одному в игровые сутки
+};
+
+// Ставка по текущим ценам на сырьё.
+function bankRate(oilPrice, goldPrice) {
+  const oil = (Number(oilPrice) || BANK.OIL_BASE) / BANK.OIL_BASE;
+  const gold = (Number(goldPrice) || BANK.GOLD_BASE) / BANK.GOLD_BASE;
+  // Нефть дороже базовой — ставка выше; золото дороже — ставка ниже.
+  const rate = BANK.MIN_RATE + (oil - 1) * BANK.OIL_WEIGHT - (gold - 1) * BANK.GOLD_WEIGHT;
+  return Math.min(BANK.MAX_RATE, Math.max(BANK.MIN_RATE, Math.round(rate * 1000) / 1000));
+}
+
 const TAX = {
   PERIOD_TICKS: 7 * 1440,   // игровая неделя
   RATE: 0.20,
@@ -1294,7 +1323,7 @@ module.exports = {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON, RATING, QUEUE, TAX, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
+  EVENT_LOG, SEASON, RATING, QUEUE, TAX, BANK, bankRate, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,

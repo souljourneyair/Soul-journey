@@ -131,6 +131,7 @@
       <button id="scheduleBtn" class="left-menu-btn">🕐 Расписание</button>
       <button id="envelopeBtn" class="left-menu-btn envelope-btn hidden">✉ Договоры<span id="envelopeBadge" class="envelope-badge hidden">0</span></button>
       <button id="createAirlineBtn" class="left-menu-btn hidden">🏢 Создать АК</button>
+      <button id="bankBtn" class="left-menu-btn">🏦 Банк</button>
       <button id="leaderboardBtn" class="left-menu-btn">🏆 Рейтинг</button>
       <button id="restartBtn" class="left-menu-btn left-menu-btn-danger">↺ Начать сначала</button>
       <button id="supportBtn" class="left-menu-btn left-menu-btn-support">💛 Поддержать</button>
@@ -444,6 +445,30 @@
       <div class="form-msg" id="bmMsg"></div>
     </div>
     <button id="closeBuildingModal" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== БАНК ===== -->
+<div id="bankModal" class="modal hidden">
+  <div class="modal-card board-frame">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">БАНК</span>
+      <span class="board-sub" id="bankSub"></span>
+    </div>
+    <div class="building-modal-body">
+      <p class="build-menu-hint" id="bankRateNote"></p>
+      <div id="bankLoanBox"></div>
+      <div id="bankBorrowBox">
+        <label style="display:block; margin-top:10px;">
+          <span class="build-menu-hint" id="bankLimitNote"></span>
+          <input type="number" id="bankAmount" class="admin-input" style="width:100%" placeholder="сумма">
+        </label>
+        <div id="bankPreview" class="build-menu-hint"></div>
+        <button class="btn-primary" id="bankBorrow" style="margin-top:10px;">Взять кредит</button>
+      </div>
+      <div class="build-menu-hint" id="bankMsg"></div>
+    </div>
   </div>
 </div>
 
