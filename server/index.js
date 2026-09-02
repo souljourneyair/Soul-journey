@@ -17,7 +17,7 @@ const {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON, RATING, QUEUE, TAX, BANK, bankRate, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
+  EVENT_LOG, SEASON, RATING, QUEUE, QUEUE_PATIENCE, TAX, BANK, bankRate, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
@@ -596,7 +596,40 @@ function generateTraffic(airport) {
   pool.heli = grow('heli', heliPts, pool.heli);
   pool.vvl = grow('vvl', vvlPts, pool.vvl);
   pool.mvl = grow('mvl', mvlPts, pool.mvl);
+  // Кто не дождался — расходится. Ушедший ставит нулевую оценку: это и есть
+  // падение рейтинга. Ограничиваем число оценок за тик, иначе один плохой
+  // час залил бы всё окно рейтинга нулями и восстановиться стало бы нечем.
+  let leftTotal = 0;
+  for (const key of ['heli', 'vvl', 'mvl']) {
+    const waiting = pool[key] || 0;
+    const start = since[key];
+    if (waiting < 1 || start == null) continue;
+    if (tick - start < QUEUE_PATIENCE.WAIT_MINUTES) continue;
+    const leaving = Math.min(waiting, Math.max(1, waiting * QUEUE_PATIENCE.LEAVE_SHARE));
+    pool[key] = Math.max(0, waiting - leaving);
+    if (pool[key] < 1) since[key] = null;
+    leftTotal += leaving;
+  }
   store.updateAirport(airport.id, { paxPool: pool, paxPoolSince: since });
+
+  if (leftTotal >= 1) {
+    // Одна нулевая оценка за группу ушедших, максимум пара за тик. Остаток
+    // копится: при небольшой утечке оценка появится не сразу, но появится.
+    const fresh = store.getAirportById(airport.id);
+    const bucket = (fresh.leftScorePool || 0) + leftTotal;
+    const n = Math.min(
+      Math.floor(bucket / QUEUE_PATIENCE.PASSENGERS_PER_SCORE),
+      QUEUE_PATIENCE.MAX_SCORES_PER_TICK);
+    const patchLeft = {
+      leftScorePool: bucket - n * QUEUE_PATIENCE.PASSENGERS_PER_SCORE,
+      paxLeftPending: (fresh.paxLeftPending || 0) + leftTotal,
+    };
+    if (n > 0) {
+      patchLeft.ratingScores = (fresh.ratingScores || [])
+        .concat(new Array(n).fill(0)).slice(-RATING.WINDOW);
+    }
+    store.updateAirport(airport.id, patchLeft);
+  }
 }
 
 // «Очки» вертолётплощадок (сумма уровней) — база heli-трафика.
@@ -3987,6 +4020,22 @@ function runTick() {
     const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince, periodStats,
       lastPaxFlow: paxFlow, paxProcessedPrev: paxNow,
       cafeXpPool: cafePool - cafeXp * PASSENGER_ECONOMY.VISITORS_PER_XP };
+
+    // --- Ушедшие пассажиры ---
+    // Сообщаем не чаще раза в игровой час: люди уходят каждую минуту, пока
+    // борта не приходят, и лента забилась бы одинаковыми строками.
+    const leftPending = freshAirport.paxLeftPending || 0;
+    if (leftPending >= 1) {
+      const lastNotice = freshAirport.paxLeftNoticeTick || 0;
+      if (currentTick - lastNotice >= 60) {
+        const n = Math.round(leftPending);
+        notifications.push(`😠 Не дождались вылета и ушли: ${n} чел. Рейтинг падает.`);
+        logEvent(airport.id, 'lost',
+          `Не дождались вылета и ушли: ${n} чел. — не хватает бортов, чтобы их вывезти`);
+        patch.paxLeftPending = 0;
+        patch.paxLeftNoticeTick = currentTick;
+      }
+    }
 
     // --- Платёж по кредиту ---
     // Раз в игровые сутки списывается равная доля. Денег не хватает — долг

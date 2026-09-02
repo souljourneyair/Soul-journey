@@ -502,6 +502,20 @@ const TAX = {
   RATE: 0.20,
 };
 
+// Пассажиры не ждут вечно. Если борт не приходит, люди расходятся и уносят
+// с собой худшую возможную оценку — это главный сигнал, что аэропорт не
+// справляется. Раньше очередь на вылет просто упиралась в потолок и стояла:
+// терминал без стоянки и ВПП копил людей, ничего не теряя.
+const QUEUE_PATIENCE = {
+  WAIT_MINUTES: 90,        // сколько ждут спокойно (15 реальных минут)
+  LEAVE_SHARE: 0.06,       // какая доля очереди уходит за минуту после этого
+  // Оценку в окно пишем не за каждого ушедшего, а за группу: иначе очередь
+  // из сорока человек за минуту заливала окно нулями и рейтинг падал с 4.5
+  // до 0.8 — падение должно быть заметным, но не мгновенным приговором.
+  PASSENGERS_PER_SCORE: 8,
+  MAX_SCORES_PER_TICK: 2,
+};
+
 const QUEUE = {
   BORT_LOADS: 4,          // очередь не длиннее четырёх бортов
   PLANE_REFERENCE: 155,   // за «борт» для терминалов считаем средний самолёт
@@ -1323,7 +1337,7 @@ module.exports = {
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
-  EVENT_LOG, SEASON, RATING, QUEUE, TAX, BANK, bankRate, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
+  EVENT_LOG, SEASON, RATING, QUEUE, QUEUE_PATIENCE, TAX, BANK, bankRate, BUILDING_REPUTATION, buildingReputationFor, CHARTER, byRating,
   DISASTER_ECONOMY, DISASTER_KINDS, buildingInvestedValue, lossCompensation, fireFine,
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
