@@ -310,6 +310,12 @@ const RUNNERS = {
 
 // Запустить конкретное событие. Возвращает запись о происшествии или null,
 // если бить оказалось не по чему.
+// Ленту событий модуль сам не ведёт: логгер передаётся снаружи, чтобы
+// disasters.js не зависел от index.js. Без него происшествия попадали только
+// в модальное окно и исчезали, не оставив следа в разделе «События».
+let logEvent = null;
+function setLogger(fn) { logEvent = fn; }
+
 function trigger(store, airport, kind, currentTick) {
   const runner = RUNNERS[kind];
   if (!runner) return null;
@@ -324,6 +330,19 @@ function trigger(store, airport, kind, currentTick) {
     pendingDisasters: pending.slice(-5),         // храним только последние
     lastDisasterTick: currentTick,
   });
+
+  // Запись в ленту: заголовок события и что именно пострадало.
+  if (logEvent) {
+    const titles = {
+      flood: 'Наводнение', earthquake: 'Землетрясение', storm: 'Магнитная буря',
+      fire: 'Пожар', meteor: 'Метеорит', birds: 'Птицы',
+    };
+    const head = titles[result.kind] || 'Происшествие';
+    logEvent(airport.id, 'disaster', `${head}: ${(result.details || []).length} последствий`);
+    for (const line of (result.details || []).slice(0, 6)) {
+      logEvent(airport.id, 'disaster', `  ${line}`);
+    }
+  }
   return result;
 }
 
@@ -364,5 +383,5 @@ function stormActive(airport, currentTick) {
 
 module.exports = {
   trigger, rollRandom, stormActive, forecastMeteor, meteorDue,
-  allowedAtLevel, DISASTER_KINDS,
+  allowedAtLevel, setLogger, DISASTER_KINDS,
 };

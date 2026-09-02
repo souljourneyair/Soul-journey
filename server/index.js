@@ -383,6 +383,9 @@ function logEvent(airportId, kind, text) {
   store.updateAirport(airportId, { eventLog: log.slice(-EVENT_LOG.MAX_ENTRIES) });
 }
 
+// Модуль происшествий ведёт ленту через наш логгер.
+disasters.setLogger((airportId, kind, text) => logEvent(airportId, kind, text));
+
 function adminLevel(airportId) {
   const b = store.getBuildingsByAirport(airportId)
     .find(x => x.buildingId === 'admin' && !x.ruined && (x.state || 'owned') === 'owned');
@@ -1818,7 +1821,7 @@ app.post('/api/charter/order', auth, (req, res) => {
     charterSeats: seats,
   });
   store.updateAirport(airport.id, { money: airport.money - cost, waitingBorts: waiting });
-  logEvent(airport.id, 'build',
+  logEvent(airport.id, 'charter',
     `Заказан чартер (${craft === 'plane' ? 'самолёт' : 'вертолёт'}) на ${seats} мест за ${cost.toLocaleString('ru-RU')} у.е.`);
   res.json({ ...serializeAirport(store.getAirportById(airport.id)), _charter: { seats, cost, craft } });
 });
@@ -3736,9 +3739,9 @@ function runTick() {
             const repBonus = def.reputation || 0;
             if (repBonus > 0) {
               reputationPerTick += repBonus;
-              logEvent(airport.id, 'build', `Построено: ${def.name} (+${gainedXp} XP, +${repBonus} репутации)`);
+
             } else {
-              logEvent(airport.id, 'build', `Построено: ${def.name} (+${gainedXp} XP)`);
+
             }
             if (nl > fa.level) {
               notifications.push(`⭐ Новый уровень: ${nl}!`);
@@ -3766,7 +3769,7 @@ function runTick() {
               }
             }
             notifications.push(`⬆️ «${def.name}» улучшен до уровня ${b.pendingUpgradeLevel} (+${upXp} XP)`);
-            logEvent(airport.id, 'upgrade', `Улучшено: ${def.name} до ур. ${b.pendingUpgradeLevel} (+${upXp} XP)`);
+
           }
         }
         // пока СТРОИТСЯ (build) — здание не даёт дохода/репутации, пропускаем
