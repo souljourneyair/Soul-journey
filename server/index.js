@@ -1525,7 +1525,8 @@ function serializeAirport(airport) {
           && (b.wear || 0) >= DAMAGE_ECONOMY.WRENCH_WEAR),
         cafeVisitors: def && def.seatsByLevel
           ? Math.min(def.seatsByLevel[Math.min(level, def.seatsByLevel.length) - 1] || 0,
-              Math.floor(airport.lastPaxFlow || 0))
+              Math.floor(((airport.paxPool || {}).heli || 0)
+                + ((airport.paxPool || {}).vvl || 0) + ((airport.paxPool || {}).mvl || 0)))
           : null,
         upgradeWithRepair: (def && level < def.maxUpgradeLevel)
           ? upgradeCost(def, level + 1) +
@@ -3843,8 +3844,12 @@ function runTick() {
         // растёт с уровнем, но упирается в реальный поток пассажиров.
         const lvl = b.upgradeLevel || 1;
         const seats = def.seatsByLevel[Math.min(lvl, def.seatsByLevel.length) - 1] || 0;
-        const flow = airport.lastPaxFlow || 0;    // пассажиров прошло за прошлый тик
-        const visitors = Math.min(seats, flow);
+        // Посетители — те, кто ЖДЁТ ВЫЛЕТА и находится в аэропорту. Раньше
+        // считался сквозной поток, куда попадали и прилетевшие: но они сразу
+        // уезжают в город и в кафе зайти не успевают.
+        const pool = airport.paxPool || {};
+        const waiting = Math.floor((pool.heli || 0) + (pool.vvl || 0) + (pool.mvl || 0));
+        const visitors = Math.min(seats, waiting);
         income = Math.round(visitors * PASSENGER_ECONOMY.VISITOR_SPEND * damageMult * workPenalty);
         // Опыт даёт каждый десятый посетитель. Остаток копится между тиками,
         // иначе при малом потоке округление съедало бы его целиком.
