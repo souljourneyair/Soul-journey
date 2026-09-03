@@ -1339,7 +1339,7 @@ function adminStatsHtml(building) {
       `</span>` : '') +
     `<span>Содержание аэропорта: −${Math.round(STATE.upkeepPerTick || 0)}/мин</span>` +
     `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>` +
-    `<span>Прилетело: ${n(STATE.paxArrived)} · улетело: ${n(STATE.paxDeparted)}</span>` +
+    `<span>За всё время: прилетело ${n(STATE.paxArrived)}, улетело ${n(STATE.paxDeparted)}</span>` +
     `<span>Всего через аэропорт: ${n(STATE.paxProcessed)}</span>`;
   if (a) {
     html +=
@@ -1425,11 +1425,15 @@ function renderBuildingPanel(cellIndex, container) {
     let termInfo = '';
     const tl = (STATE.terminalLoad || []).find(t => t.cellIndex === cellIndex);
     if (tl) {
+      // Разводим мгновенные показатели и накопленные за всё время: раньше
+      // «Вылетает» читалось как «сейчас вылетают», хотя это итог с начала
+      // игры, а «В очереди» путалось с очередью на вылет из шапки —
+      // у терминала это прилетевшие, ждущие обработки.
       termInfo =
         `<span>Пропускная способность: ${tl.capacity} пасс/мин (${tl.line.toUpperCase()})</span>` +
-        `<span>Прилетело: ${tl.arrived.toLocaleString('ru-RU')} · обработано ${tl.served.toLocaleString('ru-RU')}</span>` +
-        `<span>Вылетает: ${tl.departed.toLocaleString('ru-RU')}</span>` +
-        `<span${tl.queued > 0 ? ' class="term-queue"' : ''}>В очереди: ${tl.queued.toLocaleString('ru-RU')}</span>`;
+        `<span${tl.queued > 0 ? ' class="term-queue"' : ''}>Ожидают обработки: ${tl.queued.toLocaleString('ru-RU')} чел.</span>` +
+        `<span>За всё время принято: ${tl.arrived.toLocaleString('ru-RU')} · обработано ${tl.served.toLocaleString('ru-RU')}</span>` +
+        `<span>За всё время отправлено: ${tl.departed.toLocaleString('ru-RU')}</span>`;
     }
 
     // Показатели штаба — тем же блоком, что и в модальном окне.
