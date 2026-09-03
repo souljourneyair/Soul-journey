@@ -563,7 +563,11 @@ function generateTraffic(airport) {
   // стенами и получать людей, не обслуживая никого. Теперь наоборот —
   // хорошее обслуживание приводит следующих.
   const rating = airportRating(airport);
+  // Две шкалы: вертолётная настроена под борт на 8 мест, терминальная — под
+  // самолёты, которые возят от 50 до 310. Одна общая занижала поток терминалов
+  // в 15 раз, и самолёты летали пустыми.
   const perPad = byRating(RATING.ARRIVALS_BY_RATING, rating).perMinute;
+  const perTerminal = byRating(RATING.TERMINAL_ARRIVALS_BY_RATING, rating).perMinute;
 
   const heliPts = helipadPoints(airport.id);
   const vvlPts = terminalPoints(airport.id, 'vvl');
@@ -590,7 +594,8 @@ function generateTraffic(airport) {
     const cap = caps[key];
     // Чем длиннее очередь, тем меньше желающих: люди видят толпу и не идут.
     const crowded = before >= cap * QUEUE.SLOWDOWN_FROM;
-    const rate = perPad * pts * (crowded ? QUEUE.SLOWDOWN_MULT : 1);
+    const perUnit = key === 'heli' ? perPad : perTerminal;
+    const rate = perUnit * pts * (crowded ? QUEUE.SLOWDOWN_MULT : 1);
     return Math.min(cap, before + rate);
   };
   pool.heli = grow('heli', heliPts, pool.heli);
