@@ -1752,7 +1752,9 @@ app.get('/api/schedule', auth, (req, res) => {
       pax: contractCraftCapacity(w.craft || 'heli', w.size, airport, w),
       minutesLeft: inbound ? since - now : 0,
       status: inbound ? 'scheduled' : 'delayed',
-      note: inbound ? (w.charterSeats ? 'чартер в пути' : 'в пути') : `кружит ${now - since} мин`,
+      note: inbound
+        ? (w.charterSeats ? 'чартер в пути' : 'в пути')
+        : `кружит ${now - since} мин${w.holdReason ? ' — ' + w.holdReason : ''}`,
     });
   }
 
@@ -4555,9 +4557,21 @@ function processContractsTick(airport, currentTick, notifications) {
         stillWaiting.push(w);
       }
     } else {
-      // самолётный борт: нужна свободная стоянка его размера И подходящая ВПП
+      // Самолётному борту нужны И стоянка его размера, И подходящая полоса.
+      // Причину отказа запоминаем: без неё игрок видит очередь при свободных
+      // местах и не понимает, что мешает — размер стоянки, квота полосы или
+      // интервал вышки.
       const stand = placeContractPlane(airport.id, w.size, ownPlaneSizes, contractPlaneSizes);
-      const rw = stand ? pickRunwayForLanding(airport.id, w.size, currentTick, runwaysUsedThisTick) : null;
+      const rw = pickRunwayForLanding(airport.id, w.size, currentTick, runwaysUsedThisTick);
+      if (!stand || !rw) {
+        w.holdReason = !stand
+          ? `нет свободной стоянки для размера «${w.size}»`
+          : (hasRunwayForSize(airport.id, w.size, currentTick)
+            ? 'полоса занята: интервал вышки или суточная квота'
+            : `нет ВПП, принимающей размер «${w.size}»`);
+      } else {
+        w.holdReason = null;
+      }
       if (stand && rw) {
         runwaysUsedThisTick.add(rw.cellIndex);
         const hit = consumeRunwayLanding(airport.id, rw, currentTick, w.size);
