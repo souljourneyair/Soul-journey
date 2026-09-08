@@ -566,10 +566,14 @@ function renderStats() {
   }
   bumpStat($('#statMoney'));
 
-  const currentFloor = STATE.level >= 10 ? STATE.xpForNextLevel : STATE.xpForNextLevel;
-  const pct = STATE.level >= 10 ? 100 : Math.min(100, (STATE.xp / STATE.xpForNextLevel) * 100);
+  // Потолок игры теперь 40, а не 10 — раньше он был зашит числом в четырёх
+  // местах клиента и продолжал считать финалом десятый уровень даже после
+  // того, как лестницу продлили на сервере.
+  const maxLevel = STATE.maxLevel || 40;
+  const currentFloor = STATE.level >= maxLevel ? STATE.xpForNextLevel : STATE.xpForNextLevel;
+  const pct = STATE.level >= maxLevel ? 100 : Math.min(100, (STATE.xp / STATE.xpForNextLevel) * 100);
   $('#xpBarFill').style.width = pct + '%';
-  $('#xpBarText').textContent = STATE.level >= 10
+  $('#xpBarText').textContent = STATE.level >= maxLevel
     ? (STATE.reachedLevel10At
         ? `МАКСИМАЛЬНЫЙ УРОВЕНЬ ДОСТИГНУТ — ${formatDuration(STATE.reachedLevel10At - STATE.startedAt)}`
         : 'МАКСИМАЛЬНЫЙ УРОВЕНЬ ДОСТИГНУТ')
@@ -1319,10 +1323,10 @@ function renderBuildingModal() {
 function adminStatsHtml(building) {
   if (!building || building.buildingId !== 'admin') return '';
   const a = STATE.adminBonuses;
-  const xpLeft = STATE.level >= 10 ? 0 : Math.max(0, (STATE.xpForNextLevel || 0) - (STATE.xp || 0));
+  const xpLeft = STATE.level >= (STATE.maxLevel || 40) ? 0 : Math.max(0, (STATE.xpForNextLevel || 0) - (STATE.xp || 0));
   const n = (v) => Math.floor(v || 0).toLocaleString('ru-RU');
   let html =
-    `<span>Уровень аэропорта: ${STATE.level}${STATE.level >= 10 ? ' (максимум)' : ` · до следующего ${xpLeft.toLocaleString('ru-RU')} XP`}</span>` +
+    `<span>Уровень аэропорта: ${STATE.level}${STATE.level >= (STATE.maxLevel || 40) ? ' (максимум)' : ` · до следующего ${xpLeft.toLocaleString('ru-RU')} XP`}</span>` +
     `<span>Рейтинг: ${(STATE.rating || 0).toFixed(1)} — борт берёт до ${STATE.heliSeats || 2} мест</span>` +
     `<span>Репутация: ${n(STATE.reputation)} — накопленный счёт заслуг</span>` +
     `<span>Договоров: ${STATE.activeContracts || 0} из ${STATE.maxActiveContracts || 0} — ` +

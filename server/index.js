@@ -1494,6 +1494,7 @@ function serializeAirport(airport) {
     nextExpansion,
     startedAt: airport.startedAt,
     reachedLevel10At: airport.reachedLevel10At,
+    maxLevel: CONFIG.MAX_LEVEL,   // потолок игры — клиент не должен зашивать 10
     buildings: buildings.map(b => {
       const def = BUILDINGS[b.buildingId];
       const level = b.upgradeLevel || 1;
