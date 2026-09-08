@@ -420,7 +420,14 @@ function startTimerLoop() {
   startTimerLoop._i = setInterval(() => {
     if (!STATE) return;
     const from = STATE.startedAt;
-    const elapsed = STATE.reachedLevel10At ? (STATE.reachedLevel10At - from) : (Date.now() - from);
+    // Таймер в шапке — это часы игры, они идут всегда, пока аэропорт жив.
+    // reachedLevel10At нужен только рейтингу «Гонка» как отметка достижения
+    // десятого уровня — раньше это совпадало с финалом игры, и таймер
+    // замирал на нём. Игра теперь продолжается до 40 уровня, а часы должны
+    // тикать до победного конца (или до достижения maxLevel).
+    const maxLevel = STATE.maxLevel || 40;
+    const stopped = STATE.level >= maxLevel && STATE.reachedMaxLevelAt;
+    const elapsed = stopped ? (STATE.reachedMaxLevelAt - from) : (Date.now() - from);
     $('#statTimer').textContent = formatDuration(elapsed);
   }, 1000);
 }

@@ -1494,6 +1494,7 @@ function serializeAirport(airport) {
     nextExpansion,
     startedAt: airport.startedAt,
     reachedLevel10At: airport.reachedLevel10At,
+    reachedMaxLevelAt: airport.reachedMaxLevelAt || null,
     maxLevel: CONFIG.MAX_LEVEL,   // потолок игры — клиент не должен зашивать 10
     buildings: buildings.map(b => {
       const def = BUILDINGS[b.buildingId];
@@ -3773,6 +3774,11 @@ function runTick() {
               const u = store.findUserById(airport.userId);
               if (u) store.addLeaderboardEntry(u.username, fa.startType, elapsed);
             }
+            // Настоящий потолок игры (40) — по нему таймер в шапке
+            // останавливается насовсем, в отличие от вехи десятого уровня.
+            if (nl >= CONFIG.MAX_LEVEL && !fa.reachedMaxLevelAt) {
+              p.reachedMaxLevelAt = Date.now();
+            }
             store.updateAirport(airport.id, p);
             notifications.push(`🏗️ «${def.name}» построен и введён в эксплуатацию (+${gainedXp} XP)`);
             // Разовый бонус репутации за постройку: новый объект сразу
@@ -4180,6 +4186,9 @@ function runTick() {
       logEvent(airport.id, 'level', `Достигнут уровень ${newLevel}`);
       if (newLevel >= CONFIG.TARGET_LEVEL && !freshAirport.reachedLevel10At) {
         patch.reachedLevel10At = Date.now();
+      }
+      if (newLevel >= CONFIG.MAX_LEVEL && !freshAirport.reachedMaxLevelAt) {
+        patch.reachedMaxLevelAt = Date.now();
       }
     }
     if (newMoney < 0 && !bankrupt) {
