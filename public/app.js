@@ -2,9 +2,6 @@ const API = '';
 let TOKEN = localStorage.getItem('soul_journey_token') || null;
 let STATE = null;
 let ws = null;
-let selectedCell = null;
-let swapMode = false;      // включён ли режим «поменять местами»
-let swapFirst = null;       // первая выбранная клетка для обмена
 let lastIncomePerMin = null; // последний чистый доход за минуту (из тика), для шапки
 
 const $ = (sel) => document.querySelector(sel);
@@ -455,7 +452,6 @@ function renderAll() {
   renderStats();
   renderRepairAllBar();
   renderObjectsTable();
-  renderGrid();
   renderBuildMenu();
 }
 
@@ -585,13 +581,6 @@ function renderStats() {
         ? `МАКСИМАЛЬНЫЙ УРОВЕНЬ ДОСТИГНУТ — ${formatDuration(STATE.reachedLevel10At - STATE.startedAt)}`
         : 'МАКСИМАЛЬНЫЙ УРОВЕНЬ ДОСТИГНУТ')
     : `${Math.floor(STATE.xp)} / ${STATE.xpForNextLevel} XP до уровня ${STATE.level + 1}`;
-
-  $('#buyLandBtn').disabled = !STATE.nextExpansion;
-  if (STATE.nextExpansion) {
-    $('#buyLandBtn').textContent = `Выкупить землю (${STATE.nextExpansion.cost.toLocaleString('ru-RU')} у.е., ур. ${STATE.nextExpansion.minLevel}+)`;
-  } else {
-    $('#buyLandBtn').textContent = 'Вся доступная земля выкуплена';
-  }
 }
 
 // Множитель дохода по уровню апгрейда (глобальный — нужен и таблице, и панели)
@@ -649,29 +638,6 @@ function toggleBuildingAccordion(cellIndex) {
   renderObjectsTable(true);
 }
 
-// Раскрыть группу (и подгруппу), где лежит здание, и само здание — по клику с клетки.
-function openBuildingInTable(buildingId, cellIndex) {
-  let found = false;
-  for (const group of BUILDING_GROUPS) {
-    if (group.subgroups) {
-      for (const sg of group.subgroups) {
-        if (sg.members.includes(buildingId)) {
-          openGroups.add(group.key);
-          openGroups.add(sg.key);
-          found = true;
-        }
-      }
-    } else if (group.members.includes(buildingId)) {
-      openGroups.add(group.key);
-      found = true;
-    }
-  }
-  // здание вне групп лежит в «Других зданиях» — раскрываем их
-  if (!found && !UNGROUPED_BUILDINGS.includes(buildingId)) openGroups.add('other');
-  openBuildingCells.add(cellIndex);
-  accRentView = 'menu'; accRentOffers = null;
-}
-
 function objectsTableFingerprint() {
   const heli = STATE.apronSlots?.heli;
   const plane = STATE.apronSlots?.plane;
@@ -695,7 +661,7 @@ function renderObjectsTable(force) {
 
   const buildings = [...STATE.buildings].sort((a, b) => a.cellIndex - b.cellIndex);
   if (buildings.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="3" class="objects-empty">Пока нет построек — откройте «Территория а/п» и постройте первый объект</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="3" class="objects-empty">Пока нет построек — постройте первый объект в меню справа</td></tr>';
     return;
   }
 
@@ -848,110 +814,6 @@ function renderBuildingRow(building, tbody, indent) {
   }
 }
 
-function renderGrid() {
-  const grid = $('#airportGrid');
-  const size = STATE.gridSize;
-  // Максимум 4 клетки в ширину (на всех устройствах) — остальные переносятся
-  // вертикально, чтобы сетка не расползалась вширь и не было горизонтальной прокрутки.
-  const cols = Math.min(size, 4);
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  grid.innerHTML = '';
-
-  const buildingByCell = {};
-  STATE.buildings.forEach(b => buildingByCell[b.cellIndex] = b);
-
-  for (let i = 0; i < size * size; i++) {
-    const cell = document.createElement('div');
-    cell.className = 'cell';
-    const building = buildingByCell[i];
-
-    if (building) {
-      const def = STATE.catalog[building.buildingId];
-      const state = building.state || 'owned';
-      cell.classList.add('occupied');
-      if (state === 'rented') cell.classList.add('state-rented');
-      if (state === 'sold') cell.classList.add('state-sold');
-      if (state === 'listed') cell.classList.add('state-listed');
-
-      let badge = '';
-      if (state === 'rented') badge = '<span class="cell-badge rented">АРЕНДА</span>';
-      if (state === 'sold') badge = '<span class="cell-badge sold">ПРОДАНО</span>';
-      if (state === 'listed') badge = '<span class="cell-badge listed">НА БИРЖЕ</span>';
-      // работы показываем кольцом прогресса поверх иконки (без слова "тик")
-      let workingOverlay = '';
-      if (building.constructionType) {
-        const prog = constructionProgress(building);
-        cell.classList.add('state-working');
-        workingOverlay = `<div class="cell-progress">${progressRing(prog, 48, building.constructionTicksLeft)}</div>`;
-      }
-
-      const globalSkin = resolveBuildingImage(building.buildingId, building.upgradeLevel);
-      const iconValue = building.customIcon || globalSkin || BUILDING_ICONS[building.buildingId] || '🏗️';
-      const dmg = damageState(building);
-      const iconHtml = /^https?:\/\/|^data:image|^\/uploads\//.test(iconValue)
-        ? `<img src="${iconValue}" alt="" class="cell-icon-img">`
-        : `<div class="cell-icon">${iconValue}</div>`;
-
-      const baseName = building.customName || displayBuildingName(building.buildingId, building.upgradeLevel);
-      const levelSuffix = building.maxUpgradeLevel > 1 ? ` ${toRoman(building.upgradeLevel)}` : '';
-      const displayName = baseName + levelSuffix;
-      const labelStyle = STATE.buildingLabelStyles?.[building.buildingId];
-      const labelStyleAttr = labelStyle
-        ? ` style="${labelStyle.fontSize ? `font-size:${normalizeFontSize(labelStyle.fontSize)} !important;` : ''}${labelStyle.color ? `color:${labelStyle.color} !important;` : ''}"`
-        : '';
-
-      // Гаечный ключ с 50% повреждения, мелкая точка с 10% — двухступенчатый
-      // сигнал: игрок видит, что вред уже идёт, задолго до срочного ремонта.
-      const damageOverlay = dmg.mark
-        ? `<span class="cell-damage ${dmg.cls}" title="${escapeHtml(dmg.label)}">${dmg.mark}</span>`
-        : '';
-      // класс на клетку — подсвечиваем рамку, чтобы повреждение было заметно
-      // даже боковым зрением при осмотре сетки
-      if (dmg.cls !== 'ok') cell.classList.add(`damage-${dmg.cls}`);
-      cell.innerHTML = `
-        <div class="cell-image-wrap">
-          ${badge}
-          ${workingOverlay}
-          ${damageOverlay}
-          ${iconHtml}
-        </div>
-        <div class="cell-label"${labelStyleAttr}>${escapeHtml(displayName)}</div>
-        ${building.botName ? `<div class="cell-bot-name">${escapeHtml(building.botName)}</div>` : ''}`;
-      cell.title = displayBuildingDesc(building.buildingId);
-      cell.addEventListener('click', () => {
-        if (swapMode) { handleSwapClick(i); return; }
-        // клетки — только раскладка; управление в таблице. Раскрываем группу+здание.
-        openBuildingInTable(building.buildingId, i);
-        renderObjectsTable(true);
-        const row = document.querySelector(`.obj-accordion-row[data-cell="${i}"]`);
-        if (row) row.previousElementSibling?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      });
-    } else {
-      cell.innerHTML = `<div class="cell-image-wrap"><span class="cell-empty-plus">+</span></div>`;
-      cell.addEventListener('click', () => {
-        if (swapMode) { handleSwapClick(i); return; }
-        selectCell(i);
-      });
-    }
-    if (swapMode && swapFirst === i) cell.classList.add('swap-selected');
-    if (selectedCell === i) cell.querySelector('.cell-image-wrap').style.borderColor = 'var(--board-amber)';
-    grid.appendChild(cell);
-  }
-}
-
-function selectCell(i) {
-  selectedCell = i;
-  // Если пришли из бокового меню с выбранным зданием — строим сразу.
-  if (pendingBuildId) {
-    const toBuild = pendingBuildId;
-    pendingBuildId = null;
-    build(toBuild);
-    return;
-  }
-  renderGrid();
-  renderTerritoryBuildMenu();
-}
-
 // Чего не хватает для постройки — короткой строкой для меню. Зеркалит
 // серверную проверку checkRequirements: правила живут в каталоге, поэтому
 // новое условие подхватывается здесь само.
@@ -1048,97 +910,6 @@ function renderBuildMenu() {
       } else {
         btn.textContent = tooExpensive ? 'Недостаточно средств' : 'Построить';
         btn.disabled = tooExpensive;
-        btn.addEventListener('click', () => startBuildFlow(def.id));
-      }
-      item.appendChild(btn);
-    }
-    menu.appendChild(item);
-  });
-}
-
-// Запуск постройки из бокового меню: открываем территорию и подсказываем
-// выбрать клетку для конкретного здания.
-let pendingBuildId = null;
-function startBuildFlow(buildingId) {
-  pendingBuildId = buildingId;
-  selectedCell = null;
-  renderGrid();
-  renderStats();
-  renderTerritoryBuildMenu();
-  $('#territoryModal').classList.remove('hidden');
-}
-
-function renderTerritoryBuildMenu() {
-  // Меню внутри модалки территории — с кнопками постройки на выбранную клетку
-  const menu = $('#territoryBuildMenu');
-  if (!menu) return;
-  menu.innerHTML = '';
-
-  if (selectedCell === null) {
-    if (pendingBuildId) {
-      const def = STATE.catalog[pendingBuildId];
-      menu.innerHTML = `<div class="build-menu-hint">Выберите пустую клетку, чтобы построить «${escapeHtml(displayBuildingName(pendingBuildId))}» (${def.cost.toLocaleString('ru-RU')} у.е.).</div>`;
-    } else {
-      menu.innerHTML = '<div class="build-menu-hint">Кликните по пустой клетке, чтобы выбрать, что построить.</div>';
-    }
-    return;
-  }
-
-  const title = document.createElement('div');
-  title.className = 'panel-title';
-  title.textContent = `ПОСТРОЙКА НА КЛЕТКУ №${selectedCell}`;
-  menu.appendChild(title);
-
-  const purchasable = purchasableBuildings();
-
-  purchasable.forEach(def => {
-    // Пока нет администрации, доступна только она сама: без штаба аэропорта
-    // не существует, и начинать с вертолётной площадки в чистом поле нельзя.
-    const hasAdmin = STATE.buildings.some(b => b.buildingId === 'admin' && !b.constructionType);
-    const needsAdminFirst = !hasAdmin && def.id !== 'admin';
-    // Репутация как ключ и цепочка построек: здание может ждать не уровня,
-    // а доверия авиакомпаний или предыдущего объекта в цепочке.
-    // Условия те же, что проверяет сервер (checkRequirements). requiresBuilt
-    // может быть списком: раньше клиент сравнивал его со строкой, и здание
-    // с несколькими требованиями считалось заблокированным навсегда — даже
-    // когда всё нужное построено.
-    const missing = missingRequirement(def);
-    const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing;
-    const tooExpensive = STATE.money < def.cost;
-    const limit = (STATE.buildLimits || {})[def.id];
-    const builtCount = STATE.buildings.filter(b => b.buildingId === def.id && (b.state || 'owned') !== 'sold').length;
-    const limitReached = limit != null && builtCount >= limit;
-    const limitLabel = limit != null ? `<span>Построено: ${builtCount}/${limit}</span>` : '';
-    const item = document.createElement('div');
-    item.className = 'build-item' + (locked ? ' locked' : '') + (limitReached ? ' limit-reached' : '');
-    item.innerHTML = `
-      <div class="build-item-top">
-        <span class="build-item-name">${BUILDING_ICONS[def.id] || ''} ${displayBuildingName(def.id)}</span>
-        <span class="build-item-cost">${def.cost.toLocaleString('ru-RU')} у.е.</span>
-      </div>
-      <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
-      <div class="build-item-meta">
-        <span>${
-          needsAdminFirst ? 'Ждём администрацию'
-          : missing ? missing
-          : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
-        }</span>
-        ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
-        ${def.reputation ? `<span>Репутация: +${def.reputation} за постройку</span>` : ''}
-        <span>XP: +${def.xp}</span>
-        ${limitLabel}
-      </div>
-    `;
-    if (!locked) {
-      const btn = document.createElement('button');
-      btn.className = 'btn-secondary';
-      btn.style.width = '100%';
-      if (limitReached) {
-        btn.textContent = `Лимит достигнут (${limit} шт.)`;
-        btn.disabled = true;
-      } else {
-        btn.textContent = tooExpensive ? 'Недостаточно средств' : 'Построить здесь';
-        btn.disabled = tooExpensive;
         btn.addEventListener('click', () => build(def.id));
       }
       item.appendChild(btn);
@@ -1149,27 +920,14 @@ function renderTerritoryBuildMenu() {
 
 async function build(buildingId) {
   try {
-    const state = await api('/api/build', 'POST', { cellIndex: selectedCell, buildingId });
+    const state = await api('/api/build', 'POST', { buildingId });
     STATE = state;
-    selectedCell = null;
     renderAll();
-    renderTerritoryBuildMenu();
     toast('Построено!');
   } catch (err) {
     toast(err.message, true);
   }
 }
-
-$('#buyLandBtn').addEventListener('click', async () => {
-  try {
-    const state = await api('/api/buy-land', 'POST');
-    STATE = state;
-    renderAll();
-    toast('Территория расширена!');
-  } catch (err) {
-    toast(err.message, true);
-  }
-});
 
 // ===== BUILDING MODAL (аренда / продажа / выкуп / снос) =====
 let buildingModalCell = null;
@@ -2056,71 +1814,6 @@ document.querySelectorAll('.left-menu-btn').forEach(btn => {
   });
 });
 
-$('#territoryBtn').addEventListener('click', () => {
-  selectedCell = null;
-  renderGrid();
-  renderStats(); // обновит кнопку "Выкупить землю"
-  renderTerritoryBuildMenu();
-  $('#territoryModal').classList.remove('hidden');
-});
-$('#closeTerritory').addEventListener('click', () => {
-  $('#territoryModal').classList.add('hidden');
-  exitSwapMode();
-});
-
-// ===== РЕЖИМ ПЕРЕСТАНОВКИ =====
-$('#swapModeBtn').addEventListener('click', () => {
-  swapMode = !swapMode;
-  swapFirst = null;
-  const btn = $('#swapModeBtn');
-  const hint = $('#swapHint');
-  btn.classList.toggle('active', swapMode);
-  hint.classList.toggle('hidden', !swapMode);
-  if (swapMode) {
-    hint.textContent = 'Выберите первую клетку…';
-    btn.textContent = '✕ Отменить перестановку';
-  } else {
-    btn.textContent = '↔ Поменять местами';
-  }
-  renderGrid();
-});
-
-function exitSwapMode() {
-  swapMode = false;
-  swapFirst = null;
-  const btn = $('#swapModeBtn');
-  const hint = $('#swapHint');
-  if (btn) btn.classList.remove('active'), btn.textContent = '↔ Поменять местами';
-  if (hint) hint.classList.add('hidden');
-}
-
-async function handleSwapClick(cellIndex) {
-  if (swapFirst === null) {
-    swapFirst = cellIndex;
-    $('#swapHint').textContent = 'Теперь выберите вторую клетку…';
-    renderGrid();
-    return;
-  }
-  if (swapFirst === cellIndex) {
-    // повторный клик по той же — отмена выбора
-    swapFirst = null;
-    $('#swapHint').textContent = 'Выберите первую клетку…';
-    renderGrid();
-    return;
-  }
-  const a = swapFirst, b = cellIndex;
-  swapFirst = null;
-  try {
-    STATE = await api('/api/building/swap', 'POST', { cellA: a, cellB: b });
-    renderAll();
-    $('#swapHint').textContent = 'Готово! Выберите следующую пару или закройте режим.';
-    toast('Объекты поменялись местами');
-  } catch (err) {
-    toast(err.message, true);
-    renderGrid();
-  }
-}
-
 // ===== FLEET MODAL (авиапарк) =====
 $('#fleetBtn').addEventListener('click', openFleet);
 $('#closeFleet').addEventListener('click', () => $('#fleetModal').classList.add('hidden'));
@@ -2820,8 +2513,6 @@ async function fleetAction(act, aircraftId) {
 // крестик .modal-close тоже; плюс Escape закрывает верхнюю открытую модалку.
 function closeModal(modal) {
   modal.classList.add('hidden');
-  // спец-очистка для отдельных окон
-  if (modal.id === 'territoryModal') { pendingBuildId = null; selectedCell = null; }
 }
 
 // Окна, которые нельзя смахнуть мимоходом: вступление, поздравление с

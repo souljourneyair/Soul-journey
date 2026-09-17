@@ -2185,7 +2185,7 @@ app.post('/api/fuel/contract/auto', auth, (req, res) => {
 });
 
 app.post('/api/build', auth, (req, res) => {
-  const { cellIndex, buildingId } = req.body || {};
+  const { buildingId } = req.body || {};
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
 
@@ -2243,13 +2243,11 @@ app.post('/api/build', auth, (req, res) => {
   if (reqErr) return res.status(400).json(reqErr);
   if (airport.money < def.cost) return res.status(400).json({ error: 'not_enough_money' });
 
-  const maxCells = airport.gridSize * airport.gridSize;
-  if (typeof cellIndex !== 'number' || cellIndex < 0 || cellIndex >= maxCells) {
-    return res.status(400).json({ error: 'invalid_cell' });
-  }
-  if (store.findBuildingAtCell(airport.id, cellIndex)) {
-    return res.status(400).json({ error: 'cell_occupied' });
-  }
+  // Клетки больше не нужны: здание получает первый свободный индекс,
+  // чтобы остальная логика (терминалы, стоянки, ВПП) работала как прежде.
+  const usedCells = new Set(store.getBuildingsByAirport(airport.id).map(b => b.cellIndex));
+  let cellIndex = 0;
+  while (usedCells.has(cellIndex)) cellIndex++;
 
   // Деньги списываются сразу. XP начислим при ЗАВЕРШЕНИИ стройки (в тике),
   // поэтому уровень пока не трогаем.
@@ -2409,23 +2407,6 @@ app.post('/api/building/demolish', auth, (req, res) => {
   res.json(resp);
 });
 
-// Поменять местами две клетки (перестановка объектов на территории).
-app.post('/api/building/swap', auth, (req, res) => {
-  const airport = store.getAirportByUserId(req.user.id);
-  if (!airport) return res.status(404).json({ error: 'no_airport' });
-  const { cellA, cellB } = req.body || {};
-  if (typeof cellA !== 'number' || typeof cellB !== 'number' || cellA === cellB) {
-    return res.status(400).json({ error: 'bad_cells', message: 'Нужно выбрать две разные клетки' });
-  }
-  const total = airport.gridSize * airport.gridSize;
-  if (cellA < 0 || cellA >= total || cellB < 0 || cellB >= total) {
-    return res.status(400).json({ error: 'out_of_range', message: 'Клетка вне территории' });
-  }
-  store.swapCells(airport.id, cellA, cellB);
-  const fresh = store.getAirportByUserId(req.user.id);
-  res.json(serializeAirport(fresh));
-});
-
 // Ремонт здания: обнуляет повреждение. Пока идут работы объект действует
 // на 30% (но не хуже, чем уже был от повреждения) — см. damageMultiplier.
 // Игрок увидел окно происшествия — убираем из очереди показа.
@@ -2573,25 +2554,6 @@ app.post('/api/building/upgrade', auth, (req, res) => {
   const updatedAirport = store.updateAirport(airport.id, { money: airport.money - cost });
 
   res.json(serializeAirport(updatedAirport));
-});
-
-app.post('/api/buy-land', auth, (req, res) => {
-  const airport = store.getAirportByUserId(req.user.id);
-  if (!airport) return res.status(404).json({ error: 'no_airport' });
-
-  const expansion = LAND_EXPANSION[airport.landExpansionsBought];
-  if (!expansion) return res.status(400).json({ error: 'max_expansion_reached' });
-  if (airport.level < expansion.minLevel) return res.status(400).json({ error: 'level_too_low', message: `Нужен уровень ${expansion.minLevel}` });
-  if (airport.money < expansion.cost) return res.status(400).json({ error: 'not_enough_money' });
-
-  const newGridSize = Math.min(airport.gridSize + 2, CONFIG.MAX_GRID_SIZE);
-  const updated = store.updateAirport(airport.id, {
-    money: airport.money - expansion.cost,
-    gridSize: newGridSize,
-    landExpansionsBought: airport.landExpansionsBought + 1,
-  });
-
-  res.json(serializeAirport(updated));
 });
 
 // ---------- Сезоны рейтинга ----------

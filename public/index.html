@@ -126,7 +126,6 @@
   <main class="game-main">
     <nav class="left-menu" id="leftMenu">
       <div class="left-menu-title">МЕНЮ</div>
-      <button id="territoryBtn" class="left-menu-btn">🗺 Территория а/п</button>
       <button id="fleetBtn" class="left-menu-btn">✈ Авиапарк</button>
       <button id="scheduleBtn" class="left-menu-btn">🕐 Расписание</button>
       <button id="envelopeBtn" class="left-menu-btn envelope-btn hidden">✉ Договоры<span id="envelopeBadge" class="envelope-badge hidden">0</span></button>
@@ -383,27 +382,6 @@
       <div class="form-msg" id="fleetMsg"></div>
     </div>
     <button id="closeFleet" class="btn-secondary">Закрыть</button>
-  </div>
-</div>
-
-<!-- ===== МОДАЛКА ТЕРРИТОРИИ (СЕТКА) ===== -->
-<div id="territoryModal" class="modal hidden">
-  <div class="modal-card board-frame territory-modal">
-    <button class="modal-close" aria-label="Закрыть">×</button>
-    <div class="board-header">
-      <span class="board-title">ТЕРРИТОРИЯ АЭРОПОРТА</span>
-      <span class="board-sub">КЛИКНИТЕ ПО КЛЕТКЕ, ЧТОБЫ ПОСТРОИТЬ ИЛИ УПРАВЛЯТЬ</span>
-    </div>
-    <div class="territory-modal-body">
-      <div class="territory-toolbar">
-        <button id="swapModeBtn" class="btn-secondary">↔ Поменять местами</button>
-        <span id="swapHint" class="swap-hint hidden">Выберите первую клетку…</span>
-      </div>
-      <div id="airportGrid" class="airport-grid"></div>
-      <button id="buyLandBtn" class="btn-secondary">Выкупить землю</button>
-      <div id="territoryBuildMenu" class="territory-build-menu"></div>
-    </div>
-    <button id="closeTerritory" class="btn-secondary">Закрыть</button>
   </div>
 </div>
 

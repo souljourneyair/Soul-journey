@@ -326,10 +326,6 @@ body.game-open { overflow: hidden; }
 .obj-status.listed { color: var(--board-amber); }
 .objects-empty { color: var(--text-dim); text-align: center; padding: 24px 14px; font-size: 13px; }
 
-/* ===== TERRITORY MODAL ===== */
-.territory-modal { width: auto; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
-.territory-modal-body { padding: 20px 24px; }
-
 /* ===== NAME MODALS (аэропорт / АК) ===== */
 .name-modal { width: 420px; max-width: 95vw; }
 .name-modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
@@ -480,66 +476,6 @@ body.game-open { overflow: hidden; }
   .fleet-modal { width: 100%; }
   .fleet-card-actions .btn-secondary { flex: 1; }
 }
-.territory-build-menu { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
-#closeTerritory { margin: 0 24px 20px; }
-
-.grid-panel { min-width: 0; overflow-x: hidden; }
-.airport-grid {
-  display: grid;
-  gap: 10px;
-  background: #05070a;
-  padding: 14px;
-  border-radius: 4px;
-  border: 1px solid var(--line);
-  width: 100%;
-}
-.cell {
-  width: 100%;
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  cursor: pointer; text-align: center;
-}
-.cell-image-wrap {
-  width: 100%; aspect-ratio: 1 / 1;
-  background: var(--bg-cell); border: 1px solid var(--line); border-radius: 3px;
-  display: flex; align-items: center; justify-content: center;
-  position: relative; overflow: hidden; transition: border-color 0.15s;
-}
-.cell:hover .cell-image-wrap { border-color: var(--board-amber); }
-.cell.locked .cell-image-wrap { background: repeating-linear-gradient(45deg, #0a0d11, #0a0d11 6px, #0d1116 6px, #0d1116 12px); cursor: not-allowed; }
-.cell.locked:hover .cell-image-wrap { border-color: var(--line); }
-.cell.occupied { cursor: default; }
-.cell-icon { font-size: 52px; line-height: 1; }
-.cell-icon-img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.cell-label {
-  font-size: 11px; color: var(--text); letter-spacing: 0.3px; line-height: 1.3;
-  width: 100%; word-wrap: break-word;
-}
-.cell-empty-plus { color: var(--text-dim); font-size: 28px; }
-.territory-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-.territory-toolbar .btn-secondary { width: auto; margin: 0; padding: 8px 14px; }
-.territory-toolbar .btn-secondary.active { background: var(--board-amber); color: #1a1a1a; }
-.swap-hint { font-size: 12px; color: var(--board-amber); font-family: var(--mono); }
-.cell.swap-selected .cell-image-wrap { border-color: var(--board-amber) !important; box-shadow: 0 0 0 2px var(--board-amber); }
-
-/* рамка клетки по состоянию объекта */
-.cell.damage-bad .cell-image-wrap { border-color: var(--board-amber); }
-.cell.damage-repairing .cell-image-wrap { border-color: var(--board-amber); }
-.cell.damage-ruined .cell-image-wrap { border-color: var(--red); }
-
-.cell.state-rented .cell-image-wrap { border-color: var(--green); }
-.cell.state-sold .cell-image-wrap { border-color: var(--red); opacity: 0.7; }
-.cell.state-listed .cell-image-wrap { border-color: var(--board-amber); }
-.cell-badge {
-  position: absolute; top: 4px; right: 4px; font-size: 9px; padding: 2px 6px;
-  border-radius: 2px; letter-spacing: 0.5px; font-family: var(--mono);
-}
-.cell-badge.rented { background: rgba(52,211,153,0.25); color: var(--green); }
-.cell-badge.sold { background: rgba(248,113,113,0.25); color: var(--red); }
-.cell-badge.listed { background: rgba(255,180,0,0.25); color: var(--board-amber); }
-.cell-badge.working { background: rgba(96,165,250,0.3); color: #93c5fd; }
-.cell-bot-name { font-size: 9px; color: var(--text-dim); }
-.airport-grid .cell.state-working { outline: 2px dashed #60a5fa; outline-offset: -2px; }
-.obj-status.working { color: #93c5fd; }
 
 /* ===== ЛЕВОЕ МЕНЮ ===== */
 .left-menu {
@@ -567,15 +503,10 @@ body.game-open { overflow: hidden; }
 @keyframes spinSlow { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .progress-ring { animation: progressPulse 1.6s ease-in-out infinite; }
 .progress-ring path, .progress-ring circle { transition: all 0.5s ease; }
-.cell-progress .progress-ring { animation: progressPulse 1.6s ease-in-out infinite, spinSlow 8s linear infinite; }
 
 /* ===== КОЛЬЦО ПРОГРЕССА (стройка/апгрейд) ===== */
 .progress-ring { display: block; }
 .progress-ring circle { transition: stroke-dashoffset 0.5s linear; }
-.cell-progress {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: rgba(15,20,28,0.55); z-index: 2;
-}
 .obj-working { display: inline-flex; align-items: center; gap: 8px; color: #93c5fd; }
 .bm-progress { display: flex; align-items: center; gap: 12px; }
 .bm-progress span { flex: 1; }
@@ -763,9 +694,8 @@ body.modal-open { overflow: hidden; }
   .auth-card, .start-card { width: 100%; max-width: 420px; }
   .start-options { flex-direction: column; }
 
-  /* --- территория/постройки --- */
+  /* --- постройки --- */
   .panel-title { font-size: 10px; }
-  .airport-grid { padding: 10px; gap: 8px; }
   .build-menu { max-height: 280px; }
   .build-item .btn-secondary { width: 100%; }
 
@@ -778,7 +708,7 @@ body.modal-open { overflow: hidden; }
      Раньше стояло align-items: flex-end, и окно прижималось к низу экрана:
      на длинной странице игрок его просто не замечал. --- */
   .modal { padding: 12px; align-items: center; }
-  .modal-card, .building-modal, .cell-modal, .territory-modal {
+  .modal-card, .building-modal {
     width: 100%; max-width: 100%; max-height: 85vh;
   }
 
@@ -811,37 +741,7 @@ body.modal-open { overflow: hidden; }
 }
 
 /* --- состояние объекта: повреждение, ремонт, разрушение --- */
-/* Значок состояния поверх картинки здания.
-   Лёгкий износ — маленькая метка в углу, чтобы не шуметь.
-   Требует ремонта / ремонт / разрушено — крупно по центру с затемнением,
-   иначе значок теряется на фотографии. */
-.cell-damage {
-  position: absolute; z-index: 3; line-height: 1;
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9));
-  pointer-events: none;
-}
-/* лёгкий износ: точка в углу */
-.cell-damage.worn {
-  top: 4px; left: 5px; font-size: 24px;
-  color: var(--board-amber); opacity: 0.8;
-}
-/* требует ремонта, ремонт, разрушено: во всю клетку */
-.cell-damage.bad, .cell-damage.repairing, .cell-damage.ruined {
-  inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: clamp(22px, 9vw, 46px);
-}
-.cell-damage.bad { background: rgba(10,13,17,0.42); }
-.cell-damage.repairing { background: rgba(10,13,17,0.42); }
-.cell-damage.ruined { background: rgba(120,20,20,0.42); }
-/* мигание, чтобы «требует ремонта» цепляло взгляд при осмотре аэропорта */
-.cell-damage.bad { animation: damagePulse 2.2s ease-in-out infinite; }
-@keyframes damagePulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .cell-damage.bad { animation: none; }
-}
+/* Значок состояния поверх картинки здания в таблице объектов. */
 .obj-damage { font-size: 12px; line-height: 1.4; font-family: var(--mono); }
 .obj-damage.worn { color: var(--text-dim); }
 .obj-damage.bad { color: var(--board-amber); }
