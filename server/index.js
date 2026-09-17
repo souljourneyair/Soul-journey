@@ -4015,7 +4015,12 @@ function runTick() {
     const newRep = Math.max(0, freshAirport.reputation + repChange);
 
     // Пассивный опыт за тик (растёт с уровнем) — вторая половина прогрессии.
-    const xpPerTick = CONFIG.XP_PER_TICK_BASE + freshAirport.level * CONFIG.XP_PER_TICK_PER_LEVEL;
+    // Начинает капать только после первой постройки: свежий аккаунт не должен
+    // набирать уровни, пока игрок в офлайне и ещё ничего не построил.
+    const hasAnyBuilding = store.getBuildingsByAirport(airport.id).length > 0;
+    const xpPerTick = hasAnyBuilding
+      ? CONFIG.XP_PER_TICK_BASE + freshAirport.level * CONFIG.XP_PER_TICK_PER_LEVEL
+      : 0;
     // Опыт от кафе: каждый десятый посетитель. Дробный остаток переносим
     // на следующий тик, иначе при потоке меньше десяти он терялся бы весь.
     const cafePool = (freshAirport.cafeXpPool || 0) + cafeVisitors;
