@@ -13,7 +13,7 @@ public/uploads/
   screens/auth/*.{png,jpg,webp,mp4,webm}   фон экрана входа
   screens/game/*.{png,jpg,webp,mp4,webm}   фон игрового экрана
   logo/default.*        основной логотип (small.* — компактный для узких экранов)
-  favicon/favicon.*     фавикон — отдаётся по /favicon.ico (см. ниже)
+  favicon/favicon.ico   фавикон (+ favicon-*.png, apple-touch-icon.png) — см. ниже
 ```
 
 `<buildingId>` — ровно ключ из `BUILDINGS` в `gameData.js`: `admin`, `helipad`,
@@ -289,15 +289,21 @@ public/uploads/logo/
 
 ```
 public/uploads/favicon/
-  favicon.png    (или .jpg/.gif/.webp/.svg/.ico)
+  favicon.ico                   классический ICO 16/32/48
+  favicon-16x16.png             16×16
+  favicon-32x32.png             32×32
+  apple-touch-icon.png          180×180 (iOS, домашний экран)
+  android-chrome-192x192.png    192×192 (Android/PWA)
+  android-chrome-512x512.png    512×512 (Android/PWA, splash)
 ```
 
-Один файл, названный `favicon.<расширение>`. Отдаётся браузеру по каноничному
-пути `/favicon.ico` с правильным MIME (`image/png`, `image/x-icon` и т.д.) —
-так его находят и вкладки браузера, и поисковики. В HTML `<head>` обеих
-страниц стоят `<link rel="icon" href="/favicon.ico">` и
-`<link rel="apple-touch-icon" href="/favicon.ico">`.
+Файлы с этими именами отдаются по соответствующим путям в корне сайта
+(`/favicon.ico`, `/favicon-32x32.png`, `/apple-touch-icon.png`, …) с правильным
+MIME. В `<head>` обеих страниц стоят `<link rel="icon" sizes=…>` и
+`<link rel="apple-touch-icon">`, а по `/site.webmanifest` отдаётся веб-манифест
+(формируется автоматически из загруженных иконок 192/512).
 
-Загрузка — в админке («Настройки» → «Фавикон») или файлом в папку. Для
-поисковиков лучше квадратная PNG 128×128 или 180×180 (или классический ICO).
-Ограничение — 1 МБ.
+Загрузка — в админке («Настройки» → «Фавикон», слот под каждый размер) или
+просто файлом в папку (подхватятся при следующем сканировании). Ограничение —
+1 МБ на файл. В слот принимается только его формат (в `favicon.ico` — ICO,
+в `*.png` — PNG).

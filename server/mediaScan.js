@@ -28,6 +28,17 @@ const FAVICON_MIME = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
   webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon',
 };
+// Стандартный набор фавиконов под разные устройства (имена — как у
+// realfavicongenerator). Файл кладём в public/uploads/favicon/ под этим именем,
+// отдаём по path в корне сайта. Браузер/поисковик выбирает нужный размер.
+const FAVICON_FILES = [
+  { name: 'favicon.ico',                 path: '/favicon.ico',                 ext: 'ico', title: 'favicon.ico', hint: 'классический ICO 16/32/48 — вкладка браузера' },
+  { name: 'favicon-16x16.png',           path: '/favicon-16x16.png',           ext: 'png', title: '16×16',       hint: 'мелкие экраны, панели' },
+  { name: 'favicon-32x32.png',           path: '/favicon-32x32.png',           ext: 'png', title: '32×32',       hint: 'вкладка, поисковая выдача' },
+  { name: 'apple-touch-icon.png',        path: '/apple-touch-icon.png',        ext: 'png', title: '180×180',     hint: 'iOS: закрепление на домашний экран' },
+  { name: 'android-chrome-192x192.png',  path: '/android-chrome-192x192.png',  ext: 'png', title: '192×192',     hint: 'Android/PWA' },
+  { name: 'android-chrome-512x512.png',  path: '/android-chrome-512x512.png',  ext: 'png', title: '512×512',     hint: 'Android/PWA, splash' },
+];
 
 const RESCAN_INTERVAL_MS = 30000; // авто-пересканирование раз в 30 сек
 
@@ -218,50 +229,45 @@ function screenFilePath(screen, filename) {
 }
 
 // ---------- Фавикон ----------
-// Один файл в public/uploads/favicon/. Браузеры и поисковики просят /favicon.ico,
-// поэтому храним файл как favicon.<ext> и отдаём его по этому пути (см. server/index.js).
+// Несколько файлов в public/uploads/favicon/ под стандартными именами (см.
+// FAVICON_FILES). Каждый отдаётся по своему пути в корне сайта, а браузер/
+// поисковик выбирает подходящий размер. Сканируем папку: какие есть — те и отдаём.
 function scanFavicon() {
-  let files;
-  try { files = fs.readdirSync(FAVICON_DIR).sort(); } catch (e) { return null; }
-  // Приоритет отдаём явному favicon.<ext>, иначе берём первый подходящий файл.
-  let fallback = null;
-  for (const file of files) {
-    const ext = extOf(file);
-    if (!FAVICON_EXT[ext]) continue;
-    const url = urlFor('favicon', file, path.join(FAVICON_DIR, file));
-    const base = path.basename(file, path.extname(file)).toLowerCase();
-    if (base === 'favicon') return { url, ext, file };
-    if (!fallback) fallback = { url, ext, file };
+  const out = {};
+  for (const f of FAVICON_FILES) {
+    const full = path.join(FAVICON_DIR, f.name);
+    let st;
+    try { st = fs.statSync(full); } catch (e) { continue; }
+    if (!st.isFile()) continue;
+    out[f.name] = { url: urlFor('favicon', f.name, full), ext: f.ext, title: f.title, hint: f.hint, path: f.path };
   }
-  return fallback;
+  return out;
 }
 
+// Список стандартных фавиконов: { name, path, title, hint, ext, url|null }.
 function getFavicon() {
-  return cache.favicon ? { url: cache.favicon.url, ext: cache.favicon.ext } : null;
+  return FAVICON_FILES.map(f => {
+    const found = cache.favicon[f.name];
+    return { name: f.name, path: f.path, title: f.title, hint: f.hint, ext: f.ext, url: found ? found.url : null };
+  });
 }
 
-function faviconFilePath(ext) {
-  return path.join(FAVICON_DIR, `favicon.${ext}`);
+function faviconFilePath(name) {
+  return path.join(FAVICON_DIR, name);
 }
 
-// Удалить все favicon.* (чтобы при замене расширения не осталось двух файлов).
-function removeFavicon() {
-  let files = [];
-  try { files = fs.readdirSync(FAVICON_DIR); } catch (e) { return 0; }
-  let removed = 0;
-  for (const file of files) {
-    if (!FAVICON_EXT[extOf(file)]) continue;
-    if (path.basename(file, path.extname(file)).toLowerCase() !== 'favicon') continue;
-    try { fs.unlinkSync(path.join(FAVICON_DIR, file)); removed++; } catch (e) { /* уже нет */ }
-  }
-  return removed;
+// Удалить конкретный файл фавикона (только из числа стандартных имён).
+function removeFavicon(name) {
+  const def = FAVICON_FILES.find(f => f.name === name);
+  if (!def) return false;
+  try { fs.unlinkSync(path.join(FAVICON_DIR, name)); return true; } catch (e) { return false; }
 }
 
-// Путь к самому файлу фавикона на диске (для отдачи по /favicon.ico).
-function faviconDiskPath() {
-  const fav = cache.favicon;
-  if (!fav) return null;
-  return path.join(FAVICON_DIR, fav.file);
+// Путь к файлу фавикона на диске (для отдачи по его каноничному path).
+function faviconDiskPath(name) {
+  const found = cache.favicon[name];
+  if (!found) return null;
+  return path.join(FAVICON_DIR, name);
 }
 
 // Удалить все варианты уровня (1.png, 1.jpg, ...) — чтобы после замены
@@ -288,7 +294,7 @@ function removeScreenFile(screen, filename) {
 }
 
 module.exports = {
-  SCREENS, LOGO_VARIANTS, IMAGE_EXT, VIDEO_EXT, FAVICON_MIME,
+  SCREENS, LOGO_VARIANTS, IMAGE_EXT, VIDEO_EXT, FAVICON_MIME, FAVICON_FILES,
   init, rescan, buildingsManifest, resolveBuilding,
   pickScreenBackground, listScreen,
   getLogo, listLogoFiles, logoFilePath, removeLogoVariant,

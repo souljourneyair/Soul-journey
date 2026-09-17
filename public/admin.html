@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Soul Journey — Admin</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
-<link rel="apple-touch-icon" href="/favicon.ico">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="admin.css">
 </head>
@@ -104,8 +107,15 @@
 
       <section class="detail-section">
         <div class="detail-section-title">Фавикон</div>
-        <p class="build-menu-hint">Иконка сайта во вкладке браузера и в результатах поиска. Для поисковиков лучше квадратная PNG размером 128×128 или 180×180 (или ICO). Форматы: PNG, JPEG, GIF, WEBP, SVG, ICO — до 1 МБ.<br>
-        Файл хранится в <code>public/uploads/favicon/favicon.*</code> и отдаётся по <code>/favicon.ico</code>.</p>
+        <p class="build-menu-hint">Иконки сайта для вкладки браузера, поисковой выдачи и домашнего экрана телефона. Нужно несколько размеров — у каждого свой слот и свой путь в корне сайта.<br>
+        Файлы лежат в <code>public/uploads/favicon/</code> и называются строго так:</p>
+        <ul class="build-menu-hint" style="margin:6px 0 10px 18px; padding:0;">
+          <li><code>favicon.ico</code> — классический ICO 16/32/48 (вкладка браузера)</li>
+          <li><code>favicon-16x16.png</code> и <code>favicon-32x32.png</code> — PNG для вкладки и поиска</li>
+          <li><code>apple-touch-icon.png</code> — 180×180 для iOS (домашний экран)</li>
+          <li><code>android-chrome-192x192.png</code> и <code>android-chrome-512x512.png</code> — для Android/PWA</li>
+        </ul>
+        <p class="build-menu-hint">Можно просто положить готовые файлы в папку (по SFTP) — они подхватятся при следующем сканировании, либо загрузить каждый слот здесь.</p>
         <div id="faviconPreviewWrap" style="margin:12px 0;"></div>
         <div class="build-menu-hint" id="faviconMsg" style="margin-top:8px;"></div>
       </section>

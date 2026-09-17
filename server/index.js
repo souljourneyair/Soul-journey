@@ -3085,8 +3085,8 @@ app.post('/api/admin/media/logo/remove', auth, adminAuth, (req, res) => {
   res.json({ removed, files: mediaScan.listLogoFiles(), current: mediaScan.getLogo() });
 });
 
-// Фавикон: загрузка (админ) и отдача по /favicon.ico. Форматы — PNG/JPEG/GIF/WEBP/SVG/ICO,
-// до 1 МБ. Файл хранится как favicon.<ext> в public/uploads/favicon/.
+// Фавикон: набор файлов под разные устройства в public/uploads/favicon/ (см.
+// mediaScan.FAVICON_FILES). Каждый отдаётся по своему пути в корне сайта.
 const ALLOWED_FAVICON_TYPES = {
   'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
   'image/svg+xml': 'svg', 'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico',
@@ -3094,11 +3094,13 @@ const ALLOWED_FAVICON_TYPES = {
 const MAX_FAVICON_BYTES = 1024 * 1024; // 1MB — фавикону больше не нужно
 
 app.get('/api/admin/media/favicon', auth, adminAuth, (req, res) => {
-  res.json({ current: mediaScan.getFavicon() });
+  res.json({ files: mediaScan.getFavicon() });
 });
 
 app.post('/api/admin/media/favicon', auth, adminAuth, (req, res) => {
-  const { dataUrl, filename } = req.body || {};
+  const { name, dataUrl, filename } = req.body || {};
+  const def = mediaScan.FAVICON_FILES.find(f => f.name === name);
+  if (!def) return res.status(400).json({ error: 'bad_name', message: 'Неизвестное имя фавикона' });
   const match = typeof dataUrl === 'string' && dataUrl.match(/^data:([a-zA-Z0-9./+-]*);base64,(.+)$/);
   if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки' });
   let ext = ALLOWED_FAVICON_TYPES[match[1]] || null;
@@ -3108,30 +3110,60 @@ app.post('/api/admin/media/favicon', auth, adminAuth, (req, res) => {
     if (fromName) ext = fromName[1];
   }
   if (!ext) return res.status(400).json({ error: 'unsupported_type', message: 'PNG, JPEG, GIF, WEBP, SVG или ICO' });
+  // В слот идёт только правильное расширение (например в favicon.ico — только ICO).
+  if (ext !== def.ext) {
+    return res.status(400).json({ error: 'bad_type', message: `В слот ${def.name} нужен ${def.ext.toUpperCase()}` });
+  }
   const buffer = Buffer.from(match[2], 'base64');
   if (buffer.length > MAX_FAVICON_BYTES) return res.status(400).json({ error: 'file_too_large', message: 'Максимум 1 МБ' });
 
-  mediaScan.removeFavicon(); // прежний файл мог быть другого формата
-  fs.writeFileSync(mediaScan.faviconFilePath(ext), buffer);
+  fs.writeFileSync(mediaScan.faviconFilePath(def.name), buffer);
   mediaScan.rescan();
-  res.json({ current: mediaScan.getFavicon() });
+  res.json({ files: mediaScan.getFavicon() });
 });
 
 app.post('/api/admin/media/favicon/remove', auth, adminAuth, (req, res) => {
-  const removed = mediaScan.removeFavicon();
+  const { name } = req.body || {};
+  const removed = mediaScan.removeFavicon(name);
+  if (!removed) return res.status(404).json({ error: 'not_found', message: 'Файл не найден' });
   mediaScan.rescan();
-  res.json({ removed, current: mediaScan.getFavicon() });
+  res.json({ files: mediaScan.getFavicon() });
 });
 
-// Отдача фавикона по каноничному пути /favicon.ico. Поисковики и браузеры
-// запрашивают его без явного указания в HTML — отвечаем правильным MIME.
-app.get('/favicon.ico', (req, res) => {
-  const filePath = mediaScan.faviconDiskPath();
-  if (!filePath) return res.status(404).end();
-  const ext = mediaScan.getFavicon()?.ext || 'ico';
-  res.setHeader('Content-Type', mediaScan.FAVICON_MIME[ext] || 'image/x-icon');
+// Отдача каждого фавикона по его каноничному пути (/favicon.ico, /favicon-32x32.png, ...).
+// Поисковики и браузеры запрашивают их напрямую — отвечаем правильным MIME.
+for (const f of mediaScan.FAVICON_FILES) {
+  app.get(f.path, (req, res) => {
+    const filePath = mediaScan.faviconDiskPath(f.name);
+    if (!filePath) return res.status(404).end();
+    res.setHeader('Content-Type', mediaScan.FAVICON_MIME[f.ext] || 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.sendFile(filePath);
+  });
+}
+
+// Web-манифест (PWA/Android): ссылается на загруженные иконки 192/512.
+app.get('/site.webmanifest', (req, res) => {
+  const icons = [];
+  for (const f of mediaScan.FAVICON_FILES) {
+    if (!mediaScan.faviconDiskPath(f.name)) continue;
+    const m = f.name.match(/^android-chrome-(\d+)x(\d+)\.png$/);
+    if (!m) continue;
+    icons.push({
+      src: f.path, sizes: `${m[1]}x${m[2]}`, type: 'image/png', purpose: 'any',
+    });
+  }
+  res.setHeader('Content-Type', 'application/manifest+json');
   res.setHeader('Cache-Control', 'public, max-age=3600');
-  res.sendFile(filePath);
+  res.json({
+    name: 'Путешествие души — Soul Journey',
+    short_name: 'Soul Journey',
+    start_url: '/',
+    display: 'standalone',
+    background_color: '#05070a',
+    theme_color: '#05070a',
+    icons,
+  });
 });
 
 app.post('/api/admin/media/screen/remove', auth, adminAuth, (req, res) => {
