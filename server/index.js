@@ -1608,6 +1608,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     reachedLevel10At: null, startedAt: Date.now(),
     idleSinceTick: null, bankrupt: false,
     apronBorts: [], waitingBorts: [],
+    loan: null,
     fuelStored: 0, fuelSupplier: null, fuelContract: null, fuelAutoContract: false, fuelRefillThreshold: 25,
     paxPool: { heli: 0, vvl: 0, mvl: 0 }, termQueue: [],
     heliCarried: 0, paxServed: 0, paxProcessed: 0, heliFlow: { arrived: 0, departed: 0 },
