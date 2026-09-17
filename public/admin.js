@@ -107,7 +107,7 @@ function switchView(view) {
   $('#settingsView').classList.toggle('hidden', view !== 'settings');
   if (view === 'gallery' && !galleryData) loadGallery();
   if (view === 'objects') loadObjectsSection();
-  if (view === 'settings') { loadLogoSettings(); loadGameplaySettings(); loadBackgroundSettings(); loadDisasterPanel(); loadSupportSettings(); }
+  if (view === 'settings') { loadLogoSettings(); loadFaviconSettings(); loadGameplaySettings(); loadBackgroundSettings(); loadDisasterPanel(); loadSupportSettings(); }
 }
 
 // ===== НАСТРОЙКИ: ЛОГОТИП =====
@@ -207,6 +207,71 @@ function renderLogoSlots(current) {
         $('#logoMsg').textContent = err.message;
       }
     });
+  });
+}
+
+// ===== ФАВИКОН =====
+async function loadFaviconSettings() {
+  try {
+    const res = await api('/api/admin/media/favicon');
+    renderFavicon(res.current);
+  } catch (err) { /* ignore */ }
+}
+
+function renderFavicon(current) {
+  const wrap = $('#faviconPreviewWrap');
+  if (!wrap) return;
+  const url = current && current.url ? current.url : null;
+  wrap.innerHTML = `
+    <div style="display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+      <div style="width:64px;height:64px;background:#0b0f14;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+        ${url ? `<img src="${url}" alt="" style="width:48px;height:48px;object-fit:contain;">` : '<span class="build-menu-hint">нет</span>'}
+      </div>
+      <div style="flex:1; min-width:200px;">
+        <div class="build-menu-hint">${url ? 'Установлен — отдаётся по <code>/favicon.ico</code>.' : 'Фавикон не установлен — браузер покажет стандартный.'}</div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <input type="file" id="faviconFileInput" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/x-icon,image/vnd.microsoft.icon,.ico" style="display:none;" />
+          <button class="btn-secondary" id="faviconUploadBtn">Загрузить</button>
+          ${url ? '<button class="btn-secondary btn-danger" id="faviconRemoveBtn">Удалить</button>' : ''}
+        </div>
+      </div>
+    </div>`;
+
+  const input = $('#faviconFileInput');
+  const upBtn = $('#faviconUploadBtn');
+  if (upBtn) upBtn.addEventListener('click', () => input.click());
+  if (input) input.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) {
+      $('#faviconMsg').textContent = 'Файл больше 1 МБ — фавикону столько не нужно.';
+      input.value = '';
+      return;
+    }
+    $('#faviconMsg').textContent = 'Загрузка…';
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await api('/api/admin/media/favicon', 'POST', { dataUrl: reader.result, filename: file.name });
+        renderFavicon(res.current);
+        $('#faviconMsg').textContent = 'Фавикон сохранён. Браузеры обновят его при следующем заходе.';
+      } catch (err) {
+        $('#faviconMsg').textContent = err.message;
+      }
+      input.value = '';
+    };
+    reader.onerror = () => { $('#faviconMsg').textContent = 'Не удалось прочитать файл.'; input.value = ''; };
+    reader.readAsDataURL(file);
+  });
+  const rmBtn = $('#faviconRemoveBtn');
+  if (rmBtn) rmBtn.addEventListener('click', async () => {
+    try {
+      const res = await api('/api/admin/media/favicon/remove', 'POST');
+      renderFavicon(res.current);
+      $('#faviconMsg').textContent = 'Фавикон удалён.';
+    } catch (err) {
+      $('#faviconMsg').textContent = err.message;
+    }
   });
 }
 

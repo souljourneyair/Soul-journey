@@ -3085,6 +3085,55 @@ app.post('/api/admin/media/logo/remove', auth, adminAuth, (req, res) => {
   res.json({ removed, files: mediaScan.listLogoFiles(), current: mediaScan.getLogo() });
 });
 
+// Фавикон: загрузка (админ) и отдача по /favicon.ico. Форматы — PNG/JPEG/GIF/WEBP/SVG/ICO,
+// до 1 МБ. Файл хранится как favicon.<ext> в public/uploads/favicon/.
+const ALLOWED_FAVICON_TYPES = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp',
+  'image/svg+xml': 'svg', 'image/x-icon': 'ico', 'image/vnd.microsoft.icon': 'ico',
+};
+const MAX_FAVICON_BYTES = 1024 * 1024; // 1MB — фавикону больше не нужно
+
+app.get('/api/admin/media/favicon', auth, adminAuth, (req, res) => {
+  res.json({ current: mediaScan.getFavicon() });
+});
+
+app.post('/api/admin/media/favicon', auth, adminAuth, (req, res) => {
+  const { dataUrl, filename } = req.body || {};
+  const match = typeof dataUrl === 'string' && dataUrl.match(/^data:([a-zA-Z0-9./+-]*);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки' });
+  let ext = ALLOWED_FAVICON_TYPES[match[1]] || null;
+  // Некоторые браузеры отдают .ico как generic MIME — доверяем расширению файла.
+  if (!ext && typeof filename === 'string') {
+    const fromName = filename.toLowerCase().match(/\.(png|jpe?g|gif|webp|svg|ico)$/);
+    if (fromName) ext = fromName[1];
+  }
+  if (!ext) return res.status(400).json({ error: 'unsupported_type', message: 'PNG, JPEG, GIF, WEBP, SVG или ICO' });
+  const buffer = Buffer.from(match[2], 'base64');
+  if (buffer.length > MAX_FAVICON_BYTES) return res.status(400).json({ error: 'file_too_large', message: 'Максимум 1 МБ' });
+
+  mediaScan.removeFavicon(); // прежний файл мог быть другого формата
+  fs.writeFileSync(mediaScan.faviconFilePath(ext), buffer);
+  mediaScan.rescan();
+  res.json({ current: mediaScan.getFavicon() });
+});
+
+app.post('/api/admin/media/favicon/remove', auth, adminAuth, (req, res) => {
+  const removed = mediaScan.removeFavicon();
+  mediaScan.rescan();
+  res.json({ removed, current: mediaScan.getFavicon() });
+});
+
+// Отдача фавикона по каноничному пути /favicon.ico. Поисковики и браузеры
+// запрашивают его без явного указания в HTML — отвечаем правильным MIME.
+app.get('/favicon.ico', (req, res) => {
+  const filePath = mediaScan.faviconDiskPath();
+  if (!filePath) return res.status(404).end();
+  const ext = mediaScan.getFavicon()?.ext || 'ico';
+  res.setHeader('Content-Type', mediaScan.FAVICON_MIME[ext] || 'image/x-icon');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.sendFile(filePath);
+});
+
 app.post('/api/admin/media/screen/remove', auth, adminAuth, (req, res) => {
   const { screen, filename } = req.body || {};
   if (!mediaScan.SCREENS.includes(screen)) return res.status(400).json({ error: 'bad_screen' });

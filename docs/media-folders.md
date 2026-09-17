@@ -12,6 +12,8 @@ public/uploads/
                         /default.png  запасной вариант для всех уровней
   screens/auth/*.{png,jpg,webp,mp4,webm}   фон экрана входа
   screens/game/*.{png,jpg,webp,mp4,webm}   фон игрового экрана
+  logo/default.*        основной логотип (small.* — компактный для узких экранов)
+  favicon/favicon.*     фавикон — отдаётся по /favicon.ico (см. ниже)
 ```
 
 `<buildingId>` — ровно ключ из `BUILDINGS` в `gameData.js`: `admin`, `helipad`,
@@ -280,3 +282,22 @@ public/uploads/logo/
 Загрузка — в админке («Настройки» → «Логотип игры», два слота) или файлом
 в папку. Старый `settings.logoUrl` из `data.json` остаётся запасным вариантом,
 пока папка пуста; `scripts/migrate-media.js` переносит его в `logo/default.*`.
+
+---
+
+## Фавикон
+
+```
+public/uploads/favicon/
+  favicon.png    (или .jpg/.gif/.webp/.svg/.ico)
+```
+
+Один файл, названный `favicon.<расширение>`. Отдаётся браузеру по каноничному
+пути `/favicon.ico` с правильным MIME (`image/png`, `image/x-icon` и т.д.) —
+так его находят и вкладки браузера, и поисковики. В HTML `<head>` обеих
+страниц стоят `<link rel="icon" href="/favicon.ico">` и
+`<link rel="apple-touch-icon" href="/favicon.ico">`.
+
+Загрузка — в админке («Настройки» → «Фавикон») или файлом в папку. Для
+поисковиков лучше квадратная PNG 128×128 или 180×180 (или классический ICO).
+Ограничение — 1 МБ.

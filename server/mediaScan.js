@@ -15,16 +15,23 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const BUILDINGS_DIR = path.join(PUBLIC_DIR, 'uploads', 'buildings');
 const SCREENS_DIR = path.join(PUBLIC_DIR, 'uploads', 'screens');
 const LOGO_DIR = path.join(PUBLIC_DIR, 'uploads', 'logo');
+const FAVICON_DIR = path.join(PUBLIC_DIR, 'uploads', 'favicon');
 const SCREENS = ['auth', 'game'];
 // Логотип: основной и необязательный компактный для узких экранов.
 const LOGO_VARIANTS = ['default', 'small'];
 
 const IMAGE_EXT = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, svg: 1 };
 const VIDEO_EXT = { mp4: 1, webm: 1, ogv: 1, ogg: 1 };
+// Фавикон: стандартные форматы + ICO. Расширение -> MIME для отдачи браузеру/поисковику.
+const FAVICON_EXT = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, svg: 1, ico: 1 };
+const FAVICON_MIME = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', svg: 'image/svg+xml', ico: 'image/x-icon',
+};
 
 const RESCAN_INTERVAL_MS = 30000; // авто-пересканирование раз в 30 сек
 
-let cache = { buildings: {}, screens: { auth: [], game: [] }, logo: { default: null, small: null }, scannedAt: 0 };
+let cache = { buildings: {}, screens: { auth: [], game: [] }, logo: { default: null, small: null }, favicon: null, scannedAt: 0 };
 let knownBuildingIds = [];
 
 function extOf(file) {
@@ -43,6 +50,7 @@ function ensureDirs(buildingIds) {
     fs.mkdirSync(path.join(SCREENS_DIR, screen), { recursive: true });
   }
   fs.mkdirSync(LOGO_DIR, { recursive: true });
+  fs.mkdirSync(FAVICON_DIR, { recursive: true });
 }
 
 // ?v=<mtime> — чтобы браузер не показывал старую картинку после замены файла.
@@ -121,7 +129,7 @@ function scanLogo() {
 }
 
 function rescan() {
-  cache = { buildings: scanBuildings(), screens: scanScreens(), logo: scanLogo(), scannedAt: Date.now() };
+  cache = { buildings: scanBuildings(), screens: scanScreens(), logo: scanLogo(), favicon: scanFavicon(), scannedAt: Date.now() };
   return cache;
 }
 
@@ -172,7 +180,6 @@ function listScreen(screen) {
 function getLogo() {
   return { default: cache.logo.default || null, small: cache.logo.small || null };
 }
-
 function listLogoFiles() {
   let files = [];
   try { files = fs.readdirSync(LOGO_DIR).sort(); } catch (e) { return []; }
@@ -210,6 +217,53 @@ function screenFilePath(screen, filename) {
   return path.join(SCREENS_DIR, screen, filename);
 }
 
+// ---------- Фавикон ----------
+// Один файл в public/uploads/favicon/. Браузеры и поисковики просят /favicon.ico,
+// поэтому храним файл как favicon.<ext> и отдаём его по этому пути (см. server/index.js).
+function scanFavicon() {
+  let files;
+  try { files = fs.readdirSync(FAVICON_DIR).sort(); } catch (e) { return null; }
+  // Приоритет отдаём явному favicon.<ext>, иначе берём первый подходящий файл.
+  let fallback = null;
+  for (const file of files) {
+    const ext = extOf(file);
+    if (!FAVICON_EXT[ext]) continue;
+    const url = urlFor('favicon', file, path.join(FAVICON_DIR, file));
+    const base = path.basename(file, path.extname(file)).toLowerCase();
+    if (base === 'favicon') return { url, ext, file };
+    if (!fallback) fallback = { url, ext, file };
+  }
+  return fallback;
+}
+
+function getFavicon() {
+  return cache.favicon ? { url: cache.favicon.url, ext: cache.favicon.ext } : null;
+}
+
+function faviconFilePath(ext) {
+  return path.join(FAVICON_DIR, `favicon.${ext}`);
+}
+
+// Удалить все favicon.* (чтобы при замене расширения не осталось двух файлов).
+function removeFavicon() {
+  let files = [];
+  try { files = fs.readdirSync(FAVICON_DIR); } catch (e) { return 0; }
+  let removed = 0;
+  for (const file of files) {
+    if (!FAVICON_EXT[extOf(file)]) continue;
+    if (path.basename(file, path.extname(file)).toLowerCase() !== 'favicon') continue;
+    try { fs.unlinkSync(path.join(FAVICON_DIR, file)); removed++; } catch (e) { /* уже нет */ }
+  }
+  return removed;
+}
+
+// Путь к самому файлу фавикона на диске (для отдачи по /favicon.ico).
+function faviconDiskPath() {
+  const fav = cache.favicon;
+  if (!fav) return null;
+  return path.join(FAVICON_DIR, fav.file);
+}
+
 // Удалить все варианты уровня (1.png, 1.jpg, ...) — чтобы после замены
 // расширения не осталось двух файлов на один уровень.
 function removeBuildingLevel(buildingId, level) {
@@ -234,10 +288,11 @@ function removeScreenFile(screen, filename) {
 }
 
 module.exports = {
-  SCREENS, LOGO_VARIANTS, IMAGE_EXT, VIDEO_EXT,
+  SCREENS, LOGO_VARIANTS, IMAGE_EXT, VIDEO_EXT, FAVICON_MIME,
   init, rescan, buildingsManifest, resolveBuilding,
   pickScreenBackground, listScreen,
   getLogo, listLogoFiles, logoFilePath, removeLogoVariant,
+  getFavicon, faviconFilePath, removeFavicon, faviconDiskPath,
   buildingFilePath, screenFilePath, removeBuildingLevel, removeScreenFile,
   scannedAt: () => cache.scannedAt,
 };
