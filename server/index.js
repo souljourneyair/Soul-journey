@@ -992,6 +992,41 @@ function listHelipads(airportId) {
   return out;
 }
 
+// Сводка занятости стоянок по типам для панели администрации:
+// вертолётки (по местам) и ВС-стоянки малые/средние/большие (по клеткам).
+// Занятость ВС считаем от фактической раскладки occupiedStands, привязанной
+// к клетке стоянки, а не абстрактным числом бортов.
+function standSummaryOf(airportId) {
+  const airport = store.getAirportById(airportId);
+  const borts = (airport && airport.apronBorts) || [];
+
+  // Вертолётные места: суммарная вместимость и занятость по padCell.
+  let heliUsed = 0, heliTotal = 0;
+  for (const p of listHelipads(airportId)) {
+    heliTotal += p.capacity;
+    heliUsed += Math.min(p.used, p.capacity);
+  }
+
+  // ВС-стоянки: всего клеток по размеру и сколько из них занято.
+  const stands = listStands(airportId, true);
+  const occByCell = {};
+  for (const o of occupiedStands(airportId)) occByCell[o.cellIndex] = true;
+
+  const totalBy = { small: 0, medium: 0, large: 0 };
+  const usedBy = { small: 0, medium: 0, large: 0 };
+  for (const s of stands) {
+    totalBy[s.standSize]++;
+    if (occByCell[s.cellIndex]) usedBy[s.standSize]++;
+  }
+
+  return {
+    heli: { used: heliUsed, total: heliTotal },
+    small: { used: usedBy.small, total: totalBy.small },
+    medium: { used: usedBy.medium, total: totalBy.medium },
+    large: { used: usedBy.large, total: totalBy.large },
+  };
+}
+
 // Выбрать площадку для прилетающего вертолёта: любую, где есть место.
 // Не «сначала первая, потом вторая» — борт может сесть на любую свободную.
 //
@@ -1390,6 +1425,8 @@ function serializeAirport(airport) {
         used: heliUsed, total: totalApronSlots(airport.id),
       };
     })(),
+    // сводка занятости по типам стоянок — для панели администрации
+    standSummary: standSummaryOf(airport.id),
     // В очередь считаем только те борта, что уже прилетели и ждут места.
     // Заказанный чартер и борт, которому ещё лететь, стоят в том же списке,
     // но очередью не являются: показывать их как затор неправильно — площадки

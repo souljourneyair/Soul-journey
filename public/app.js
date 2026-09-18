@@ -1117,7 +1117,32 @@ function adminStatsHtml(building) {
       `работы −${Math.round(a.buildSpeedBonus * 100)}%, ` +
       `предложений до ${a.maxOffers}${a.nextMaxOffers ? ` (дальше ${a.nextMaxOffers})` : ''}</span>`;
   }
+  // Сводка занятости стоянок — отдельным блоком, чтобы не терялась в тексте.
+  html += standSummaryHtml();
   return html;
+}
+
+// Занятость стоянок по типам: вертолётки по местам, ВС-стоянки по клеткам.
+// Выделена рамкой и эмодзи, чтобы читалась отдельно от прочих показателей.
+function standSummaryHtml() {
+  const s = STATE.standSummary;
+  if (!s) return '';
+  const row = (emoji, label, v) => {
+    const full = (v.total || 0) === 0;
+    const cls = full ? 'ss-empty' : (v.used >= v.total ? 'ss-full' : 'ss-partial');
+    return `<div class="ss-row">
+      <span class="ss-emoji">${emoji}</span>
+      <span class="ss-label">${label}</span>
+      <span class="ss-value ${cls}">${v.used} / ${v.total || 0}</span>
+    </div>`;
+  };
+  return `<div class="stand-summary">
+    <div class="ss-title">Занятость стоянок</div>
+    ${row('🚁', 'Вертолётные стоянки', s.heli)}
+    ${row('🅿️', 'Малые стоянки ВС', s.small)}
+    ${row('🅿️', 'Средние стоянки ВС', s.medium)}
+    ${row('🛫', 'Большие стоянки ВС', s.large)}
+  </div>`;
 }
 
 function renderBuildingPanel(cellIndex, container) {
