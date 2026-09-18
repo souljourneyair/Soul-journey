@@ -1481,6 +1481,7 @@ function serializeAirport(airport) {
     },
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     newsLog: (airport.newsLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
+    previousResult: airport.previousResult || null,
     pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
     pendingLevel5Bonus: !!airport.pendingLevel5Bonus,
     pendingHubFinale: !!airport.pendingHubFinale,
@@ -1612,6 +1613,17 @@ app.post('/api/start-game', auth, (req, res) => {
 app.post('/api/airport/restart', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+
+  // Записываем итог завершённой игры, чтобы показать игроку его прошлый результат.
+  const buildingsBuilt = store.getBuildingsByAirport(airport.id)
+    .filter(b => (b.state || 'owned') !== 'sold').length;
+  const previousResult = {
+    xp: airport.xp || 0,
+    level: airport.level || 0,
+    buildingsBuilt,
+    endedAt: Date.now(),
+  };
+
   store.removeAllBuildings(airport.id);
   store.removeAllAircraft(airport.id);
   store.removeAllContracts(airport.id);
@@ -1632,6 +1644,8 @@ app.post('/api/airport/restart', auth, (req, res) => {
     // сначала» он считался бы уже выданным и окно не показывалось
     level2BonusGiven: false, pendingLevel2Bonus: false,
     level5BonusGiven: false, pendingLevel5Bonus: false,
+    // прошлый результат сохраняется между перезапусками
+    previousResult,
   });
   res.json(serializeAirport(updated));
 });

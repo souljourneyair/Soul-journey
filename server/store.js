@@ -124,6 +124,7 @@ function readFromDisk() {
       if (!a.termQueue) a.termQueue = [];
       if (!a.newsLog) a.newsLog = [];
       if (a.lastAircraftEventTick === undefined) a.lastAircraftEventTick = 0;
+      if (a.previousResult === undefined) a.previousResult = null;
     });
     if (data.tickCounter === undefined) data.tickCounter = 0;
     if (data.nextContractId === undefined) data.nextContractId = 1;
@@ -355,6 +356,8 @@ function createAirport(userId, startType, money, gridSize) {
     newsLog: [],
     // когда разыгрывать следующее случайное событие с самолётами
     lastAircraftEventTick: 0,
+    // предыдущий результат (на конец прошлой игры): { xp, level, buildingsBuilt, endedAt }
+    previousResult: null,
   };
   data.airports.push(airport);
   save(data);

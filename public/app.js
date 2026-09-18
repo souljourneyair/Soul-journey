@@ -1755,6 +1755,11 @@ const LB_BOARDS = {
 };
 
 function renderLeaderboard() {
+  // «Результат» — личная вкладка: показывает итог прошлой игры, а не таблицу.
+  if (lbBoard === 'result') {
+    renderPersonalResult();
+    return;
+  }
   const cfg = LB_BOARDS[lbBoard];
   // Живые таблицы сезонные: показываем номер сезона и сколько до обнуления.
   const season = lbData && lbData.season;
@@ -1770,6 +1775,21 @@ function renderLeaderboard() {
     ? rows.map((r, i) =>
         `<tr class="${r.username === me ? 'lb-me' : ''}">${cfg.row(r, i)}</tr>`).join('')
     : `<tr><td colspan="4">${cfg.empty}</td></tr>`;
+}
+
+// Личный итог прошлой игры: показатели на конец игры (до «Начать сначала»/банкротства).
+function renderPersonalResult() {
+  const r = (STATE && STATE.previousResult) || null;
+  $('#lbSub').textContent = 'ВАШ ПРЕДЫДУЩИЙ РЕЗУЛЬТАТ';
+  $('#lbHint').textContent = 'Это ваши показатели на конец прошлой игры — они записываются, когда вы начинаете игру заново или банкротитесь.';
+  $('#leaderboardHead').innerHTML = '<tr><th>XP</th><th>Уровень</th><th>Зданий построено</th></tr>';
+  $('#leaderboardBody').innerHTML = r
+    ? `<tr class="lb-me">
+         <td class="lb-num">${Math.floor(r.xp || 0).toLocaleString('ru-RU')}</td>
+         <td class="lb-num">${r.level || 0}</td>
+         <td class="lb-num">${r.buildingsBuilt || 0}</td>
+       </tr>`
+    : '<tr><td colspan="3">Пока нет завершённой игры — сыграйте и начните заново, чтобы здесь появился итог.</td></tr>';
 }
 
 document.querySelectorAll('.lb-tab').forEach(btn => {
