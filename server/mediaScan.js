@@ -16,6 +16,7 @@ const BUILDINGS_DIR = path.join(PUBLIC_DIR, 'uploads', 'buildings');
 const SCREENS_DIR = path.join(PUBLIC_DIR, 'uploads', 'screens');
 const LOGO_DIR = path.join(PUBLIC_DIR, 'uploads', 'logo');
 const FAVICON_DIR = path.join(PUBLIC_DIR, 'uploads', 'favicon');
+const AUTH_BANNER_DIR = path.join(PUBLIC_DIR, 'uploads', 'auth-banner');
 const SCREENS = ['auth', 'game'];
 // Логотип: основной и необязательный компактный для узких экранов.
 const LOGO_VARIANTS = ['default', 'small'];
@@ -42,7 +43,7 @@ const FAVICON_FILES = [
 
 const RESCAN_INTERVAL_MS = 30000; // авто-пересканирование раз в 30 сек
 
-let cache = { buildings: {}, screens: { auth: [], game: [] }, logo: { default: null, small: null }, favicon: null, scannedAt: 0 };
+let cache = { buildings: {}, screens: { auth: [], game: [] }, logo: { default: null, small: null }, favicon: null, authBanner: null, scannedAt: 0 };
 let knownBuildingIds = [];
 
 function extOf(file) {
@@ -62,6 +63,7 @@ function ensureDirs(buildingIds) {
   }
   fs.mkdirSync(LOGO_DIR, { recursive: true });
   fs.mkdirSync(FAVICON_DIR, { recursive: true });
+  fs.mkdirSync(AUTH_BANNER_DIR, { recursive: true });
 }
 
 // ?v=<mtime> — чтобы браузер не показывал старую картинку после замены файла.
@@ -140,7 +142,7 @@ function scanLogo() {
 }
 
 function rescan() {
-  cache = { buildings: scanBuildings(), screens: scanScreens(), logo: scanLogo(), favicon: scanFavicon(), scannedAt: Date.now() };
+  cache = { buildings: scanBuildings(), screens: scanScreens(), logo: scanLogo(), favicon: scanFavicon(), authBanner: scanAuthBanner(), scannedAt: Date.now() };
   return cache;
 }
 
@@ -270,6 +272,44 @@ function faviconDiskPath(name) {
   return path.join(FAVICON_DIR, name);
 }
 
+// ---------- Баннер над окном входа ----------
+// Одна картинка в public/uploads/auth-banner/. Показывается над карточкой входа.
+// Размер не ограничен — файл кладём как banner.<ext>, либо берём первый попавшийся.
+function scanAuthBanner() {
+  let files;
+  try { files = fs.readdirSync(AUTH_BANNER_DIR).sort(); } catch (e) { return null; }
+  let firstAny = null;
+  for (const file of files) {
+    if (!IMAGE_EXT[extOf(file)]) continue;
+    const url = urlFor('auth-banner', file, path.join(AUTH_BANNER_DIR, file));
+    const base = path.basename(file, path.extname(file)).toLowerCase();
+    if (base === 'banner') return { url, ext: extOf(file), file };
+    if (!firstAny) firstAny = { url, ext: extOf(file), file };
+  }
+  return firstAny;
+}
+
+function getAuthBanner() {
+  return cache.authBanner ? { url: cache.authBanner.url } : null;
+}
+
+function authBannerFilePath(ext) {
+  return path.join(AUTH_BANNER_DIR, `banner.${ext}`);
+}
+
+// Удалить все banner.* (чтобы при замене расширения не осталось двух файлов).
+function removeAuthBanner() {
+  let files = [];
+  try { files = fs.readdirSync(AUTH_BANNER_DIR); } catch (e) { return 0; }
+  let removed = 0;
+  for (const file of files) {
+    if (!IMAGE_EXT[extOf(file)]) continue;
+    if (path.basename(file, path.extname(file)).toLowerCase() !== 'banner') continue;
+    try { fs.unlinkSync(path.join(AUTH_BANNER_DIR, file)); removed++; } catch (e) { /* уже нет */ }
+  }
+  return removed;
+}
+
 // Удалить все варианты уровня (1.png, 1.jpg, ...) — чтобы после замены
 // расширения не осталось двух файлов на один уровень.
 function removeBuildingLevel(buildingId, level) {
@@ -299,6 +339,7 @@ module.exports = {
   pickScreenBackground, listScreen,
   getLogo, listLogoFiles, logoFilePath, removeLogoVariant,
   getFavicon, faviconFilePath, removeFavicon, faviconDiskPath,
+  getAuthBanner, authBannerFilePath, removeAuthBanner,
   buildingFilePath, screenFilePath, removeBuildingLevel, removeScreenFile,
   scannedAt: () => cache.scannedAt,
 };

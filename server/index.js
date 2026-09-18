@@ -3233,6 +3233,34 @@ for (const f of mediaScan.FAVICON_FILES) {
   });
 }
 
+// Баннер над окном входа: загрузка (админ) и отдача в публичных настройках.
+// Форматы — PNG/JPEG/GIF/WEBP/SVG, размер не ограничен.
+const ALLOWED_BANNER_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+
+app.get('/api/admin/media/auth-banner', auth, adminAuth, (req, res) => {
+  res.json({ banner: mediaScan.getAuthBanner() });
+});
+
+app.post('/api/admin/media/auth-banner', auth, adminAuth, (req, res) => {
+  const { dataUrl, filename } = req.body || {};
+  const match = typeof dataUrl === 'string' && dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) return res.status(400).json({ error: 'invalid_image', message: 'Ожидается data URL картинки' });
+  const ext = ALLOWED_BANNER_TYPES[match[1]];
+  if (!ext) return res.status(400).json({ error: 'unsupported_type', message: 'PNG, JPEG, GIF, WEBP или SVG' });
+  const buffer = Buffer.from(match[2], 'base64');
+
+  mediaScan.removeAuthBanner(); // прежний файл мог быть другого формата
+  fs.writeFileSync(mediaScan.authBannerFilePath(ext), buffer);
+  mediaScan.rescan();
+  res.json({ banner: mediaScan.getAuthBanner() });
+});
+
+app.post('/api/admin/media/auth-banner/remove', auth, adminAuth, (req, res) => {
+  const removed = mediaScan.removeAuthBanner();
+  mediaScan.rescan();
+  res.json({ removed, banner: mediaScan.getAuthBanner() });
+});
+
 // Web-манифест (PWA/Android): ссылается на загруженные иконки 192/512.
 app.get('/site.webmanifest', (req, res) => {
   const icons = [];
@@ -3417,11 +3445,13 @@ app.get('/api/public-settings', (req, res) => {
   const authFolder = mediaScan.pickScreenBackground('auth');
   const gameFolder = mediaScan.pickScreenBackground('game');
   const logo = mediaScan.getLogo();
+  const authBanner = mediaScan.getAuthBanner();
   res.json({
     logoUrl: logo.default || s.logoUrl || null,
     logoSmallUrl: logo.small || null,
     authBg: authFolder || (s.authBgUrl ? { url: s.authBgUrl, kind: s.authBgKind || 'image' } : null),
     gameBg: gameFolder || (s.gameBgUrl ? { url: s.gameBgUrl, kind: s.gameBgKind || 'image' } : null),
+    authBanner: authBanner ? authBanner.url : null,
   });
 });
 

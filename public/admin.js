@@ -107,7 +107,7 @@ function switchView(view) {
   $('#settingsView').classList.toggle('hidden', view !== 'settings');
   if (view === 'gallery' && !galleryData) loadGallery();
   if (view === 'objects') loadObjectsSection();
-  if (view === 'settings') { loadLogoSettings(); loadFaviconSettings(); loadGameplaySettings(); loadBackgroundSettings(); loadDisasterPanel(); loadSupportSettings(); }
+  if (view === 'settings') { loadLogoSettings(); loadFaviconSettings(); loadAuthBannerSettings(); loadGameplaySettings(); loadBackgroundSettings(); loadDisasterPanel(); loadSupportSettings(); }
 }
 
 // ===== НАСТРОЙКИ: ЛОГОТИП =====
@@ -281,6 +281,70 @@ function renderFavicon(files) {
       }
     });
   });
+}
+
+// ===== БАННЕР НАД ОКНОМ ВХОДА =====
+async function loadAuthBannerSettings() {
+  try {
+    const res = await api('/api/admin/media/auth-banner');
+    renderAuthBanner(res.banner);
+  } catch (err) { /* ignore */ }
+}
+
+function renderAuthBanner(banner) {
+  const wrap = $('#authBannerPreviewWrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div style="width:220px;min-height:70px;background:#0b0f14;border:1px solid var(--line);border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:6px;">
+        ${banner && banner.url
+          ? `<img src="${banner.url}" alt="" style="max-width:100%;max-height:70px;object-fit:contain;">`
+          : '<span class="build-menu-hint">не установлен</span>'}
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="file" accept="image/*,.svg" id="authBannerFile" style="display:none;" />
+        <button class="btn-secondary" id="authBannerUpload">Загрузить</button>
+        ${banner && banner.url ? '<button class="btn-secondary btn-danger" id="authBannerRemove">Удалить</button>' : ''}
+      </div>
+    </div>`;
+
+  const fileInput = $('#authBannerFile');
+  const uploadBtn = $('#authBannerUpload');
+  if (uploadBtn) {
+    uploadBtn.addEventListener('click', () => fileInput.click());
+  }
+  if (fileInput) {
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      $('#authBannerMsg').textContent = 'Загрузка…';
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const res = await api('/api/admin/media/auth-banner', 'POST', { dataUrl: reader.result, filename: file.name });
+          renderAuthBanner(res.banner);
+          $('#authBannerMsg').textContent = 'Баннер сохранён. Игроки увидят его над окном входа.';
+        } catch (err) {
+          $('#authBannerMsg').textContent = err.message;
+        }
+        fileInput.value = '';
+      };
+      reader.onerror = () => { $('#authBannerMsg').textContent = 'Не удалось прочитать файл.'; fileInput.value = ''; };
+      reader.readAsDataURL(file);
+    });
+  }
+  const removeBtn = $('#authBannerRemove');
+  if (removeBtn) {
+    removeBtn.addEventListener('click', async () => {
+      try {
+        const res = await api('/api/admin/media/auth-banner/remove', 'POST', {});
+        renderAuthBanner(res.banner);
+        $('#authBannerMsg').textContent = 'Баннер удалён.';
+      } catch (err) {
+        $('#authBannerMsg').textContent = err.message;
+      }
+    });
+  }
 }
 
 // ===== ФОНЫ ЭКРАНОВ =====

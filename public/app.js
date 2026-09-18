@@ -278,7 +278,21 @@ async function loadBackgrounds() {
     const s = await res.json();
     applyBackground('authBg', s.authBg);
     applyBackground('gameBg', s.gameBg);
+    applyAuthBanner(s.authBanner);
   } catch (err) { /* фон необязателен */ }
+}
+
+// Баннер над окном входа: картинка впритык к карточке. Прячется, если не задана.
+function applyAuthBanner(url) {
+  const el = document.getElementById('authBanner');
+  if (!el) return;
+  if (url) {
+    el.src = url;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+    el.removeAttribute('src');
+  }
 }
 
 function applyBackground(elementId, bg) {

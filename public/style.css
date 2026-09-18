@@ -123,6 +123,21 @@ body.game-open { overflow: hidden; }
   overflow: hidden;
 }
 .auth-card { width: 360px; }
+/* Баннер над окном входа: картинка + карточка в столбик, впритык друг к другу */
+.auth-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 360px;
+  max-width: calc(100vw - 28px);
+}
+.auth-banner {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 4px 4px 0 0;
+}
 .tabs { display: flex; border-bottom: 1px solid var(--line); }
 .tab {
   flex: 1; padding: 12px; background: none; border: none; color: var(--text-dim);
