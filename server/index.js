@@ -1056,8 +1056,10 @@ function towerInterval(airportId) {
   const currentTick = store.getTickCounter();
   // берём лучший (минимальный) интервал среди вышек и делим на их число
   let best = APRON_ECONOMY.TOWER_INTERVAL_NONE;
+  let maxLevel = 0;
   for (const b of working) {
     const lvl = b.upgradeLevel || 1;
+    if (lvl > maxLevel) maxLevel = lvl;
     const iv = APRON_ECONOMY.TOWER_INTERVAL_BY_LEVEL[lvl - 1] || APRON_ECONOMY.TOWER_INTERVAL_BY_LEVEL[0];
     // Повреждение растягивает интервал: при 50% он вдвое длиннее.
     const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
@@ -1066,12 +1068,36 @@ function towerInterval(airportId) {
     if (effective < best) best = effective;
   }
   let result = best / working.length;
+  // Вышка полностью обслуживает полосы не выше своего уровня: интервал
+  // ужимается под квоту самой загруженной из таких полос, иначе прокачанная
+  // ВПП упиралась бы в вышку, а не в собственную квоту посадок.
+  const quota = runwayQuotaServedByTower(airportId, maxLevel);
+  if (quota > 0 && isFinite(quota)) {
+    result = Math.min(result, Math.max(1, Math.floor(MINUTES_PER_DAY / quota)));
+  }
   // Магнитная буря: помехи растягивают интервал втрое.
   const ap = store.getAirportById(airportId);
   if (disasters.stormActive(ap, store.getTickCounter())) {
     result *= DISASTER_ECONOMY.STORM.TOWER_INTERVAL_MULT;
   }
   return Math.max(1, Math.round(result));
+}
+
+// Максимальная суточная квота посадок среди ВПП, которые вышка данного уровня
+// обслуживает в полную силу (уровень полосы не выше уровня вышки). Возвращает
+// 0, если таких полос нет.
+function runwayQuotaServedByTower(airportId, towerLevel) {
+  let best = 0;
+  for (const b of store.getBuildingsByAirport(airportId)) {
+    const def = BUILDINGS[b.buildingId];
+    if (!def || !def.isRunway) continue;
+    if ((b.state || 'owned') === 'sold' || b.state === 'rented') continue;
+    if (isUnderConstruction(b) || b.ruined) continue;
+    if ((b.upgradeLevel || 1) > towerLevel) continue; // полоса круче вышки — не тянем её в полную силу
+    const cap = runwayCapacity(def, b.upgradeLevel || 1);
+    if (isFinite(cap) && cap > best) best = cap;
+  }
+  return best;
 }
 
 // Есть ли построенная диспетчерская вышка (обязательна для полётов своих самолётов).
