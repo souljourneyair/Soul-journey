@@ -1285,6 +1285,29 @@ const AIRCRAFT_ECONOMY = {
   MVL_FUEL_MULT: 1.8,    // но и топлива тратит больше (дальше лететь)
 };
 
+// ==================== СЛУЧАЙНЫЕ СОБЫТИЯ С САМОЛЁТАМИ ====================
+// Разыгрываются раз в игровую неделю. Событие выбирает случайный самолёт —
+// договорной борт на стоянке или собственный борт игрока — и применяет эффект.
+// Новости об инцидентах попадают в раздел «Новости».
+const AIRCRAFT_EVENTS = {
+  // Раз в игровую неделю (7 × 1440 минут) для каждого аэропорта.
+  PERIOD_TICKS: 7 * 1440,
+  // --- Отказы техники: ремонт в ангаре N минут, договорной борт платит ---
+  // Плата = payPerArrival борта × множитель (см. ниже).
+  BRAKE:   { repairMinutes: 5,  payMult: 1.0 },
+  FLAPS:   { repairMinutes: 10, payMult: 1.5 },
+  FUEL_LEAK:{ repairMinutes: 15, payMult: 2.0 },
+  ENGINE:  { repairMinutes: 20, payMult: 3.0 },
+  // --- Деструктивный пассажир: задержка вылета на стоянке ---
+  PASSENGER_DELAY_MINUTES: 3,
+  // Убыток АК игрока за инцидент с пассажиром — по размеру своего борта.
+  PASSENGER_OWN_LOSS: { small: 5000, medium: 12000, large: 25000 },
+  // --- Столкновение с наземным транспортом: ремонт бесплатный, 1 час ---
+  COLLISION_REPAIR_MINUTES: 60,
+  // --- Травма перронного работника: страховка аэропорта ---
+  INJURY_INSURANCE: 8000,
+};
+
 // Цена апгрейда самолёта до targetLevel (2 или 3).
 function aircraftUpgradeCost(typeDef, targetLevel) {
   const rate = AIRCRAFT_ECONOMY.UPGRADE_COST_RATE[targetLevel - 1] || 0.5;
@@ -1355,6 +1378,7 @@ module.exports = {
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
+  AIRCRAFT_EVENTS,
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,

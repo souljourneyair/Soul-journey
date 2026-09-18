@@ -448,6 +448,7 @@ function renderAll() {
   checkLevel5Bonus();
   checkHubFinale();
   renderFeed();
+  renderNews();
   checkPendingDisasters();
   renderStats();
   renderRepairAllBar();
@@ -2342,7 +2343,9 @@ function renderFleetCard(ac) {
   };
   const statusLabel = ac.decommissioned
     ? '<span class="fleet-status decom">СПИСАН — только продажа</span>'
-    : (statusLabels[ac.status] || '');
+    : (ac.repairTicksLeft > 0
+        ? `<span class="fleet-status servicing">В ангаре · ремонт ещё ${ac.repairTicksLeft} мин</span>`
+        : (statusLabels[ac.status] || ''));
   const ownership = ac.ownership === 'lease' ? 'Лизинг' : 'В собственности';
   const lineTypeLabel = ac.lineType === 'both' ? 'ВВЛ+МВЛ' : 'ВВЛ';
 
@@ -2357,7 +2360,9 @@ function renderFleetCard(ac) {
     const autoLabel = ac.auto ? '⏸ Выкл. авто' : '▶ Авто-рейсы';
     actions += `<button class="btn-secondary ${ac.auto ? 'auto-on' : ''}" data-act="auto" data-id="${ac.id}">${autoLabel}</button>`;
     if (ac.status === 'idle') {
-      if (ac.serviceLeft > 0) {
+      if (ac.repairTicksLeft > 0) {
+        actions += `<span class="fleet-locked">Ремонт в ангаре — ещё ${ac.repairTicksLeft} мин</span>`;
+      } else if (ac.serviceLeft > 0) {
         // борт обслуживают после рейса — вылет пока невозможен
         const lvl = ac.standLevel ? ` (стоянка ур.${ac.standLevel})` : '';
         actions += `<span class="fleet-locked">Обслуживание${lvl} — ещё ${ac.serviceLeft} мин</span>`;
@@ -2887,6 +2892,22 @@ function renderFeed() {
     <div class="feed-row kind-${e.kind}">
       <span class="feed-time">${tickToClock(e.tick)}</span>
       <span class="feed-text">${escapeHtml(e.text)}</span>
+    </div>`).join('');
+}
+
+// Лента новостей (случайные события с самолётами).
+function renderNews() {
+  const list = $('#feedNews');
+  if (!list) return;
+  const news = (STATE.newsLog || []).slice().reverse();   // свежее сверху
+  if (!news.length) {
+    list.innerHTML = '<div class="feed-empty">Пока нет новостей</div>';
+    return;
+  }
+  list.innerHTML = news.map(n => `
+    <div class="feed-row feed-news-row">
+      <span class="feed-time">${tickToClock(n.tick)}</span>
+      <span class="feed-text"><b>${escapeHtml(n.title)}.</b> ${escapeHtml(n.text)}</span>
     </div>`).join('');
 }
 

@@ -12,7 +12,7 @@ const {
   BOT_ECONOMY, randomBotName, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
-  aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
+  aircraftCapacity, decommissionThreshold, aircraftUpgradeCost, AIRCRAFT_EVENTS,
   standAcceptsSizes, aircraftSize, standServiceMinutes,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
@@ -26,6 +26,7 @@ const {
 } = require('./gameData');
 const mediaScan = require('./mediaScan');
 const disasters = require('./disasters');
+const aircraftEvents = require('./aircraftEvents');
 
 // Картинки зданий и фоны экранов лежат в папках (см. docs/media-folders.md).
 // init создаёт папку под каждое здание и делает первый скан.
@@ -383,9 +384,19 @@ function logEvent(airportId, kind, text) {
   store.updateAirport(airportId, { eventLog: log.slice(-EVENT_LOG.MAX_ENTRIES) });
 }
 
+// Новость о случайном событии с самолётами — отдельная лента («Новости»).
+function logNews(airportId, title, text) {
+  const fresh = store.getAirportById(airportId);
+  if (!fresh) return;
+  const log = (fresh.newsLog || []).slice();
+  log.push({ tick: store.getTickCounter(), title, text, at: Date.now() });
+  store.updateAirport(airportId, { newsLog: log.slice(-EVENT_LOG.MAX_ENTRIES) });
+}
+
 // Модуль происшествий ведёт ленту через наш логгер.
 disasters.setLogger((airportId, kind, text) => logEvent(airportId, kind, text));
-
+// События с самолётами пишут новости через свой логгер.
+aircraftEvents.setNewsLogger((airportId, title, text) => logNews(airportId, title, text));
 function adminLevel(airportId) {
   const b = store.getBuildingsByAirport(airportId)
     .find(x => x.buildingId === 'admin' && !x.ruined && (x.state || 'owned') === 'owned');
@@ -1303,6 +1314,8 @@ function serializeAircraft(airportId) {
       ticksLeft: a.status === 'flying' && a.flightEndsTick ? Math.max(0, a.flightEndsTick - nowTick) : 0,
       // сколько минут борт ещё обслуживают после посадки (0 — готов к вылету)
       serviceLeft: a.readyAtTick ? Math.max(0, a.readyAtTick - nowTick) : 0,
+      // ремонт в ангаре по случайному событию (0 — не ремонтируется)
+      repairTicksLeft: a.repairEndsTick ? Math.max(0, a.repairEndsTick - nowTick) : 0,
       standLevel: a.standLevel || null,
       buyoutPrice: a.ownership === 'lease' ? buyoutPrice(t, a.wear || 0) : null,
       resalePrice: a.ownership === 'owned' ? resalePrice(t, a.wear || 0) : null,
@@ -1467,6 +1480,7 @@ function serializeAirport(airport) {
           minutesLeft: w.waitingSinceTick - store.getTickCounter() })),
     },
     eventLog: (airport.eventLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
+    newsLog: (airport.newsLog || []).slice(-EVENT_LOG.MAX_ENTRIES),
     pendingLevel2Bonus: !!airport.pendingLevel2Bonus,
     pendingLevel5Bonus: !!airport.pendingLevel5Bonus,
     pendingHubFinale: !!airport.pendingHubFinale,
@@ -3610,6 +3624,9 @@ app.post('/api/aircraft/fly', auth, (req, res) => {
   if (!ac || ac.airportId !== airport.id) return res.status(404).json({ error: 'no_aircraft' });
   if (ac.status !== 'idle') return res.status(400).json({ error: 'busy', message: 'Самолёт не готов к вылету' });
   const nowTick = store.getTickCounter();
+  if (ac.repairEndsTick != null && nowTick < ac.repairEndsTick) {
+    return res.status(400).json({ error: 'repairing', message: `Борт в ангаре на ремонте — готов через ${ac.repairEndsTick - nowTick} мин` });
+  }
   if (!isAircraftServiced(ac, nowTick)) {
     const left = ac.readyAtTick - nowTick;
     return res.status(400).json({ error: 'servicing', message: `Борт на обслуживании — готов через ${left} мин` });
@@ -4006,6 +4023,13 @@ function runTick() {
       notifications.push('🧲 Магнитная буря улеглась — вышка и полосы работают в обычном режиме.');
     }
 
+    // --- Случайные события с самолётами: раз в игровую неделю ---
+    if (currentTick - (freshAirport.lastAircraftEventTick || 0) >= AIRCRAFT_EVENTS.PERIOD_TICKS) {
+      const ev = aircraftEvents.roll(store, freshAirport, currentTick);
+      if (ev) notifications.push(`📰 ${ev.title}: ${ev.text}`);
+      store.updateAirport(airport.id, { lastAircraftEventTick: currentTick });
+    }
+
     // --- Завершение ремонта ---
     for (const b of store.getBuildingsByAirport(airport.id)) {
       if (b.repairEndsTick == null || currentTick < b.repairEndsTick) continue;
@@ -4353,6 +4377,11 @@ function processAircraftTick(airport, currentTick, notifications) {
     // Лизинговый платёж — каждый тик, пока самолёт у игрока
     if (ac.ownership === 'lease') income -= type.leasePerTick;
 
+    // ремонт в ангаре по случайному событию закончился — снимаем отметку
+    if (ac.repairEndsTick != null && currentTick >= ac.repairEndsTick) {
+      store.updateAircraft(ac.id, { repairEndsTick: null });
+    }
+
     if (ac.status === 'flying') {
       if (currentTick >= ac.flightEndsTick) {
         // ac.id исключаем для симметрии с веткой waiting: сейчас статус ещё
@@ -4416,6 +4445,8 @@ function processAircraftTick(airport, currentTick, notifications) {
       if (!ac.auto) continue;
       if (ac.status !== 'idle') continue;
       if (ac.decommissioned) continue;
+      // на ремонте в ангаре (случайное событие) — не летает
+      if (ac.repairEndsTick != null && currentTick < ac.repairEndsTick) continue;
       // ещё обслуживается после прошлого рейса — вылет только после готовности
       if (!isAircraftServiced(ac, currentTick)) continue;
       const type = AIRCRAFT_TYPES[ac.typeId];

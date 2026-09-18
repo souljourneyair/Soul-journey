@@ -103,6 +103,7 @@ function readFromDisk() {
       if (a.upgradeLevel === undefined) a.upgradeLevel = 1;
       if (a.totalEarnings === undefined) a.totalEarnings = 0;
       if (a.decommissioned === undefined) a.decommissioned = false;
+      if (a.repairEndsTick === undefined) a.repairEndsTick = null;
     });
     (data.airports || []).forEach(a => {
       if (a.name === undefined) a.name = null;
@@ -121,6 +122,8 @@ function readFromDisk() {
       if (a.heliCarried === undefined) a.heliCarried = 0;
       if (a.paxServed === undefined) a.paxServed = 0;
       if (!a.termQueue) a.termQueue = [];
+      if (!a.newsLog) a.newsLog = [];
+      if (a.lastAircraftEventTick === undefined) a.lastAircraftEventTick = 0;
     });
     if (data.tickCounter === undefined) data.tickCounter = 0;
     if (data.nextContractId === undefined) data.nextContractId = 1;
@@ -348,6 +351,10 @@ function createAirport(userId, startType, money, gridSize) {
     paxPool: { heli: 0, vvl: 0, mvl: 0 },
     // очереди пассажиров в терминалах: { count, sinceTick, type('vvl'|'mvl'), dir('dep'|'arr'), ticket }
     termQueue: [],
+    // новости о случайных событиях с самолётами (раздел «Новости»)
+    newsLog: [],
+    // когда разыгрывать следующее случайное событие с самолётами
+    lastAircraftEventTick: 0,
   };
   data.airports.push(airport);
   save(data);
@@ -537,6 +544,7 @@ function addAircraft(airportId, typeId, ownership) {
     wear: 0,            // износ 0..WEAR_MAX
     auto: false,         // авто-режим: сервер сам отправляет в рейс, когда свободен
     flightEndsTick: null, // на каком тике завершится текущий рейс
+    repairEndsTick: null,  // до какого тика борт на ремонте в ангаре (событие), null = не ремонтируется
     upgradeLevel: 1,      // уровень апгрейда (влияет на вместимость)
     totalEarnings: 0,     // суммарный доход от самолёта (для списания при 2× цены)
     decommissioned: false, // списан (принёс 2× цены) — больше не летает, только продажа
