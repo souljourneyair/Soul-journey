@@ -1886,6 +1886,20 @@ $('#closeLeaderboard').addEventListener('click', () => $('#leaderboardModal').cl
 
 // ===== ЭКОНОМИКА: графики цен нефти и золота =====
 let ECON_DATA = null;
+// Окна фильтра в игровых минутах (тик = минута).
+const ECON_RANGES = { day: 1440, week: 7 * 1440, month: 30 * 1440, year: 365 * 1440 };
+let econRange = 'week';
+
+// Проредить длинную серию до maxPoints, сохранив форму: при часовой истории
+// за год (до 8760 точек) рисовать их все в SVG незачем.
+function econDownsample(hist, maxPoints) {
+  if (hist.length <= maxPoints) return hist;
+  const step = hist.length / maxPoints;
+  const out = [];
+  for (let i = 0; i < maxPoints; i++) out.push(hist[Math.floor(i * step)]);
+  out[out.length - 1] = hist[hist.length - 1];
+  return out;
+}
 
 // Простой линейный график (SVG): линия цены, заливка под ней и пунктир —
 // базовая цена. Масштаб по фактическим значениям серии, а не по глобальным
@@ -1919,7 +1933,15 @@ function econChartSvg(values, baseline, color) {
 function renderEconomy() {
   const d = ECON_DATA;
   if (!d) return;
-  const hist = Array.isArray(d.history) ? d.history : [];
+  const all = Array.isArray(d.history) ? d.history : [];
+  const tick = d.tick != null ? d.tick : (all.length ? all[all.length - 1].tick : 0);
+  const span = ECON_RANGES[econRange] || ECON_RANGES.week;
+  let hist = all;
+  if (all.length >= 2) {
+    const filtered = all.filter(p => p.tick >= tick - span);
+    if (filtered.length >= 2) hist = filtered;
+  }
+  hist = econDownsample(hist, 500);
   $('#econOilVal').textContent = `${Number(d.oil.price).toFixed(1)} у.е.`;
   $('#econGoldVal').textContent = `${Math.round(d.gold.price).toLocaleString('ru-RU')} у.е.`;
   $('#econOilChart').innerHTML = econChartSvg(hist.map(p => p.oil), d.oil.baseline, '#e0a020');
@@ -1940,6 +1962,15 @@ $('#economyBtn').addEventListener('click', async () => {
   $('#economyModal').classList.remove('hidden');
 });
 $('#closeEconomy').addEventListener('click', () => $('#economyModal').classList.add('hidden'));
+
+document.querySelectorAll('.econ-range').forEach(btn => {
+  btn.addEventListener('click', () => {
+    econRange = btn.dataset.range;
+    document.querySelectorAll('.econ-range').forEach(b =>
+      b.classList.toggle('econ-range-active', b === btn));
+    renderEconomy();
+  });
+});
 
 // ===== TERRITORY MODAL =====
 // гамбургер: показать/скрыть левое меню на телефоне

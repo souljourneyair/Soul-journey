@@ -1910,6 +1910,7 @@ app.get('/api/economy', auth, (req, res) => {
     deadZone: MARKET_ECONOMY.DEAD_ZONE,
     fuelMarketMult: currentFuelMarketMult(),
     priceMarketMult: +priceMarketMult().toFixed(4),
+    tick: store.getTickCounter(),
     history,
   });
 });
