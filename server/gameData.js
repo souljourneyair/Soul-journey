@@ -189,7 +189,7 @@ const FUEL_ECONOMY = {
   GOLD_BASELINE: 2000,    // «нейтральная» цена золота
   OIL_SENSITIVITY: 0.012, // насколько сильно отклонение нефти от базы двигает цену
   GOLD_SENSITIVITY: 0.0003, // чувствительность к золоту
-  MARKET_REPRICE_DAYS: 3, // раз в сколько игровых дней пересчитывать рыночный множитель
+  // Темп движения цен задаётся в MARKET_ECONOMY (час/drift/сдвиги уровня).
   // --- Контракт с поставщиком ---
   CONTRACT_MIN_LEVEL: 3,  // с какого уровня доступен контракт
   CONTRACT_AUTO_MIN_LEVEL: 6, // с какого уровня доступна кнопка «Авто»
@@ -199,32 +199,54 @@ const FUEL_ECONOMY = {
 
 // Рыночный множитель цены топлива из цен нефти/золота + шума.
 // Возвращает число вокруг 1.0, ограниченное ±MARKET_SWING.
+// Мёртвая зона: если цена отклонилась от базы меньше чем на DEAD_ZONE, её
+// вклад ОБНУЛЯЕТСЯ. Нужно, чтобы мелкое биение рынка (в пределах 1%) не
+// дёргало прилёты, билеты и договоры.
 function fuelMarketMultiplier(oilPrice, goldPrice, noise) {
   const E = FUEL_ECONOMY;
-  const oil = ((oilPrice != null ? oilPrice : E.OIL_BASELINE) - E.OIL_BASELINE) * E.OIL_SENSITIVITY;
-  const gold = ((goldPrice != null ? goldPrice : E.GOLD_BASELINE) - E.GOLD_BASELINE) * E.GOLD_SENSITIVITY;
+  const oilBase = E.OIL_BASELINE, goldBase = E.GOLD_BASELINE;
+  const oil = oilPrice != null ? oilPrice : oilBase;
+  const gold = goldPrice != null ? goldPrice : goldBase;
+  const oilDev = (oil - oilBase) / oilBase;
+  const goldDev = (gold - goldBase) / goldBase;
+  const oilTerm = Math.abs(oilDev) < MARKET_ECONOMY.DEAD_ZONE ? 0 : oilDev * oilBase * E.OIL_SENSITIVITY;
+  const goldTerm = Math.abs(goldDev) < MARKET_ECONOMY.DEAD_ZONE ? 0 : goldDev * goldBase * E.GOLD_SENSITIVITY;
   const n = (noise != null ? noise : 0) * E.NOISE_WEIGHT;
-  let mult = 1 + oil * E.OIL_WEIGHT + gold * E.GOLD_WEIGHT + n;
+  const mult = 1 + oilTerm * E.OIL_WEIGHT + goldTerm * E.GOLD_WEIGHT + n;
   const lo = 1 - E.MARKET_SWING, hi = 1 + E.MARKET_SWING;
   return Math.max(lo, Math.min(hi, mult));
 }
 
 // ---------- Движение цен нефти и золота ----------
-// Цены не стоят на месте: без происшествий они слегка дрейфуют (±2%), а
-// серьёзные ЧС дают заметный рыночный шок (+3..7% по затронутым товарам).
-// Нефть дорожает — дорожают прилёты, билеты и контракты (см. priceMarketMult).
+// Двухслойная модель:
+//   • «уровень» (oilPrice/goldPrice) — то, что реально влияет на экономику.
+//     Меняется редко: не более WEEK_MOVES_MAX значимых шагов в неделю (по
+//     0.5-2%) плюс шок от серьёзного ЧС (+3..7%).
+//   • «тикер» (oilTicker/goldTicker) — цена на табло и графике. Двигается
+//     каждый игровой час мелким шумом в пределах ±TICKER_BAND (<1%), поэтому
+//     график живой, а экономику это не задевает (см. DEAD_ZONE).
 const MARKET_ECONOMY = {
-  DRIFT: 0.02,       // без ЧС: изменение в пределах ±2% за шаг
-  SHOCK_MIN: 0.03,   // серьёзное ЧС: рост на 3-7%
+  HOUR_TICKS: 60,          // игровой час — шаг обновления тикера
+  WEEK_TICKS: 7 * 1440,
+  // Тикер: тянется к уровню и дрожит вокруг него.
+  TICKER_PULL: 0.35,       // доля разрыва с уровнем, закрываемая за час
+  TICKER_NOISE: 0.004,     // случайный шум ±0.4% от цены за час
+  TICKER_BAND: 0.008,      // тикер не уходит от уровня дальше ±0.8%
+  // Значимый шаг уровня: не чаще WEEK_MOVES_MAX раз в неделю, на 0.5-2%.
+  WEEK_MOVES_MAX: 2,
+  WEEK_MOVE_MIN: 0.005,
+  WEEK_MOVE_MAX: 0.02,
+  // Мёртвая зона для экономики: отклонение цены меньше 1% не влияет.
+  DEAD_ZONE: 0.01,
+  // Серьёзное ЧС: рост на 3-7% по затронутым товарам.
+  SHOCK_MIN: 0.03,
   SHOCK_MAX: 0.07,
-  // Границы цены в долях от базы: без них случайный дрейф увёл бы цену
-  // навсегда в одну сторону, и рыночный множитель залип бы на пределе ±30%.
+  // Границы цены в долях от базы: без них рынок ушёл бы навсегда в сторону,
+  // и множитель залип бы на пределе ±30%.
   OIL_MIN: 0.5, OIL_MAX: 2.0,
   GOLD_MIN: 0.5, GOLD_MAX: 2.0,
-  // Сколько точек истории цен храним для графика.
-  HISTORY_MAX: 60,
-  // Раз в сколько игровых суток рынок делает обычный шаг (без ЧС).
-  REPRICE_DAYS: 1,
+  // Сколько часовых точек истории храним (одна игровая неделя).
+  HISTORY_MAX: 168,
 };
 
 // Один шаг цены. percentage — доля (0.03 = +3%). Результат не выходит за

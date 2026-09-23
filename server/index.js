@@ -906,7 +906,7 @@ function fuelUnitPrice(airport) {
 }
 
 // ---------- Рынок: движение цен нефти и золота ----------
-// Пересобрать рыночный множитель топлива из текущих цен нефти/золота.
+// Пересобрать рыночный множитель топлива из цен-уровней нефти/золота.
 function recomputeFuelMarketMult() {
   const s = store.getSettings();
   const noise = (Math.random() * 2 - 1);
@@ -915,58 +915,103 @@ function recomputeFuelMarketMult() {
   return +mult.toFixed(3);
 }
 
-// Запомнить точку истории цен для графика в разделе «Экономика».
+// Уровень товара (то, что влияет на экономику).
+function marketLevel(name) {
+  const s = store.getSettings();
+  if (name === 'oil') return s.oilPrice != null ? s.oilPrice : FUEL_ECONOMY.OIL_BASELINE;
+  return s.goldPrice != null ? s.goldPrice : FUEL_ECONOMY.GOLD_BASELINE;
+}
+
+// Тикер (цена на табло и графике); если ещё не заведён — равен уровню.
+function marketTicker(name) {
+  const s = store.getSettings();
+  const tick = name === 'oil' ? s.oilTicker : s.goldTicker;
+  return tick != null ? tick : marketLevel(name);
+}
+
+// Запомнить точку истории цен (по тикеру) для графика.
 function recordMarketPoint(currentTick) {
   const s = store.getSettings();
   const hist = Array.isArray(s.marketHistory) ? s.marketHistory.slice() : [];
-  const point = {
-    tick: currentTick,
-    oil: +(s.oilPrice != null ? s.oilPrice : FUEL_ECONOMY.OIL_BASELINE),
-    gold: +(s.goldPrice != null ? s.goldPrice : FUEL_ECONOMY.GOLD_BASELINE),
-  };
+  const point = { tick: currentTick, oil: marketTicker('oil'), gold: marketTicker('gold') };
   const last = hist[hist.length - 1];
   if (last && last.tick === point.tick) hist[hist.length - 1] = point;
   else hist.push(point);
   store.setSetting('marketHistory', hist.slice(-MARKET_ECONOMY.HISTORY_MAX));
 }
 
-// Обычный шаг рынка: без ЧС цены дрейфуют в пределах ±DRIFT (независимо).
-function stepMarket(currentTick) {
+// Часовой шаг одного товара: редкий сдвиг УРОВНЯ + шум ТИКЕРА вокруг него.
+// Уровень трогаем не чаще WEEK_MOVES_MAX раз в неделю (0.5-2% за шаг), а
+// тикер дрожит каждый час в пределах ±TICKER_BAND, чтобы график был живым.
+function stepCommodityHourly(name, moves) {
   const s = store.getSettings();
-  const oilBase = FUEL_ECONOMY.OIL_BASELINE;
-  const goldBase = FUEL_ECONOMY.GOLD_BASELINE;
-  const oil = s.oilPrice != null ? s.oilPrice : oilBase;
-  const gold = s.goldPrice != null ? s.goldPrice : goldBase;
-  const oilPct = (Math.random() * 2 - 1) * MARKET_ECONOMY.DRIFT;
-  const goldPct = (Math.random() * 2 - 1) * MARKET_ECONOMY.DRIFT;
-  store.setSetting('oilPrice',
-    +marketStepPrice(oil, oilBase, oilPct, MARKET_ECONOMY.OIL_MIN, MARKET_ECONOMY.OIL_MAX).toFixed(2));
-  store.setSetting('goldPrice',
-    +marketStepPrice(gold, goldBase, goldPct, MARKET_ECONOMY.GOLD_MIN, MARKET_ECONOMY.GOLD_MAX).toFixed(2));
+  const isOil = name === 'oil';
+  const base = isOil ? FUEL_ECONOMY.OIL_BASELINE : FUEL_ECONOMY.GOLD_BASELINE;
+  const minMult = isOil ? MARKET_ECONOMY.OIL_MIN : MARKET_ECONOMY.GOLD_MIN;
+  const maxMult = isOil ? MARKET_ECONOMY.OIL_MAX : MARKET_ECONOMY.GOLD_MAX;
+  const levelKey = isOil ? 'oilPrice' : 'goldPrice';
+  const tickerKey = isOil ? 'oilTicker' : 'goldTicker';
+
+  let level = s[levelKey] != null ? s[levelKey] : base;
+  let ticker = s[tickerKey] != null ? s[tickerKey] : level;
+
+  // Значимый шаг уровня — не более WEEK_MOVES_MAX за игровую неделю.
+  const moveChance = MARKET_ECONOMY.WEEK_MOVES_MAX
+    / (MARKET_ECONOMY.WEEK_TICKS / MARKET_ECONOMY.HOUR_TICKS);
+  if ((moves[name] || 0) < MARKET_ECONOMY.WEEK_MOVES_MAX && Math.random() < moveChance) {
+    const dir = Math.random() < 0.5 ? -1 : 1;
+    const mag = MARKET_ECONOMY.WEEK_MOVE_MIN
+      + Math.random() * (MARKET_ECONOMY.WEEK_MOVE_MAX - MARKET_ECONOMY.WEEK_MOVE_MIN);
+    level = marketStepPrice(level, base, dir * mag, minMult, maxMult);
+    moves[name] = (moves[name] || 0) + 1;
+  }
+
+  // Тикер тянется к уровню и дрожит вокруг него.
+  const pull = (level - ticker) * MARKET_ECONOMY.TICKER_PULL;
+  const noise = level * (Math.random() * 2 - 1) * MARKET_ECONOMY.TICKER_NOISE;
+  const band = level * MARKET_ECONOMY.TICKER_BAND;
+  ticker = Math.max(level - band, Math.min(level + band, ticker + pull + noise));
+  ticker = Math.max(base * minMult, Math.min(base * maxMult, ticker));
+
+  store.setSetting(levelKey, +level.toFixed(2));
+  store.setSetting(tickerKey, +ticker.toFixed(2));
+}
+
+// Часовое обновление рынка (зовётся из тика раз в игровой час).
+function stepMarketHourly(currentTick) {
+  const s = store.getSettings();
+  let moves = (s.marketMoves && typeof s.marketMoves === 'object')
+    ? { ...s.marketMoves } : { oil: 0, gold: 0 };
+  // Раз в игровую неделю бюджет значимых шагов обнуляется.
+  if (currentTick - (s.marketWeekTick || 0) >= MARKET_ECONOMY.WEEK_TICKS) {
+    moves = { oil: 0, gold: 0 };
+    store.setSetting('marketWeekTick', currentTick);
+  }
+  stepCommodityHourly('oil', moves);
+  stepCommodityHourly('gold', moves);
+  store.setSetting('marketMoves', moves);
   recomputeFuelMarketMult();
   recordMarketPoint(currentTick);
 }
 
-// Рыночный шок от серьёзного ЧС: рост на 3-7% по затронутым товарам.
+// Рыночный шок от серьёзного ЧС: уровень прыгает на +3-7%, тикер сразу за ним.
 // Буря, птицы и прочие мелкие события рынок не двигают.
 function applyDisasterMarketShock(kind, currentTick) {
   const map = DISASTER_MARKET[kind];
   if (!map) return;
   const s = store.getSettings();
-  const oilBase = FUEL_ECONOMY.OIL_BASELINE;
-  const goldBase = FUEL_ECONOMY.GOLD_BASELINE;
   const shock = () => MARKET_ECONOMY.SHOCK_MIN
     + Math.random() * (MARKET_ECONOMY.SHOCK_MAX - MARKET_ECONOMY.SHOCK_MIN);
-  if (map.oil) {
-    const oil = s.oilPrice != null ? s.oilPrice : oilBase;
-    store.setSetting('oilPrice',
-      +marketStepPrice(oil, oilBase, map.oil * shock(), MARKET_ECONOMY.OIL_MIN, MARKET_ECONOMY.OIL_MAX).toFixed(2));
-  }
-  if (map.gold) {
-    const gold = s.goldPrice != null ? s.goldPrice : goldBase;
-    store.setSetting('goldPrice',
-      +marketStepPrice(gold, goldBase, map.gold * shock(), MARKET_ECONOMY.GOLD_MIN, MARKET_ECONOMY.GOLD_MAX).toFixed(2));
-  }
+  const jump = (name, dir, base, minMult, maxMult) => {
+    const levelKey = name === 'oil' ? 'oilPrice' : 'goldPrice';
+    const tickerKey = name === 'oil' ? 'oilTicker' : 'goldTicker';
+    const level = s[levelKey] != null ? s[levelKey] : base;
+    const next = marketStepPrice(level, base, dir * shock(), minMult, maxMult);
+    store.setSetting(levelKey, +next.toFixed(2));
+    store.setSetting(tickerKey, +next.toFixed(2));   // табло прыгает вместе с уровнем
+  };
+  if (map.oil) jump('oil', map.oil, FUEL_ECONOMY.OIL_BASELINE, MARKET_ECONOMY.OIL_MIN, MARKET_ECONOMY.OIL_MAX);
+  if (map.gold) jump('gold', map.gold, FUEL_ECONOMY.GOLD_BASELINE, MARKET_ECONOMY.GOLD_MIN, MARKET_ECONOMY.GOLD_MAX);
   recomputeFuelMarketMult();
   recordMarketPoint(currentTick != null ? currentTick : store.getTickCounter());
 }
@@ -1842,23 +1887,27 @@ app.get('/api/state', auth, (req, res) => {
 // Цены глобальные — одни на всех игроков, как и настройки админа.
 app.get('/api/economy', auth, (req, res) => {
   const s = store.getSettings();
-  const oil = s.oilPrice != null ? s.oilPrice : FUEL_ECONOMY.OIL_BASELINE;
-  const gold = s.goldPrice != null ? s.goldPrice : FUEL_ECONOMY.GOLD_BASELINE;
+  // На табло и графике — тикер (живая цена), в level — «экономический» уровень.
+  const oilLevel = s.oilPrice != null ? s.oilPrice : FUEL_ECONOMY.OIL_BASELINE;
+  const goldLevel = s.goldPrice != null ? s.goldPrice : FUEL_ECONOMY.GOLD_BASELINE;
+  const oil = s.oilTicker != null ? s.oilTicker : oilLevel;
+  const gold = s.goldTicker != null ? s.goldTicker : goldLevel;
   const history = (Array.isArray(s.marketHistory) ? s.marketHistory : [])
     .map(p => ({ tick: p.tick, oil: p.oil, gold: p.gold }));
   res.json({
     oil: {
-      price: oil,
+      price: oil, level: oilLevel,
       baseline: FUEL_ECONOMY.OIL_BASELINE,
       min: FUEL_ECONOMY.OIL_BASELINE * MARKET_ECONOMY.OIL_MIN,
       max: FUEL_ECONOMY.OIL_BASELINE * MARKET_ECONOMY.OIL_MAX,
     },
     gold: {
-      price: gold,
+      price: gold, level: goldLevel,
       baseline: FUEL_ECONOMY.GOLD_BASELINE,
       min: FUEL_ECONOMY.GOLD_BASELINE * MARKET_ECONOMY.GOLD_MIN,
       max: FUEL_ECONOMY.GOLD_BASELINE * MARKET_ECONOMY.GOLD_MAX,
     },
+    deadZone: MARKET_ECONOMY.DEAD_ZONE,
     fuelMarketMult: currentFuelMarketMult(),
     priceMarketMult: +priceMarketMult().toFixed(4),
     history,
@@ -3679,10 +3728,12 @@ app.post('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
     store.setSetting('goldPrice', v);
   }
   // Сразу пересчитываем множитель и фиксируем точку истории: админская
-  // правка цен должна быть видна на графике «Экономика».
+  // правка цен должна быть видна и на табло, и на графике «Экономика».
+  const s = store.getSettings();
+  store.setSetting('oilTicker', s.oilPrice != null ? s.oilPrice : FUEL_ECONOMY.OIL_BASELINE);
+  store.setSetting('goldTicker', s.goldPrice != null ? s.goldPrice : FUEL_ECONOMY.GOLD_BASELINE);
   const mult = recomputeFuelMarketMult();
   recordMarketPoint(store.getTickCounter());
-  const s = store.getSettings();
   res.json({
     oilPrice: s.oilPrice, goldPrice: s.goldPrice,
     fuelMarketMult: mult,
@@ -3992,17 +4043,21 @@ function runTick() {
   const currentTick = store.incrementTickCounter();
   const airports = store.getAllAirports();
 
-  // --- Рынок: цены нефти и золота двигаются раз в MARKET_ECONOMY.REPRICE_DAYS
-  // игровых суток. Без ЧС — лёгкий дрейф в пределах ±2%; серьёзные ЧС дают
-  // скачок +3..7% в момент события (см. applyDisasterMarketShock).
+  // --- Рынок: тикер цен обновляется каждый игровой час. Уровень (то, что
+  // влияет на экономику) сдвигается редко: не более 2 значимых шагов в неделю
+  // плюс шок от серьёзного ЧС (см. applyDisasterMarketShock).
   const settings = store.getSettings();
-  const repriceInterval = MARKET_ECONOMY.REPRICE_DAYS * 1440;
-  if (currentTick - (settings.fuelMarketRepricedTick || 0) >= repriceInterval) {
-    stepMarket(currentTick);
-    store.setSetting('fuelMarketRepricedTick', currentTick);
-  } else if (!Array.isArray(settings.marketHistory) || settings.marketHistory.length === 0) {
-    // Первый запуск: ставим начальную точку, чтобы графику было от чего расти.
+  if (!Array.isArray(settings.marketHistory) || settings.marketHistory.length === 0) {
+    // Первый запуск: заводим тикеры равными уровням и ставим точку отсчёта.
+    store.setSetting('oilTicker',
+      settings.oilPrice != null ? settings.oilPrice : FUEL_ECONOMY.OIL_BASELINE);
+    store.setSetting('goldTicker',
+      settings.goldPrice != null ? settings.goldPrice : FUEL_ECONOMY.GOLD_BASELINE);
+    store.setSetting('marketWeekTick', currentTick);
     recordMarketPoint(currentTick);
+  } else if (currentTick - (settings.marketHourTick || 0) >= MARKET_ECONOMY.HOUR_TICKS) {
+    stepMarketHourly(currentTick);
+    store.setSetting('marketHourTick', currentTick);
   }
 
   for (const airport of airports) {
