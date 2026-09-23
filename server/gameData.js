@@ -209,6 +209,41 @@ function fuelMarketMultiplier(oilPrice, goldPrice, noise) {
   return Math.max(lo, Math.min(hi, mult));
 }
 
+// ---------- Движение цен нефти и золота ----------
+// Цены не стоят на месте: без происшествий они слегка дрейфуют (±2%), а
+// серьёзные ЧС дают заметный рыночный шок (+3..7% по затронутым товарам).
+// Нефть дорожает — дорожают прилёты, билеты и контракты (см. priceMarketMult).
+const MARKET_ECONOMY = {
+  DRIFT: 0.02,       // без ЧС: изменение в пределах ±2% за шаг
+  SHOCK_MIN: 0.03,   // серьёзное ЧС: рост на 3-7%
+  SHOCK_MAX: 0.07,
+  // Границы цены в долях от базы: без них случайный дрейф увёл бы цену
+  // навсегда в одну сторону, и рыночный множитель залип бы на пределе ±30%.
+  OIL_MIN: 0.5, OIL_MAX: 2.0,
+  GOLD_MIN: 0.5, GOLD_MAX: 2.0,
+  // Сколько точек истории цен храним для графика.
+  HISTORY_MAX: 60,
+  // Раз в сколько игровых суток рынок делает обычный шаг (без ЧС).
+  REPRICE_DAYS: 1,
+};
+
+// Один шаг цены. percentage — доля (0.03 = +3%). Результат не выходит за
+// границы baseline × [minMult, maxMult].
+function marketStepPrice(current, baseline, percentage, minMult, maxMult) {
+  const base = baseline || current || 1;
+  const next = (current != null ? current : base) * (1 + percentage);
+  return Math.max(base * minMult, Math.min(base * maxMult, next));
+}
+
+// Реакция рынка на серьёзные ЧС: знак ±1 по каждому товару. Буря и птицы
+// рынок не двигают — они временные и мелкие.
+const DISASTER_MARKET = {
+  earthquake: { oil: +1, gold: +1 },
+  flood:      { oil: +1, gold: +1 },
+  fire:       { oil: +1, gold: +1 },
+  meteor:     { oil: +1, gold: +1 },
+};
+
 // Вместимость топливного склада по уровню апгрейда.
 function fuelStorageCapacity(upgradeLevel) {
   const arr = FUEL_ECONOMY.STORAGE_BY_LEVEL;
@@ -1401,6 +1436,6 @@ module.exports = {
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
-  fuelMarketMultiplier,
+  fuelMarketMultiplier, MARKET_ECONOMY, marketStepPrice, DISASTER_MARKET,
   PASSENGER_ECONOMY, terminalThroughput,
 };

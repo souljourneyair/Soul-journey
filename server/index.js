@@ -22,6 +22,7 @@ const {
   AIRLINE_BOT_NAMES, randomAirlineName, CONTRACT_ECONOMY, contractPayPerTick, contractDurationTicks,
   APRON_ECONOMY, contractPayPerArrival,
   FUEL_SUPPLIERS, FUEL_ECONOMY, fuelStorageCapacity, getFuelSupplier,
+  MARKET_ECONOMY, marketStepPrice, DISASTER_MARKET,
   PASSENGER_ECONOMY, terminalThroughput,
 } = require('./gameData');
 const mediaScan = require('./mediaScan');
@@ -401,6 +402,8 @@ function logNews(airportId, title, text) {
 
 // Модуль происшествий ведёт ленту через наш логгер.
 disasters.setLogger((airportId, kind, text) => logEvent(airportId, kind, text));
+// Серьёзное ЧС двигает мировые цены нефти и золота.
+disasters.setMarketShock((kind, currentTick) => applyDisasterMarketShock(kind, currentTick));
 // События с самолётами пишут новости через свой логгер.
 aircraftEvents.setNewsLogger((airportId, title, text) => logNews(airportId, title, text));
 function adminLevel(airportId) {
@@ -900,6 +903,72 @@ function fuelUnitPrice(airport) {
   // Иначе — рыночная цена: база поставщика × рыночный множитель.
   const supplier = getFuelSupplier(airport.fuelSupplier) || FUEL_SUPPLIERS[2];
   return +(supplier.pricePerUnit * currentFuelMarketMult()).toFixed(3);
+}
+
+// ---------- Рынок: движение цен нефти и золота ----------
+// Пересобрать рыночный множитель топлива из текущих цен нефти/золота.
+function recomputeFuelMarketMult() {
+  const s = store.getSettings();
+  const noise = (Math.random() * 2 - 1);
+  const mult = fuelMarketMultiplier(s.oilPrice, s.goldPrice, noise);
+  store.setSetting('fuelMarketMult', +mult.toFixed(3));
+  return +mult.toFixed(3);
+}
+
+// Запомнить точку истории цен для графика в разделе «Экономика».
+function recordMarketPoint(currentTick) {
+  const s = store.getSettings();
+  const hist = Array.isArray(s.marketHistory) ? s.marketHistory.slice() : [];
+  const point = {
+    tick: currentTick,
+    oil: +(s.oilPrice != null ? s.oilPrice : FUEL_ECONOMY.OIL_BASELINE),
+    gold: +(s.goldPrice != null ? s.goldPrice : FUEL_ECONOMY.GOLD_BASELINE),
+  };
+  const last = hist[hist.length - 1];
+  if (last && last.tick === point.tick) hist[hist.length - 1] = point;
+  else hist.push(point);
+  store.setSetting('marketHistory', hist.slice(-MARKET_ECONOMY.HISTORY_MAX));
+}
+
+// Обычный шаг рынка: без ЧС цены дрейфуют в пределах ±DRIFT (независимо).
+function stepMarket(currentTick) {
+  const s = store.getSettings();
+  const oilBase = FUEL_ECONOMY.OIL_BASELINE;
+  const goldBase = FUEL_ECONOMY.GOLD_BASELINE;
+  const oil = s.oilPrice != null ? s.oilPrice : oilBase;
+  const gold = s.goldPrice != null ? s.goldPrice : goldBase;
+  const oilPct = (Math.random() * 2 - 1) * MARKET_ECONOMY.DRIFT;
+  const goldPct = (Math.random() * 2 - 1) * MARKET_ECONOMY.DRIFT;
+  store.setSetting('oilPrice',
+    +marketStepPrice(oil, oilBase, oilPct, MARKET_ECONOMY.OIL_MIN, MARKET_ECONOMY.OIL_MAX).toFixed(2));
+  store.setSetting('goldPrice',
+    +marketStepPrice(gold, goldBase, goldPct, MARKET_ECONOMY.GOLD_MIN, MARKET_ECONOMY.GOLD_MAX).toFixed(2));
+  recomputeFuelMarketMult();
+  recordMarketPoint(currentTick);
+}
+
+// Рыночный шок от серьёзного ЧС: рост на 3-7% по затронутым товарам.
+// Буря, птицы и прочие мелкие события рынок не двигают.
+function applyDisasterMarketShock(kind, currentTick) {
+  const map = DISASTER_MARKET[kind];
+  if (!map) return;
+  const s = store.getSettings();
+  const oilBase = FUEL_ECONOMY.OIL_BASELINE;
+  const goldBase = FUEL_ECONOMY.GOLD_BASELINE;
+  const shock = () => MARKET_ECONOMY.SHOCK_MIN
+    + Math.random() * (MARKET_ECONOMY.SHOCK_MAX - MARKET_ECONOMY.SHOCK_MIN);
+  if (map.oil) {
+    const oil = s.oilPrice != null ? s.oilPrice : oilBase;
+    store.setSetting('oilPrice',
+      +marketStepPrice(oil, oilBase, map.oil * shock(), MARKET_ECONOMY.OIL_MIN, MARKET_ECONOMY.OIL_MAX).toFixed(2));
+  }
+  if (map.gold) {
+    const gold = s.goldPrice != null ? s.goldPrice : goldBase;
+    store.setSetting('goldPrice',
+      +marketStepPrice(gold, goldBase, map.gold * shock(), MARKET_ECONOMY.GOLD_MIN, MARKET_ECONOMY.GOLD_MAX).toFixed(2));
+  }
+  recomputeFuelMarketMult();
+  recordMarketPoint(currentTick != null ? currentTick : store.getTickCounter());
 }
 
 // Заправка чужого (договорного) борта со склада при прилёте.
@@ -1767,6 +1836,33 @@ app.get('/api/state', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
   res.json(serializeAirport(airport));
+});
+
+// Экономика: цены нефти и золота, рыночные множители и история для графика.
+// Цены глобальные — одни на всех игроков, как и настройки админа.
+app.get('/api/economy', auth, (req, res) => {
+  const s = store.getSettings();
+  const oil = s.oilPrice != null ? s.oilPrice : FUEL_ECONOMY.OIL_BASELINE;
+  const gold = s.goldPrice != null ? s.goldPrice : FUEL_ECONOMY.GOLD_BASELINE;
+  const history = (Array.isArray(s.marketHistory) ? s.marketHistory : [])
+    .map(p => ({ tick: p.tick, oil: p.oil, gold: p.gold }));
+  res.json({
+    oil: {
+      price: oil,
+      baseline: FUEL_ECONOMY.OIL_BASELINE,
+      min: FUEL_ECONOMY.OIL_BASELINE * MARKET_ECONOMY.OIL_MIN,
+      max: FUEL_ECONOMY.OIL_BASELINE * MARKET_ECONOMY.OIL_MAX,
+    },
+    gold: {
+      price: gold,
+      baseline: FUEL_ECONOMY.GOLD_BASELINE,
+      min: FUEL_ECONOMY.GOLD_BASELINE * MARKET_ECONOMY.GOLD_MIN,
+      max: FUEL_ECONOMY.GOLD_BASELINE * MARKET_ECONOMY.GOLD_MAX,
+    },
+    fuelMarketMult: currentFuelMarketMult(),
+    priceMarketMult: +priceMarketMult().toFixed(4),
+    history,
+  });
 });
 
 // Приветствие новичка: разовые 500 XP за вход. Начисляются один раз на
@@ -3582,14 +3678,14 @@ app.post('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
     if (!isFinite(v) || v < 0) return res.status(400).json({ error: 'invalid_gold' });
     store.setSetting('goldPrice', v);
   }
-  // сразу пересчитываем рыночный множитель под новые цены
+  // Сразу пересчитываем множитель и фиксируем точку истории: админская
+  // правка цен должна быть видна на графике «Экономика».
+  const mult = recomputeFuelMarketMult();
+  recordMarketPoint(store.getTickCounter());
   const s = store.getSettings();
-  const noise = (Math.random() * 2 - 1);
-  const mult = fuelMarketMultiplier(s.oilPrice, s.goldPrice, noise);
-  store.setSetting('fuelMarketMult', +mult.toFixed(3));
   res.json({
     oilPrice: s.oilPrice, goldPrice: s.goldPrice,
-    fuelMarketMult: +mult.toFixed(3),
+    fuelMarketMult: mult,
   });
 });
 
@@ -3896,14 +3992,17 @@ function runTick() {
   const currentTick = store.incrementTickCounter();
   const airports = store.getAllAirports();
 
-  // --- Рынок топлива: пересчёт множителя раз в MARKET_REPRICE_DAYS дней ---
+  // --- Рынок: цены нефти и золота двигаются раз в MARKET_ECONOMY.REPRICE_DAYS
+  // игровых суток. Без ЧС — лёгкий дрейф в пределах ±2%; серьёзные ЧС дают
+  // скачок +3..7% в момент события (см. applyDisasterMarketShock).
   const settings = store.getSettings();
-  const repriceInterval = FUEL_ECONOMY.MARKET_REPRICE_DAYS * 1440;
+  const repriceInterval = MARKET_ECONOMY.REPRICE_DAYS * 1440;
   if (currentTick - (settings.fuelMarketRepricedTick || 0) >= repriceInterval) {
-    const noise = (Math.random() * 2 - 1); // -1..1
-    const mult = fuelMarketMultiplier(settings.oilPrice, settings.goldPrice, noise);
-    store.setSetting('fuelMarketMult', +mult.toFixed(3));
+    stepMarket(currentTick);
     store.setSetting('fuelMarketRepricedTick', currentTick);
+  } else if (!Array.isArray(settings.marketHistory) || settings.marketHistory.length === 0) {
+    // Первый запуск: ставим начальную точку, чтобы графику было от чего расти.
+    recordMarketPoint(currentTick);
   }
 
   for (const airport of airports) {

@@ -140,6 +140,7 @@
       <button id="createAirlineBtn" class="left-menu-btn hidden">🏢 Создать АК</button>
       <button id="bankBtn" class="left-menu-btn">🏦 Банк</button>
       <button id="leaderboardBtn" class="left-menu-btn">🏆 Рейтинг</button>
+      <button id="economyBtn" class="left-menu-btn">📈 Экономика</button>
       <button id="restartBtn" class="left-menu-btn left-menu-btn-danger">↺ Начать сначала</button>
       <button id="supportBtn" class="left-menu-btn left-menu-btn-support">💛 Поддержать</button>
       <button id="logoutBtn" class="left-menu-btn">⎋ Выход</button>
@@ -411,6 +412,35 @@
       <tbody id="leaderboardBody"></tbody>
     </table>
     <button id="closeLeaderboard" class="btn-secondary">Закрыть</button>
+  </div>
+</div>
+
+<!-- ===== МОДАЛКА ЭКОНОМИКИ ===== -->
+<div id="economyModal" class="modal hidden">
+  <div class="modal-card board-frame econ-modal">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">ЭКОНОМИКА</span>
+      <span class="board-sub">МИРОВЫЕ ЦЕНЫ</span>
+    </div>
+    <div class="econ-charts">
+      <div class="econ-chart-block">
+        <div class="econ-chart-head">
+          <span class="econ-chart-name">🛢 Нефть</span>
+          <span class="econ-chart-val" id="econOilVal">—</span>
+        </div>
+        <div class="econ-chart" id="econOilChart"></div>
+      </div>
+      <div class="econ-chart-block">
+        <div class="econ-chart-head">
+          <span class="econ-chart-name">🥇 Золото</span>
+          <span class="econ-chart-val" id="econGoldVal">—</span>
+        </div>
+        <div class="econ-chart" id="econGoldChart"></div>
+      </div>
+    </div>
+    <p class="econ-hint" id="econHint"></p>
+    <button id="closeEconomy" class="btn-secondary">Закрыть</button>
   </div>
 </div>
 

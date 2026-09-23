@@ -96,6 +96,7 @@ function readFromDisk() {
     if (data.settings.goldPrice === undefined) data.settings.goldPrice = 2000; // база золота
     if (data.settings.fuelMarketMult === undefined) data.settings.fuelMarketMult = 1.0; // текущий рыночный множитель
     if (data.settings.fuelMarketRepricedTick === undefined) data.settings.fuelMarketRepricedTick = 0;
+    if (!Array.isArray(data.settings.marketHistory)) data.settings.marketHistory = [];
     if (data.nextAircraftId === undefined) data.nextAircraftId = 1;
     if (!data.aircraft) data.aircraft = [];
     (data.aircraft || []).forEach(a => {

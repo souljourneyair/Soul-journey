@@ -1884,6 +1884,62 @@ $('#leaderboardBtn').addEventListener('click', async () => {
 });
 $('#closeLeaderboard').addEventListener('click', () => $('#leaderboardModal').classList.add('hidden'));
 
+// ===== ЭКОНОМИКА: графики цен нефти и золота =====
+let ECON_DATA = null;
+
+// Простой линейный график (SVG): линия цены, заливка под ней и пунктир —
+// базовая цена. Масштаб по фактическим значениям серии, а не по глобальным
+// границам, иначе на большом диапазоне линия выглядела бы почти плоской.
+function econChartSvg(values, baseline, color) {
+  const w = 520, h = 150, pad = 10;
+  if (!values || values.length < 2) {
+    return '<div class="econ-empty">Данных пока мало — цены обновляются раз в игровые сутки.</div>';
+  }
+  let lo = Math.min(...values, baseline);
+  let hi = Math.max(...values, baseline);
+  if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
+  const margin = (hi - lo) * 0.12;
+  lo -= margin; hi += margin;
+  const span = hi - lo;
+  const n = values.length;
+  const px = i => pad + (i / (n - 1)) * (w - pad * 2);
+  const py = v => h - pad - ((v - lo) / span) * (h - pad * 2);
+  const pts = values.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
+  const area = `${pad},${(h - pad).toFixed(1)} ${pts} ${(w - pad).toFixed(1)},${(h - pad).toFixed(1)}`;
+  const baseY = py(baseline).toFixed(1);
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="econ-svg">
+    <polygon points="${area}" fill="${color}" fill-opacity="0.12"></polygon>
+    <line x1="${pad}" y1="${baseY}" x2="${w - pad}" y2="${baseY}"
+      stroke="var(--text-dim)" stroke-width="1" stroke-dasharray="4 4" stroke-opacity="0.6"></line>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"></polyline>
+  </svg>`;
+}
+
+function renderEconomy() {
+  const d = ECON_DATA;
+  if (!d) return;
+  const hist = Array.isArray(d.history) ? d.history : [];
+  $('#econOilVal').textContent = `${Number(d.oil.price).toFixed(1)} у.е.`;
+  $('#econGoldVal').textContent = `${Math.round(d.gold.price).toLocaleString('ru-RU')} у.е.`;
+  $('#econOilChart').innerHTML = econChartSvg(hist.map(p => p.oil), d.oil.baseline, '#e0a020');
+  $('#econGoldChart').innerHTML = econChartSvg(hist.map(p => p.gold), d.gold.baseline, '#d4af37');
+  const m = d.priceMarketMult || 1;
+  const pct = Math.round((m - 1) * 100);
+  const sign = pct > 0 ? '+' : '';
+  $('#econHint').textContent =
+    `Рынок влияет на оплату прилёта, билеты своей АК и договоры: ${sign}${pct}%. `
+    + 'Серьёзные ЧС (землетрясение, наводнение, пожар, метеорит) поднимают цены на 3–7%, '
+    + 'в спокойное время они гуляют в пределах ±2%. Пунктир — базовая цена.';
+}
+
+$('#economyBtn').addEventListener('click', async () => {
+  try { ECON_DATA = await api('/api/economy'); } catch (err) { ECON_DATA = null; }
+  renderEconomy();
+  $('#economyModal').classList.remove('hidden');
+});
+$('#closeEconomy').addEventListener('click', () => $('#economyModal').classList.add('hidden'));
+
 // ===== TERRITORY MODAL =====
 // гамбургер: показать/скрыть левое меню на телефоне
 $('#menuToggle').addEventListener('click', (e) => {

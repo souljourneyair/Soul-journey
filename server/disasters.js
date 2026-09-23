@@ -316,11 +316,19 @@ const RUNNERS = {
 let logEvent = null;
 function setLogger(fn) { logEvent = fn; }
 
+// Хук рыночной реакции на ЧС. Передаётся из index.js, чтобы модуль не знал
+// про экономику: серьёзное событие дёргает мировые цены нефти и золота.
+let marketShock = null;
+function setMarketShock(fn) { marketShock = fn; }
+
 function trigger(store, airport, kind, currentTick) {
   const runner = RUNNERS[kind];
   if (!runner) return null;
   const result = runner(store, airport, currentTick);
   if (!result) return null;
+
+  // Событие состоялось — сообщаем рынку (только серьёзные виды дают скачок).
+  if (marketShock) marketShock(result.kind, currentTick);
 
   // Складываем в очередь показа: игрок увидит окно при следующем заходе.
   const fresh = store.getAirportById(airport.id) || airport;
@@ -383,5 +391,5 @@ function stormActive(airport, currentTick) {
 
 module.exports = {
   trigger, rollRandom, stormActive, forecastMeteor, meteorDue,
-  allowedAtLevel, setLogger, DISASTER_KINDS,
+  allowedAtLevel, setLogger, setMarketShock, DISASTER_KINDS,
 };
