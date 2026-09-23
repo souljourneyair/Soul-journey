@@ -1420,6 +1420,11 @@ function infraStatusLines(building) {
     const wearPct = Math.round((rw.wear || 0) * 100);
     if (wearPct >= 10) lines.push(`износ ${wearPct}% ⚠️`);
     else if (wearPct > 0) lines.push(`износ ${wearPct}%`);
+    // Причину урезанной квоты объясняем явно: буря режет пропускную вдвое,
+    // и без пометки цифра выглядит ошибкой.
+    if (STATE.stormTicksLeft > 0) {
+      lines.push(`🧲 Магнитная буря: пропускная −50% (ещё ${STATE.stormTicksLeft} мин)`);
+    }
     return lines;
   }
 
@@ -1443,6 +1448,23 @@ function infraStatusLines(building) {
     // Очередь в игре одна на весь аэропорт: вышки работают сообща.
     const lines = [`📡 Своя ур.${t.level}: ${t.ownInterval} мин`];
     if (towers > 1) lines.push(`вместе: ${common} мин`);
+    // Счётчик пропускной способности: сколько операций прошло и сколько
+    // осталось. Лимит задают полосы (их суточные квоты) и интервал вышки —
+    // показываем оба и во что упёрлись, иначе непонятно, вышла квота или нет.
+    const f = STATE.towerFlow;
+    if (f) {
+      lines.push(`🛬 за сутки: ${f.used} из ${f.effective} — осталось ${f.remaining}`);
+      lines.push(`лимит ВПП ${f.quotaRunways} · лимит вышки ${f.quotaTower}`);
+      if (f.remaining <= 0) {
+        lines.push(f.bottleneck === 'tower'
+          ? '⛔ Квота исчерпана — упёрлись в вышку'
+          : '⛔ Квота исчерпана — упёрлись в ВПП');
+      } else if (f.bottleneck === 'tower') {
+        lines.push('узкое место: вышка (интервал)');
+      } else if (f.bottleneck === 'runways') {
+        lines.push('узкое место: ВПП (суточная квота)');
+      }
+    }
     lines.push(queue > 0 ? `в очереди: ${queue}` : 'очереди нет');
     return lines;
   }

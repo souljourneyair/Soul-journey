@@ -1234,11 +1234,15 @@ function runwayCapacity(def, level) {
 }
 
 // Сколько квоты израсходовано на текущий момент (с учётом восстановления).
+// Верхняя граница — сама квота: если происшествие или магнитная буря урезали
+// capacity уже после того, как посадки накопились, счётчик не должен показывать
+// больше 100% (был баг «313/190»). Излишек считается исчерпанной квотой, а не
+// долгом перед полосой.
 function runwayUsed(b, capacity, currentTick) {
   const stored = b.rwLandings || 0;
   const since = currentTick - (b.rwLandingsTick || 0);
   const restored = since * (capacity / MINUTES_PER_DAY);
-  return Math.max(0, stored - restored);
+  return Math.min(capacity, Math.max(0, stored - restored));
 }
 
 // Все рабочие ВПП аэропорта с текущей загрузкой.
@@ -1513,6 +1517,39 @@ function serializeAirport(airport) {
         });
     })(),
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
+    // Пропускная способность вышки за сутки: сколько операций уже прошло и
+    // сколько осталось. Лимит задают ДВЕ вещи — суточные квоты полос и интервал
+    // вышки. Отдаём оба числа и пометку, что сработало раньше, чтобы игрок
+    // понимал, во что упёрся: в полосу или в вышку.
+    towerFlow: (() => {
+      const cur = store.getTickCounter();
+      const rws = listRunways(airport.id, cur);
+      if (!rws.length) return null;
+      const interval = towerInterval(airport.id);
+      if (!interval || !isFinite(interval)) return null;
+      // сколько операций интервал позволяет одной полосе за сутки
+      const towerCapPerRunway = Math.max(1, Math.floor(MINUTES_PER_DAY / interval));
+      let quotaRunways = 0, quotaTower = 0, effective = 0, used = 0;
+      for (const r of rws) {
+        quotaRunways += r.capacity;
+        quotaTower += towerCapPerRunway;
+        effective += Math.min(r.capacity, towerCapPerRunway);
+        used += r.used;
+      }
+      used = Math.min(used, effective);
+      const remaining = Math.max(0, Math.round(effective - used));
+      let bottleneck = 'even';
+      if (quotaTower < quotaRunways) bottleneck = 'tower';
+      else if (quotaRunways < quotaTower) bottleneck = 'runways';
+      return {
+        used: Math.round(used),
+        effective: Math.round(effective),
+        remaining,
+        quotaRunways: Math.round(quotaRunways),
+        quotaTower: Math.round(quotaTower),
+        bottleneck,
+      };
+    })(),
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
     canFlyMvl: canFlyMvl(airport.id),                    // можно ли выполнять МВЛ-рейсы
     fuel: { stored: airport.fuelStored || 0, capacity: totalFuelCapacity(airport.id), hasDepot: hasFuelDepot(airport.id) },
