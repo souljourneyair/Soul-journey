@@ -6,7 +6,7 @@
 // задержку, убыток своей АК или страховку. Новости об инцидентах попадают
 // в раздел «Новости» через переданный логгер.
 
-const { AIRCRAFT_EVENTS, AIRCRAFT_TYPES } = require('./gameData');
+const { AIRCRAFT_EVENTS, AIRCRAFT_TYPES, levelFromXp } = require('./gameData');
 
 // Наземный транспорт для сюжета «столкновение на перроне».
 const GROUND_VEHICLES = [
@@ -158,20 +158,82 @@ function runInjury(store, airport) {
   };
 }
 
+// ==================== событие 8: ласточка в телетрапе ====================
+// Никаких последствий — просто добрая новость. Такие тоже нужны, чтобы
+// новостная лента не состояла из одних убытков.
+function runSwallow() {
+  return {
+    title: 'Ласточка в телетрапе',
+    text: 'В телетрапе ласточка свила гнездо. Теперь её семейство радует пассажиров, а у аэропорта прибавилось живности.',
+  };
+}
+
+// ==================== событие 9: служебная собака нашла наркодилера ====================
+// Премия опытом, сумма случайна в заданном диапазоне.
+function runDrugDog(store, airport) {
+  const min = AIRCRAFT_EVENTS.DRUG_DOG_XP_MIN;
+  const max = AIRCRAFT_EVENTS.DRUG_DOG_XP_MAX;
+  const xp = Math.round(min + Math.random() * (max - min));
+  const fresh = store.getAirportById(airport.id);
+  store.updateAirport(airport.id, { xp: (fresh.xp || 0) + xp });
+  return {
+    title: 'Служебная собака нашла наркодилера',
+    text: `Служебная собака унюхала наркодилера на входе в терминал. Нарушителя задержали, аэропорт получил премию — ${xp.toLocaleString('ru-RU')} XP.`,
+  };
+}
+
+// ==================== событие 10: сломались шлагбаумы на въезде ====================
+function runBarrier(store, airport) {
+  const fine = AIRCRAFT_EVENTS.BARRIER_FINE;
+  const fresh = store.getAirportById(airport.id);
+  store.updateAirport(airport.id, { money: fresh.money - fine });
+  return {
+    title: 'Сломались шлагбаумы',
+    text: `На въездной группе сломались шлагбаумы. Работники опаздывают на работу, аэропорт теряет деньги — штраф ${fine.toLocaleString('ru-RU')} у.е.`,
+  };
+}
+
+// ==================== событие 11: амбулифт протаранил коридор выхода ====================
+function runAmbulift(store, airport) {
+  const fine = AIRCRAFT_EVENTS.AMBULIFT_FINE;
+  const fresh = store.getAirportById(airport.id);
+  store.updateAirport(airport.id, { money: fresh.money - fine });
+  return {
+    title: 'Амбулифт протаранил выход на посадку',
+    text: `Водитель амбулифта не увидел знак и протаранил коридор выхода на посадку. Аэропорт потерял ${fine.toLocaleString('ru-RU')} у.е.`,
+  };
+}
+
+// ==================== событие 12: шутка про бомбу ====================
+// Рейтинг на неделю прибивается к 5 звёздам (см. airportRating в index.js).
+function runBombJoke(store, airport, currentTick) {
+  store.updateAirport(airport.id, {
+    ratingBoostEndsTick: currentTick + AIRCRAFT_EVENTS.BOMB_JOKE_RATING_TICKS,
+  });
+  return {
+    title: 'Шутка про бомбу',
+    text: 'Женщина на входе в аэровокзал пошутила и сказала САБ, что у неё в сумке бомба. Нарушительницу задержали — а аэропорт всю неделю будет держать 5 звёзд.',
+  };
+}
+
 // ==================== розыгрыш ====================
 // Разыграть одно событие для аэропорта. Возвращает новость { title, text }
 // или null, если бить не по чему. Эффекты применяются сразу через store.
 function roll(store, airport, currentTick) {
+  // Новостные события включаются с 5 уровня: раньше игроку не до них.
+  if (levelFromXp(airport.xp || 0) < AIRCRAFT_EVENTS.MIN_LEVEL) return null;
+
   const hasContract = contractPlanes(airport).length > 0;
   const hasOwn = ownPlanes(store, airport.id).length > 0;
 
-  // Список доступных событий: без самолётов остаётся только травма (если есть
-  // хоть какая-то инфраструктура). Без инфраструктуры не разыгрываем ничего.
+  // Список доступных событий. С самолётами — отказы техники и происшествия
+  // с бортами; без них остаются бытовые события по инфраструктуре (травма,
+  // шлагбаумы, амбулифт и прочее). Без инфраструктуры не разыгрываем ничего.
   const pool = [];
   if (hasContract) pool.push('brake', 'flaps', 'fuel_leak', 'engine');
   if (hasContract || hasOwn) pool.push('passenger', 'collision');
   const hasInfra = store.getBuildingsByAirport(airport.id).length > 0;
-  if (hasInfra) pool.push('injury');
+  if (hasInfra) pool.push('injury', 'swallow', 'drugdog', 'barrier', 'ambulift', 'bombjoke');
   if (!pool.length) return null;
 
   const kind = rnd(pool);
@@ -184,6 +246,16 @@ function roll(store, airport, currentTick) {
     result = runCollision(store, airport, currentTick);
   } else if (kind === 'injury') {
     result = runInjury(store, airport);
+  } else if (kind === 'swallow') {
+    result = runSwallow();
+  } else if (kind === 'drugdog') {
+    result = runDrugDog(store, airport);
+  } else if (kind === 'barrier') {
+    result = runBarrier(store, airport);
+  } else if (kind === 'ambulift') {
+    result = runAmbulift(store, airport);
+  } else if (kind === 'bombjoke') {
+    result = runBombJoke(store, airport, currentTick);
   }
 
   if (result && logNews) logNews(airport.id, result.title, result.text);

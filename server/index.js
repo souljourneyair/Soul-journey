@@ -199,6 +199,12 @@ function arrivalIntervalFor(level, craft) {
 // маленького аэропорта с парой пассажиров в час календарное среднее прыгало
 // бы от каждого ворчуна, а ночной простой обнулял бы статистику.
 function airportRating(airport) {
+  // Временный эффект шутки про бомбу: рейтинг держится 5 звёзд неделю,
+  // что бы ни думали пассажиры. Действует, пока не истёк срок.
+  if (airport.ratingBoostEndsTick != null
+      && store.getTickCounter() < airport.ratingBoostEndsTick) {
+    return 5;
+  }
   const scores = airport.ratingScores || [];
   if (scores.length < RATING.MIN_SAMPLES) return RATING.START;
   const sum = scores.reduce((a, b) => a + b, 0);
@@ -1733,6 +1739,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     gridSize: CONFIG.START_GRID_SIZE, landExpansionsBought: 0,
     reachedLevel10At: null, startedAt: Date.now(),
     idleSinceTick: null, bankrupt: false,
+    ratingBoostEndsTick: null,
     apronBorts: [], waitingBorts: [],
     loan: null,
     fuelStored: 0, fuelSupplier: null, fuelContract: null, fuelAutoContract: false, fuelRefillThreshold: 25,
@@ -4165,6 +4172,11 @@ function runTick() {
     if (freshAirport.stormEndsTick != null && currentTick >= freshAirport.stormEndsTick) {
       store.updateAirport(airport.id, { stormEndsTick: null });
       notifications.push('🧲 Магнитная буря улеглась — вышка и полосы работают в обычном режиме.');
+    }
+    // окончание «звёздного» рейтинга после шутки про бомбу
+    if (freshAirport.ratingBoostEndsTick != null && currentTick >= freshAirport.ratingBoostEndsTick) {
+      store.updateAirport(airport.id, { ratingBoostEndsTick: null });
+      notifications.push('⭐ Эффект громкой шутки прошёл — рейтинг снова считается по пассажирам.');
     }
 
     // --- Случайные события с самолётами: раз в игровую неделю ---

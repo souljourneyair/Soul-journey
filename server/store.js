@@ -124,6 +124,7 @@ function readFromDisk() {
       if (!a.termQueue) a.termQueue = [];
       if (!a.newsLog) a.newsLog = [];
       if (a.lastAircraftEventTick === undefined) a.lastAircraftEventTick = 0;
+      if (a.ratingBoostEndsTick === undefined) a.ratingBoostEndsTick = null;
       if (a.previousResult === undefined) a.previousResult = null;
     });
     if (data.tickCounter === undefined) data.tickCounter = 0;
