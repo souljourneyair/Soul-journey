@@ -1202,7 +1202,7 @@ function renderBuildingPanel(cellIndex, container) {
     }
     // инфраструктура (income 0) — показываем статус, не "+0/мин"
     const incomeLine = isInfra
-      ? infraStatusLines(building).map(l => `<span>${escapeHtml(l)}</span>`).join('')
+      ? infraPanelHtml(building)
       : (def.income > 0
         ? `<span>Доход: +${Math.round(def.income * upgradeMult(building.upgradeLevel))}/мин</span>`
         : '');
@@ -1440,33 +1440,13 @@ function infraStatusLines(building) {
   }
 
   if (id === 'tower') {
+    // В таблице у вышки — только интервал. Остальные показатели (счётчик
+    // пропускной, узкое место, очередь) живут в её панели: столбец «Действие»
+    // не должен разрастаться, а в панели они и так на виду.
+    const level = building.upgradeLevel || 1;
     const t = (STATE.towerLoad || []).find(x => x.cellIndex === building.cellIndex);
-    const common = STATE.towerInterval;
-    const queue = STATE.apronWaiting || 0;
-    if (!t) return [common ? `📡 Интервал: ${common} мин` : '📡 Работает'];
-    const towers = (STATE.towerLoad || []).length;
-    // Очередь в игре одна на весь аэропорт: вышки работают сообща.
-    const lines = [`📡 Своя ур.${t.level}: ${t.ownInterval} мин`];
-    if (towers > 1) lines.push(`вместе: ${common} мин`);
-    // Счётчик пропускной способности: сколько операций прошло и сколько
-    // осталось. Лимит задают полосы (их суточные квоты) и интервал вышки —
-    // показываем оба и во что упёрлись, иначе непонятно, вышла квота или нет.
-    const f = STATE.towerFlow;
-    if (f) {
-      lines.push(`🛬 за сутки: ${f.used} из ${f.effective} — осталось ${f.remaining}`);
-      lines.push(`лимит ВПП ${f.quotaRunways} · лимит вышки ${f.quotaTower}`);
-      if (f.remaining <= 0) {
-        lines.push(f.bottleneck === 'tower'
-          ? '⛔ Квота исчерпана — упёрлись в вышку'
-          : '⛔ Квота исчерпана — упёрлись в ВПП');
-      } else if (f.bottleneck === 'tower') {
-        lines.push('узкое место: вышка (интервал)');
-      } else if (f.bottleneck === 'runways') {
-        lines.push('узкое место: ВПП (суточная квота)');
-      }
-    }
-    lines.push(queue > 0 ? `в очереди: ${queue}` : 'очереди нет');
-    return lines;
+    const interval = t ? t.ownInterval : STATE.towerInterval;
+    return [interval ? `📡 ур.${level}: ${interval} мин` : '📡 Работает'];
   }
 
   if (id === 'hangar') return ['🔧 Готов к ремонту'];
@@ -1493,6 +1473,37 @@ function infraStatusText(building) {
 function infraStatusHtml(building) {
   return infraStatusLines(building)
     .map(line => `<span class="obj-action-line">${escapeHtml(line)}</span>`)
+    .join('');
+}
+
+// Разметка статуса для аккордеон-панели. У вышки — развёрнутый блок вместо
+// короткой строки из таблицы: счётчик и оба лимита выделены как главное,
+// причина упора и очередь идут обычным текстом.
+function infraPanelHtml(building) {
+  if (building.buildingId === 'tower') {
+    const f = STATE.towerFlow;
+    const queue = STATE.apronWaiting || 0;
+    const lines = [];
+    if (f) {
+      lines.push({ text: `🛬 за сутки: ${f.used} из ${f.effective} — осталось ${f.remaining}`, hl: true });
+      lines.push({ text: `лимит ВПП ${f.quotaRunways} · лимит вышки ${f.quotaTower}`, hl: true });
+      if (f.remaining <= 0) {
+        lines.push({ text: f.bottleneck === 'tower'
+          ? '⛔ Квота исчерпана — упёрлись в вышку'
+          : '⛔ Квота исчерпана — упёрлись в ВПП', hl: false });
+      } else if (f.bottleneck === 'tower') {
+        lines.push({ text: 'узкое место: вышка (интервал)', hl: false });
+      } else if (f.bottleneck === 'runways') {
+        lines.push({ text: 'узкое место: ВПП (суточная квота)', hl: false });
+      }
+    }
+    lines.push({ text: queue > 0 ? `в очереди: ${queue}` : 'очереди нет', hl: false });
+    return lines
+      .map(l => `<span${l.hl ? ' class="acc-stat-hl"' : ''}>${escapeHtml(l.text)}</span>`)
+      .join('');
+  }
+  return infraStatusLines(building)
+    .map(line => `<span>${escapeHtml(line)}</span>`)
     .join('');
 }
 

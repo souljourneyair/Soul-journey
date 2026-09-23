@@ -302,6 +302,8 @@ body.game-open { overflow: hidden; }
 }
 .acc-status { font-family: var(--mono); color: var(--board-amber); font-size: 13px; letter-spacing: 0.03em; }
 .acc-stats { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 13px; color: var(--text-dim); }
+/* Главные строки панели (например, счётчик пропускной у вышки) */
+.acc-stat-hl { color: var(--text); font-weight: 600; }
 /* Занятость стоянок в панели администрации — отдельный блок с рамкой */
 .stand-summary {
   margin-top: 8px; padding: 10px 12px;
