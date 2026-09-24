@@ -97,12 +97,6 @@ function readFromDisk() {
     if (data.settings.fuelMarketMult === undefined) data.settings.fuelMarketMult = 1.0; // текущий рыночный множитель
     if (data.settings.fuelMarketRepricedTick === undefined) data.settings.fuelMarketRepricedTick = 0;
     if (!Array.isArray(data.settings.marketHistory)) data.settings.marketHistory = [];
-    if (data.settings.oilTicker === undefined) data.settings.oilTicker = null;
-    if (data.settings.goldTicker === undefined) data.settings.goldTicker = null;
-    if (!data.settings.marketMoves || typeof data.settings.marketMoves !== 'object') {
-      data.settings.marketMoves = { oil: 0, gold: 0 };
-    }
-    if (data.settings.marketWeekTick === undefined) data.settings.marketWeekTick = 0;
     if (data.settings.marketHourTick === undefined) data.settings.marketHourTick = 0;
     if (data.nextAircraftId === undefined) data.nextAircraftId = 1;
     if (!data.aircraft) data.aircraft = [];
