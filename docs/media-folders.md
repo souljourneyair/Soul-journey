@@ -157,7 +157,7 @@ app.post('/api/admin/media/screen/remove', auth, adminAuth, (req, res) => {
 
 ## public/app.js
 
-Найти использование `buildingSkins` (их два — в сетке и в таблице объектов).
+Найти использование `buildingSkins` (их два — в каталоге построек и в таблице объектов).
 Добавить рядом с `BUILDING_ICONS` резолвер:
 
 ```js

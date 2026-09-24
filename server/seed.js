@@ -9,7 +9,7 @@
 
 const bcrypt = require('bcryptjs');
 const store = require('./store');
-const { CONFIG, LAND_EXPANSION, BUILDINGS, XP_FOR_LEVEL } = require('./gameData');
+const { CONFIG, BUILDINGS, XP_FOR_LEVEL } = require('./gameData');
 
 const SUPERUSER_USERNAME = 'SoulJourney';
 const SUPERUSER_PASSWORD = 'ggg777ggg';
@@ -34,12 +34,12 @@ function ensureSuperuser() {
 
   if (!airport) {
     // Первое создание — отстраиваем и прокачиваем на максимум.
-    airport = store.createAirport(user.id, 'A', SUPERUSER_MONEY, CONFIG.MAX_GRID_SIZE);
+    airport = store.createAirport(user.id, 'A', SUPERUSER_MONEY);
 
-    // Заполняем территорию всем каталогом построек — показательный полностью отстроенный аэропорт
+    // Заполняем каталогом построек — показательный полностью отстроенный аэропорт
     const buildingIds = Object.keys(BUILDINGS);
     buildingIds.forEach((id, cellIndex) => {
-      if (id === 'admin' || id === 'helipad') return; // выдаются отдельно ниже с фиксированными клетками
+      if (id === 'admin' || id === 'helipad') return; // выдаются отдельно ниже
       store.addBuilding(airport.id, cellIndex + 2, id);
     });
     store.addBuilding(airport.id, 0, 'admin');
@@ -52,8 +52,6 @@ function ensureSuperuser() {
       reputation: SUPERUSER_REPUTATION,
       xp: XP_FOR_LEVEL[XP_FOR_LEVEL.length - 1],
       level: CONFIG.TARGET_LEVEL,
-      gridSize: CONFIG.MAX_GRID_SIZE,
-      landExpansionsBought: LAND_EXPANSION.length,
     });
 
     console.log(`[seed] Аэропорт "${SUPERUSER_USERNAME}" отстроен и прокачан на максимум`);

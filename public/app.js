@@ -1136,7 +1136,7 @@ function adminStatsHtml(building) {
   return html;
 }
 
-// Занятость стоянок по типам: вертолётки по местам, ВС-стоянки по клеткам.
+// Занятость стоянок по типам: вертолётки по местам, ВС-стоянки по постройкам.
 // Выделена рамкой и эмодзи, чтобы читалась отдельно от прочих показателей.
 function standSummaryHtml() {
   const s = STATE.standSummary;
@@ -1794,7 +1794,7 @@ async function buildingAction(action) {
 // прохождения и про размер аэропорта.
 //   Гонка      — статичная память о прохождении, кто быстрее дошёл до 10.
 //   Аэропорты  — живая, кто крупнее прямо сейчас.
-//   Мастерство — живая, сколько выжато с одной клетки: здесь маленький
+//   Мастерство — живая, сколько выжато с одной постройки: здесь маленький
 //                продуманный аэропорт может обойти громоздкий.
 let lbData = null;
 let lbBoard = 'race';
@@ -1817,12 +1817,12 @@ const LB_BOARDS = {
       <td class="lb-num">${r.level}</td><td class="lb-num">${r.seasonGrowth > 0 ? '+' : ''}${r.seasonGrowth.toLocaleString('ru-RU')}</td>`,
   },
   mastery: {
-    sub: 'ЛУЧШАЯ ПРИБЫЛЬ С КЛЕТКИ',
+    sub: 'ЛУЧШАЯ ПРИБЫЛЬ С ПОСТРОЙКИ',
     hint: 'Лучший за сезон результат: чистая прибыль за игровые сутки, делённая на число построек. Считается не размер, а устройство — небольшой аэропорт может обойти крупный.',
-    head: '<tr><th>#</th><th>Игрок</th><th>Построек</th><th>С клетки</th></tr>',
+    head: '<tr><th>#</th><th>Игрок</th><th>Построек</th><th>На постройку</th></tr>',
     empty: 'Никто не прожил полных игровых суток — таблица заполнится позже.',
     row: (r, i) => `<td class="lb-num">${i + 1}</td><td>${escapeHtml(r.username)}</td>
-      <td class="lb-num">${r.cells}</td><td class="lb-num">${r.seasonBestPerCell.toLocaleString('ru-RU')}</td>`,
+      <td class="lb-num">${r.buildings}</td><td class="lb-num">${r.seasonBestPerBuilding.toLocaleString('ru-RU')}</td>`,
   },
 };
 
@@ -3357,7 +3357,7 @@ function damageState(building) {
   if (w >= 0.50) return { label: `Требует ремонта — ${Math.round(w * 100)}%`, cls: 'bad', mark: '🔧' };
   if (w >= 0.10) return { label: `Есть износ — ${Math.round(w * 100)}%`, cls: 'worn', mark: '·' };
   // Значка на иконке ещё нет, но говорить «Исправно» нечестно: показатели уже
-  // просели. В панели пишем правду, на сетке пока не шумим.
+  // просели. В панели пишем правду, в списке пока не шумим.
   if (w >= 0.01) return { label: `Небольшой износ — ${Math.round(w * 100)}%`, cls: 'ok', mark: '' };
   return { label: 'Исправно', cls: 'ok', mark: '' };
 }

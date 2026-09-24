@@ -167,7 +167,7 @@ function runFire(store, airport, currentTick) {
 
 // Гибель бортов на сгоревшей стоянке. Свой самолёт теряется безвозвратно,
 // а за сгоревший договорной борт аэропорт возмещает авиакомпании четырёхкратную
-// оплату за прилёт: борт сгорел на его территории и по его вине.
+// оплату за прилёт: борт сгорел в аэропорту и по его вине.
 function burnAircraftAt(store, airport, building, details) {
   let payout = 0;
   const cfg = DISASTER_ECONOMY.FIRE;
@@ -240,7 +240,7 @@ function runMeteor(store, airport, currentTick) {
     store.removeBuildingAtCell(airport.id, b.cellIndex);
     const fresh = store.getAirportById(airport.id);
     store.updateAirport(airport.id, { money: fresh.money - comp });
-    details.push(`Прямое попадание в объект «${def.name}» — здание уничтожено, клетка свободна`);
+    details.push(`Прямое попадание в объект «${def.name}» — здание уничтожено`);
     details.push(`Компенсация: ${comp.toLocaleString('ru-RU')} у.е.`);
     return { kind: 'meteor', details };
   }

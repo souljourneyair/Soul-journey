@@ -38,7 +38,7 @@ const EMPTY_DB = {
   nextContractId: 1,
   tickCounter: 0,   // монотонный счётчик тиков (для расписания рейсов самолётов)
   users: [],        // { id, username, passwordHash, token, createdAt, isAdmin, bannedUntil }
-  airports: [],      // { id, userId, startType, money, reputation, xp, level, gridSize, landExpansionsBought, startedAt, reachedLevel10At }
+  airports: [],      // { id, userId, startType, money, reputation, xp, level, startedAt, reachedLevel10At }
   buildings: [],      // { id, airportId, cellIndex, buildingId, builtAt, state, botName, rentPrice, listedPrice, customIcon, customName, upgradeLevel }
   aircraft: [],       // { id, airportId, typeId, ownership('owned'|'lease'), status('idle'|'flying'|'waiting'), wear, flightEndsTick, boughtAt }
   contractOffers: [], // предложения авиакомпаний в конверте { id, airportId, airline, payPerTick, durationTicks, createdTick, expiresTick, thinking }
@@ -325,7 +325,7 @@ function deleteUser(userId) {
 }
 
 // ---------- airports ----------
-function createAirport(userId, startType, money, gridSize) {
+function createAirport(userId, startType, money) {
   const data = load();
   const airport = {
     id: data.nextAirportId++,
@@ -338,8 +338,6 @@ function createAirport(userId, startType, money, gridSize) {
     reputation: 0,
     xp: 0,
     level: 0,
-    gridSize,
-    landExpansionsBought: 0,
     startedAt: Date.now(),
     reachedLevel10At: null,
     idleSinceTick: null,   // с какого тика аэропорт простаивает (null = сейчас активен)
@@ -410,8 +408,8 @@ function addBuilding(airportId, cellIndex, buildingId, construction) {
     botName: null,       // имя компании-бота — при rented/sold
     rentPrice: null,      // согласованная цена аренды за тик — при rented
     listedPrice: null,     // цена, которую выставил игрок — при listed
-    customIcon: null,       // переопределение иконки клетки (эмодзи/текст/URL картинки), задаёт админ — только этому игроку
-    customName: null,        // переопределение названия клетки, задаёт админ — только этому игроку
+    customIcon: null,       // переопределение иконки постройки (эмодзи/текст/URL картинки), задаёт админ — только этому игроку
+    customName: null,        // переопределение названия постройки, задаёт админ — только этому игроку
     upgradeLevel: 1,          // текущий уровень апгрейда здания (1..def.maxUpgradeLevel)
     // --- строительство/апгрейд во времени ---
     constructionEndsTick: construction ? construction.endsTick : null, // тик завершения работ (null = готово)
@@ -452,8 +450,8 @@ function removeBuildingAtCell(airportId, cellIndex) {
   return true;
 }
 
-// Поменять местами содержимое двух клеток (здания меняются cellIndex).
-// Любая из клеток может быть пустой — тогда здание просто переезжает.
+// Поменять местами две постройки (здания меняются cellIndex — внутренним
+// идентификатором позиции). Любая позиция может быть пустой.
 function swapCells(airportId, cellA, cellB) {
   const data = load();
   const a = data.buildings.find(b => b.airportId === airportId && b.cellIndex === cellA);

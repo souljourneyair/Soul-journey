@@ -234,7 +234,7 @@ body.game-open { overflow: hidden; }
 .xp-bar-text { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; display: block; margin-top: 4px; font-family: var(--mono); }
 
 /* ===== MAIN LAYOUT ===== */
-/* Две колонки: широкая таблица объектов | каталог построек. Сетка территории — в модалке. */
+/* Две колонки: широкая таблица объектов | каталог построек. */
 .game-main {
   display: grid;
   grid-template-columns: auto 1fr minmax(260px, 320px);

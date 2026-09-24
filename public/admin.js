@@ -3,7 +3,6 @@ let TOKEN = localStorage.getItem('soul_journey_admin_token') || null;
 let players = [];
 let selectedUsername = null;
 let selectedPlayer = null; // полный ответ /api/admin/players/:username
-let cellModalIndex = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -460,7 +459,7 @@ function renderPlayersList() {
         </div>
         <div class="player-row-meta">
           ${p.hasAirport
-            ? `ур. ${p.level} · ${Math.floor(p.money).toLocaleString('ru-RU')} у.е. · сетка ${p.gridSize}×${p.gridSize}`
+            ? `ур. ${p.level} · ${Math.floor(p.money).toLocaleString('ru-RU')} у.е.`
             : '<span class="player-badge no-airport">нет аэропорта</span>'}
         </div>
       `;
@@ -515,10 +514,6 @@ function renderPlayerDetail() {
         <label>Уровень</label>
         <input type="number" id="fieldLevel" value="${a.level}" min="0" max="10">
       </div>
-      <div class="field-row">
-        <label>Размер сетки</label>
-        <input type="number" id="fieldGrid" value="${a.gridSize}" min="1" max="20">
-      </div>
       <div class="detail-actions">
         <button class="btn-primary" id="saveAllBtn">Сохранить</button>
         <button class="btn-secondary" id="revertBtn">Сбросить к последнему</button>
@@ -529,8 +524,12 @@ function renderPlayerDetail() {
     </div>
 
     <div class="detail-section">
-      <div class="detail-section-title">Территория — клик по клетке для назначения/снятия/переименования</div>
-      <div class="admin-grid" id="adminGrid" style="grid-template-columns: repeat(${a.gridSize}, 1fr)"></div>
+      <div class="detail-section-title">Постройки игрока</div>
+      <div class="admin-buildings-add">
+        <select id="addBuildingSelect"></select>
+        <button class="btn-primary" id="addBuildingBtn">Добавить постройку</button>
+      </div>
+      <div class="admin-buildings" id="adminBuildings"></div>
     </div>
     `}
 
@@ -549,7 +548,9 @@ function renderPlayerDetail() {
   `;
 
   if (a) {
-    renderAdminGrid();
+    renderAdminBuildings();
+    renderAddBuildingOptions();
+    $('#addBuildingBtn').addEventListener('click', addAdminBuilding);
     $('#saveAllBtn').addEventListener('click', saveAllFields);
     $('#revertBtn').addEventListener('click', revertFields);
     $('#resetBtn').addEventListener('click', resetPlayer);
@@ -572,12 +573,9 @@ async function saveAllFields() {
       money: Number($('#fieldMoney').value),
       xp: Number($('#fieldXp').value),
       level: Number($('#fieldLevel').value),
-      gridSize: Number($('#fieldGrid').value),
     };
-    const data = await api(`/api/admin/players/${encodeURIComponent(selectedUsername)}/save-all`, 'POST', body);
-    toast(data.removedBuildings > 0
-      ? `Сохранено. Снесено зданий за пределами сетки: ${data.removedBuildings}`
-      : 'Сохранено');
+    await api(`/api/admin/players/${encodeURIComponent(selectedUsername)}/save-all`, 'POST', body);
+    toast('Сохранено');
     await refreshSelected();
     await loadPlayers();
   } catch (err) {
@@ -645,79 +643,108 @@ async function unbanPlayer() {
   }
 }
 
-// ===== ADMIN GRID =====
-function renderAdminGrid() {
+// ===== ПОСТРОЙКИ ИГРОКА =====
+function renderAddBuildingOptions() {
   const a = selectedPlayer.airport;
-  const grid = $('#adminGrid');
-  grid.innerHTML = '';
+  const sel = $('#addBuildingSelect');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— выбрать постройку —</option>'
+    + Object.values(a.catalog)
+      .filter(def => def.id !== 'admin' && def.id !== 'helipad')
+      .map(def => `<option value="${def.id}">${escapeHtml(def.name)}</option>`)
+      .join('');
+}
 
-  const buildingByCell = {};
-  a.buildings.forEach(b => buildingByCell[b.cellIndex] = b);
+function renderAdminBuildings() {
+  const a = selectedPlayer.airport;
+  const wrap = $('#adminBuildings');
+  if (!wrap) return;
+  const list = (a.buildings || []).slice().sort((x, y) => {
+    const nx = (a.catalog[x.buildingId] && a.catalog[x.buildingId].name) || x.buildingId;
+    const ny = (a.catalog[y.buildingId] && a.catalog[y.buildingId].name) || y.buildingId;
+    return nx.localeCompare(ny, 'ru');
+  });
+  if (!list.length) {
+    wrap.innerHTML = '<div class="build-menu-hint">Построек пока нет.</div>';
+    return;
+  }
+  wrap.innerHTML = list.map(b => {
+    const name = b.customName
+      || (a.catalog[b.buildingId] && a.catalog[b.buildingId].name) || b.buildingId;
+    const icon = b.customIcon || BUILDING_ICONS[b.buildingId] || '🏗️';
+    const iconHtml = /^https?:\/\/|^data:image/.test(icon) ? `<img src="${icon}" alt="">` : icon;
+    const ruined = b.ruined ? ' <span class="player-badge banned">разрушено</span>' : '';
+    return `<div class="admin-building-row">
+      <span class="admin-building-icon">${iconHtml}</span>
+      <span class="admin-building-name">${escapeHtml(name)}${ruined}</span>
+      <span class="admin-building-lvl">ур. ${b.upgradeLevel || 1}</span>
+      <button class="btn-secondary" data-edit="${b.cellIndex}">Оформление</button>
+      <button class="btn-secondary btn-danger" data-remove="${b.cellIndex}">Снять</button>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('[data-edit]').forEach(btn =>
+    btn.addEventListener('click', () => openBuildingEditor(Number(btn.dataset.edit))));
+  wrap.querySelectorAll('[data-remove]').forEach(btn =>
+    btn.addEventListener('click', () => removeAdminBuilding(Number(btn.dataset.remove))));
+}
 
-  for (let i = 0; i < a.gridSize * a.gridSize; i++) {
-    const cell = document.createElement('div');
-    cell.className = 'admin-cell';
-    const b = buildingByCell[i];
-
-    if (b) {
-      const icon = b.customIcon || BUILDING_ICONS[b.buildingId] || '🏗️';
-      if (/^https?:\/\/|^data:image/.test(icon)) {
-        cell.innerHTML = `<img src="${icon}" alt="">`;
-      } else {
-        cell.textContent = icon;
-      }
-      cell.title = b.customName || a.catalog[b.buildingId]?.name || b.buildingId;
-    } else {
-      cell.classList.add('locked');
-    }
-    cell.addEventListener('click', () => openCellModal(i));
-    grid.appendChild(cell);
+async function addAdminBuilding() {
+  const buildingId = $('#addBuildingSelect').value;
+  if (!buildingId) { toast('Выберите постройку', true); return; }
+  try {
+    await api(`/api/admin/players/${encodeURIComponent(selectedUsername)}/assign-building`, 'POST', { buildingId });
+    toast('Постройка добавлена');
+    await refreshSelected();
+  } catch (err) {
+    toast(err.message, true);
   }
 }
 
-function openCellModal(cellIndex) {
-  cellModalIndex = cellIndex;
+async function removeAdminBuilding(cellIndex) {
+  const a = selectedPlayer.airport;
+  const b = a.buildings.find(x => x.cellIndex === cellIndex);
+  const name = b
+    ? (b.customName || (a.catalog[b.buildingId] && a.catalog[b.buildingId].name) || b.buildingId)
+    : 'постройку';
+  if (!confirm(`Снять «${name}»?`)) return;
+  try {
+    await api(`/api/admin/players/${encodeURIComponent(selectedUsername)}/remove-building`, 'POST', { cellIndex });
+    toast('Постройка снята');
+    await refreshSelected();
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+// Редактор оформления одной постройки: своя иконка и название.
+function openBuildingEditor(cellIndex) {
   const a = selectedPlayer.airport;
   const building = a.buildings.find(b => b.cellIndex === cellIndex);
+  if (!building) return;
+  const defName = (a.catalog[building.buildingId] && a.catalog[building.buildingId].name) || building.buildingId;
 
-  $('#cellModalTitle').textContent = `КЛЕТКА №${cellIndex}`;
-  $('#cellModalSub').textContent = building ? (a.catalog[building.buildingId]?.name || building.buildingId) : 'пусто';
+  $('#cellModalTitle').textContent = 'ОФОРМЛЕНИЕ';
+  $('#cellModalSub').textContent = building.customName || defName;
 
-  const body = $('#cellModalBody');
-  const catalogOptions = Object.values(a.catalog)
-    .filter(def => def.id !== 'admin' && def.id !== 'helipad')
-    .map(def => `<option value="${def.id}">${def.name}</option>`).join('');
-
-  body.innerHTML = `
+  $('#cellModalBody').innerHTML = `
     <div>
-      <label style="font-size:12px;color:var(--text-dim);">Назначить здание</label>
-      <select id="assignBuildingSelect">
-        <option value="">— выбрать —</option>
-        ${catalogOptions}
-      </select>
-    </div>
-    <div class="cell-modal-actions">
-      <button class="btn-primary" id="assignBtn">Назначить</button>
-      ${building ? '<button class="btn-secondary btn-danger" id="removeBtn">Снять здание</button>' : ''}
-    </div>
-    ${building ? `
-    <div style="border-top:1px dashed var(--line); padding-top:14px; margin-top:4px;">
       <label style="font-size:12px;color:var(--text-dim);">Своя иконка (эмодзи или URL картинки)</label>
       <input type="text" id="customIconInput" value="${escapeAttr(building.customIcon || '')}" placeholder="например 👑 или https://...">
-      <label style="font-size:12px;color:var(--text-dim); margin-top:8px; display:block;">Своё название клетки</label>
+      <label style="font-size:12px;color:var(--text-dim); margin-top:8px; display:block;">Своё название постройки</label>
       <input type="text" id="customNameInput" value="${escapeAttr(building.customName || '')}" placeholder="например «Тронный зал»">
       <div class="cell-modal-actions" style="margin-top:10px;">
-        <button class="btn-secondary" id="saveCustomizeBtn">Сохранить оформление</button>
+        <button class="btn-primary" id="saveCustomizeBtn">Сохранить оформление</button>
       </div>
-    </div>` : ''}
-  `;
+    </div>`;
 
-  $('#assignBtn').addEventListener('click', async () => {
-    const buildingId = $('#assignBuildingSelect').value;
-    if (!buildingId) { toast('Выберите здание', true); return; }
+  $('#saveCustomizeBtn').addEventListener('click', async () => {
     try {
-      await api(`/api/admin/players/${encodeURIComponent(selectedUsername)}/assign-building`, 'POST', { cellIndex, buildingId });
-      toast('Здание назначено');
+      await api(`/api/admin/players/${encodeURIComponent(selectedUsername)}/customize-cell`, 'POST', {
+        cellIndex,
+        customIcon: $('#customIconInput').value.trim(),
+        customName: $('#customNameInput').value.trim(),
+      });
+      toast('Оформление сохранено');
       await refreshSelected();
       closeCellModal();
     } catch (err) {
@@ -725,39 +752,11 @@ function openCellModal(cellIndex) {
     }
   });
 
-  if (building) {
-    $('#removeBtn').addEventListener('click', async () => {
-      try {
-        await api(`/api/admin/players/${encodeURIComponent(selectedUsername)}/remove-building`, 'POST', { cellIndex });
-        toast('Здание снято');
-        await refreshSelected();
-        closeCellModal();
-      } catch (err) {
-        toast(err.message, true);
-      }
-    });
-    $('#saveCustomizeBtn').addEventListener('click', async () => {
-      try {
-        await api(`/api/admin/players/${encodeURIComponent(selectedUsername)}/customize-cell`, 'POST', {
-          cellIndex,
-          customIcon: $('#customIconInput').value.trim(),
-          customName: $('#customNameInput').value.trim(),
-        });
-        toast('Оформление сохранено');
-        await refreshSelected();
-        closeCellModal();
-      } catch (err) {
-        toast(err.message, true);
-      }
-    });
-  }
-
   $('#cellModal').classList.remove('hidden');
 }
 
 function closeCellModal() {
   $('#cellModal').classList.add('hidden');
-  cellModalIndex = null;
 }
 $('#closeCellModal').addEventListener('click', closeCellModal);
 

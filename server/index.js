@@ -8,7 +8,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const { ensureSuperuser } = require('./seed');
 const {
-  CONFIG, LAND_EXPANSION, BUILDINGS, BUILD_LIMITS, xpRequiredForLevel, levelFromXp,
+  CONFIG, BUILDINGS, BUILD_LIMITS, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, randomBotName, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
@@ -1071,7 +1071,7 @@ function capacityWear(b) {
 
 // Какие стоянки ВС сейчас заняты. Раскладка та же, что при проверке места:
 // крупные борта первыми, каждому наименее избыточная стоянка. Раньше клиент
-// раскидывал общее число по порядку клеток и мог показать занятой не ту.
+// раскидывал общее число по порядку позиций и мог показать занятой не ту.
 function occupiedStands(airportId) {
   // включаем повреждённые: борт, стоявший там до поломки, остаётся на месте,
   // и стоянка должна показываться занятой, а не «свободной»
@@ -1113,9 +1113,9 @@ function listHelipads(airportId) {
 }
 
 // Сводка занятости стоянок по типам для панели администрации:
-// вертолётки (по местам) и ВС-стоянки малые/средние/большие (по клеткам).
+// вертолётки (по местам) и ВС-стоянки малые/средние/большие (по постройкам).
 // Занятость ВС считаем от фактической раскладки occupiedStands, привязанной
-// к клетке стоянки, а не абстрактным числом бортов.
+// к конкретной стоянке, а не абстрактным числом бортов.
 function standSummaryOf(airportId) {
   const airport = store.getAirportById(airportId);
   const borts = (airport && airport.apronBorts) || [];
@@ -1127,7 +1127,7 @@ function standSummaryOf(airportId) {
     heliUsed += Math.min(p.used, p.capacity);
   }
 
-  // ВС-стоянки: всего клеток по размеру и сколько из них занято.
+  // ВС-стоянки: всего стоянок по размеру и сколько из них занято.
   const stands = listStands(airportId, true);
   const occByCell = {};
   for (const o of occupiedStands(airportId)) occByCell[o.cellIndex] = true;
@@ -1406,7 +1406,7 @@ function hasRunwayForSize(airportId, size, currentTick) {
 }
 
 // Подобрать полосу для посадки борта: подходит по размеру и есть остаток квоты.
-// usedThisTick — клетки полос, уже принявших борт в этом тике: одна полоса
+// usedThisTick — полосы, уже принявшие борт в этом тике: одна полоса
 // принимает не больше одного борта за тик (это и есть прежнее правило
 // «сколько ВПП, столько одновременных посадок»).
 function pickRunwayForLanding(airportId, size, currentTick, usedThisTick) {
@@ -1518,7 +1518,6 @@ function serializeAircraft(airportId) {
 function serializeAirport(airport) {
   const owner = store.findUserById(airport.userId);
   const buildings = store.getBuildingsByAirport(airport.id);
-  const nextExpansion = LAND_EXPANSION[airport.landExpansionsBought] || null;
   const usedSlots = store.getAircraftByAirport(airport.id).length;
   return {
     startType: airport.startType,
@@ -1597,7 +1596,7 @@ function serializeAirport(airport) {
     // занятость каждой вертолётной площадки отдельно
     helipadLoad: listHelipads(airport.id),
     // какие стоянки ВС заняты: раскладка считается по размерам бортов,
-    // а не по порядку клеток, поэтому отдаём фактическую привязку
+    // а не по порядку позиций, поэтому отдаём фактическую привязку
     standLoad: occupiedStands(airport.id),
     repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
     visitorSpend: PASSENGER_ECONOMY.VISITOR_SPEND,   // сколько оставляет гость кафе
@@ -1723,10 +1722,6 @@ function serializeAirport(airport) {
     xp: airport.xp,
     level: airport.level,
     xpForNextLevel: xpRequiredForLevel(Math.min(airport.level + 1, CONFIG.MAX_LEVEL)),
-    gridSize: airport.gridSize,
-    maxGridSize: CONFIG.MAX_GRID_SIZE,
-    landExpansionsBought: airport.landExpansionsBought,
-    nextExpansion,
     startedAt: airport.startedAt,
     reachedLevel10At: airport.reachedLevel10At,
     reachedMaxLevelAt: airport.reachedMaxLevelAt || null,
@@ -1823,7 +1818,7 @@ app.post('/api/start-game', auth, (req, res) => {
   // Путь B ("с воздуха") — Итерация 2, пока форсим путь A.
   // Новый игрок стартует на уровне 0 БЕЗ построек — админздание и вертолётную
   // стоянку он ставит сам за стартовый капитал, получая за них опыт до 1 уровня.
-  const airport = store.createAirport(req.user.id, 'A', CONFIG.START_MONEY, CONFIG.START_GRID_SIZE);
+  const airport = store.createAirport(req.user.id, 'A', CONFIG.START_MONEY);
 
   res.json(serializeAirport(airport));
 });
@@ -1850,7 +1845,6 @@ app.post('/api/airport/restart', auth, (req, res) => {
   const updated = store.updateAirport(airport.id, {
     name: null, airline: null, airlineOfferSeen: false,
     money: CONFIG.START_MONEY, reputation: 0, xp: 0, level: 0,
-    gridSize: CONFIG.START_GRID_SIZE, landExpansionsBought: 0,
     reachedLevel10At: null, startedAt: Date.now(),
     idleSinceTick: null, bankrupt: false,
     ratingBoostEndsTick: null,
@@ -2767,7 +2761,7 @@ app.post('/api/building/repair-all', auth, (req, res) => {
 });
 
 // Снос разрушенного объекта: возврата нет, игрок платит четверть цены нового.
-// Уйти в минус разрешено — иначе клетка запиралась бы навсегда при пустом счёте.
+// Уйти в минус разрешено — иначе освободить место было бы нельзя при пустом счёте.
 app.post('/api/building/demolish-ruined', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
@@ -2854,7 +2848,7 @@ function ensureSeason() {
       .filter(r => r.seasonGrowth > 0)
       .sort((a, b) => b.seasonGrowth - a.seasonGrowth)
       .slice(0, SEASON.TOP_ARCHIVED)
-      .map(r => ({ username: r.username, growth: r.seasonGrowth, perCell: r.seasonBestPerCell }));
+      .map(r => ({ username: r.username, growth: r.seasonGrowth, perBuilding: r.seasonBestPerBuilding }));
     const history = (st.seasonHistory || []).concat([{
       number: st.seasonNumber || 1, endedAt: now, top: finished,
     }]).slice(-SEASON.KEEP_HISTORY);
@@ -2865,7 +2859,7 @@ function ensureSeason() {
   for (const ap of store.getAllAirports()) {
     store.updateAirport(ap.id, {
       seasonStartValue: airportValue(ap.id, ap),
-      seasonBestPerCell: null,
+      seasonBestPerBuilding: null,
     });
   }
   return store.getSettings();
@@ -2895,22 +2889,22 @@ function liveRows() {
   for (const ap of store.getAllAirports()) {
     const user = store.findUserById(ap.userId);
     if (!user) continue;
-    const cells = occupiedCells(ap.id);
+    const buildingCount = occupiedBuildings(ap.id);
     const value = airportValue(ap.id, ap);
     const base = ap.seasonStartValue != null ? ap.seasonStartValue : value;
     rows.push({
       username: user.username,
       level: ap.level || 0,
-      value, cells,
+      value, buildings: buildingCount,
       seasonGrowth: value - base,
-      seasonBestPerCell: ap.seasonBestPerCell != null ? ap.seasonBestPerCell : null,
+      seasonBestPerBuilding: ap.seasonBestPerBuilding != null ? ap.seasonBestPerBuilding : null,
     });
   }
   return rows;
 }
 
-// Сколько клеток занято постройками — знаменатель для эффективности.
-function occupiedCells(airportId) {
+// Сколько построек занято — знаменатель для эффективности.
+function occupiedBuildings(airportId) {
   return store.getBuildingsByAirport(airportId)
     .filter(b => (b.state || 'owned') !== 'sold').length;
 }
@@ -2928,10 +2922,10 @@ app.get('/api/leaderboard', (req, res) => {
   // 2) АЭРОПОРТЫ — насколько вырос аэропорт за текущий сезон.
   const airports = [...rows].sort((a, b) => b.seasonGrowth - a.seasonGrowth).slice(0, 50);
 
-  // 3) МАСТЕРСТВО — лучший за сезон результат по прибыли с клетки. Здесь
+  // 3) МАСТЕРСТВО — лучший за сезон результат по прибыли с постройки. Здесь
   // аккуратный маленький аэропорт может обойти громоздкий.
-  const mastery = rows.filter(r => r.seasonBestPerCell != null)
-    .sort((a, b) => b.seasonBestPerCell - a.seasonBestPerCell).slice(0, 50);
+  const mastery = rows.filter(r => r.seasonBestPerBuilding != null)
+    .sort((a, b) => b.seasonBestPerBuilding - a.seasonBestPerBuilding).slice(0, 50);
 
   res.json({
     race, airports, mastery,
@@ -2967,7 +2961,6 @@ app.get('/api/admin/players', auth, adminAuth, (req, res) => {
       hasAirport: !!airport,
       level: airport ? airport.level : null,
       money: airport ? airport.money : null,
-      gridSize: airport ? airport.gridSize : null,
     };
   });
   res.json(players);
@@ -3033,31 +3026,10 @@ app.post('/api/admin/players/:username/set-level', auth, adminAuth, (req, res) =
   res.json(serializeAirport(updated));
 });
 
-app.post('/api/admin/players/:username/set-grid-size', auth, adminAuth, (req, res) => {
-  const ctx = getTargetOr404(req, res);
-  if (!ctx) return;
-  let { gridSize } = req.body || {};
-  if (typeof gridSize !== 'number') return res.status(400).json({ error: 'invalid_value' });
-  gridSize = Math.max(1, Math.min(20, Math.round(gridSize)));
-
-  const maxCells = gridSize * gridSize;
-  const buildings = store.getBuildingsByAirport(ctx.airport.id);
-  let removedCount = 0;
-  for (const b of buildings) {
-    if (b.cellIndex >= maxCells) {
-      store.removeBuildingAtCell(ctx.airport.id, b.cellIndex);
-      removedCount++;
-    }
-  }
-
-  const updated = store.updateAirport(ctx.airport.id, { gridSize });
-  res.json({ airport: serializeAirport(updated), removedBuildings: removedCount });
-});
-
 app.post('/api/admin/players/:username/save-all', auth, adminAuth, (req, res) => {
   const ctx = getTargetOr404(req, res);
   if (!ctx) return;
-  let { money, xp, level, gridSize } = req.body || {};
+  let { money, xp, level } = req.body || {};
   const patch = {};
 
   if (money !== undefined) {
@@ -3084,29 +3056,15 @@ app.post('/api/admin/players/:username/save-all', auth, adminAuth, (req, res) =>
     patch.xp = xpRequiredForLevel(level);
   }
 
-  let removedBuildings = 0;
-  if (gridSize !== undefined) {
-    if (typeof gridSize !== 'number') return res.status(400).json({ error: 'invalid_grid' });
-    gridSize = Math.max(1, Math.min(20, Math.round(gridSize)));
-    patch.gridSize = gridSize;
-    const maxCells = gridSize * gridSize;
-    for (const b of store.getBuildingsByAirport(ctx.airport.id)) {
-      if (b.cellIndex >= maxCells) {
-        store.removeBuildingAtCell(ctx.airport.id, b.cellIndex);
-        removedBuildings++;
-      }
-    }
-  }
-
   const updated = store.updateAirport(ctx.airport.id, patch);
-  res.json({ airport: serializeAirport(updated), removedBuildings });
+  res.json({ airport: serializeAirport(updated) });
 });
 
 app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
   const ctx = getTargetOr404(req, res);
   if (!ctx) return;
   // Полный сброс в состояние только что зарегистрировавшегося игрока:
-  // сносим все здания и самолёты, обнуляем деньги/xp/уровень/сетку/репутацию.
+  // сносим все здания и самолёты, обнуляем деньги/xp/уровень/репутацию.
   store.removeAllBuildings(ctx.airport.id);
   store.removeAllAircraft(ctx.airport.id);
   store.removeAllContracts(ctx.airport.id);
@@ -3118,8 +3076,6 @@ app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
     reputation: 0,
     xp: 0,
     level: 0,
-    gridSize: CONFIG.START_GRID_SIZE,
-    landExpansionsBought: 0,
     reachedLevel10At: null,
     startedAt: Date.now(),
     idleSinceTick: null,
@@ -3163,15 +3119,19 @@ app.post('/api/admin/players/:username/assign-building', auth, adminAuth, (req, 
   if (!ctx) return;
   const { cellIndex, buildingId } = req.body || {};
   if (!BUILDINGS[buildingId]) return res.status(400).json({ error: 'unknown_building' });
-  const maxCells = ctx.airport.gridSize * ctx.airport.gridSize;
-  if (typeof cellIndex !== 'number' || cellIndex < 0 || cellIndex >= maxCells) {
-    return res.status(400).json({ error: 'invalid_cell' });
-  }
 
-  if (store.findBuildingAtCell(ctx.airport.id, cellIndex)) {
-    store.removeBuildingAtCell(ctx.airport.id, cellIndex); // заменяем то, что было
+  // Место игроку больше не назначается: если индекс не передан, берём первый
+  // свободный (внутренний идентификатор постройки). Переданный индекс —
+  // замена конкретной постройки.
+  let cell = (typeof cellIndex === 'number' && cellIndex >= 0) ? cellIndex : null;
+  if (cell == null) {
+    const used = new Set(store.getBuildingsByAirport(ctx.airport.id).map(b => b.cellIndex));
+    cell = 0;
+    while (used.has(cell)) cell++;
+  } else if (store.findBuildingAtCell(ctx.airport.id, cell)) {
+    store.removeBuildingAtCell(ctx.airport.id, cell); // заменяем то, что было
   }
-  store.addBuilding(ctx.airport.id, cellIndex, buildingId);
+  store.addBuilding(ctx.airport.id, cell, buildingId);
 
   res.json(serializeAirport(ctx.airport));
 });
@@ -4506,12 +4466,12 @@ function runTick() {
       patch.lastDayNet = Math.round(periodStats.money);
       patch.lastDayAt = currentTick;
       // лучший результат за сезон: прибыль с одной постройки
-      const cellsNow = store.getBuildingsByAirport(airport.id)
+      const buildingsNow = store.getBuildingsByAirport(airport.id)
         .filter(b => (b.state || 'owned') !== 'sold').length;
-      if (cellsNow > 0) {
-        const perCell = Math.round(patch.lastDayNet / cellsNow);
-        const best = freshAirport.seasonBestPerCell;
-        if (best == null || perCell > best) patch.seasonBestPerCell = perCell;
+      if (buildingsNow > 0) {
+        const perBuilding = Math.round(patch.lastDayNet / buildingsNow);
+        const best = freshAirport.seasonBestPerBuilding;
+        if (best == null || perBuilding > best) patch.seasonBestPerBuilding = perBuilding;
       }
       // отметка старта сезона — если аэропорт создан в середине недели
       if (freshAirport.seasonStartValue == null) {
