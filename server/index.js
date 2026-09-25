@@ -1836,6 +1836,8 @@ app.post('/api/airport/restart', auth, (req, res) => {
     fuelStored: 0, fuelSupplier: null, fuelContract: null, fuelAutoContract: false, fuelRefillThreshold: 25,
     paxPool: { heli: 0, vvl: 0, mvl: 0 }, termQueue: [],
     heliCarried: 0, paxServed: 0, paxProcessed: 0, heliFlow: { arrived: 0, departed: 0 },
+    // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
+    eventLog: [], newsLog: [],
     // счётчики приветствия — чтобы новый заход снова показал вступление
     welcomeSeen: false, welcomeXpGiven: false,
     // бонус за второй уровень тоже с чистого листа — иначе после «Начать
@@ -3074,6 +3076,8 @@ app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
     paxServed: 0,
     paxProcessed: 0,           // счётчик в шапке — тоже с нуля
     heliFlow: { arrived: 0, departed: 0 },
+    // ленты «События» и «Новости» — с чистого листа
+    eventLog: [], newsLog: [],
     welcomeSeen: false, welcomeXpGiven: false,
     // бонус за второй уровень тоже с чистого листа — иначе после «Начать
     // сначала» он считался бы уже выданным и окно не показывалось
