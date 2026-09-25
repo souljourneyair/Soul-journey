@@ -3452,6 +3452,7 @@ function bankState(airport) {
   const limit = Math.max(0, Math.floor(value * BANK.MAX_SHARE_OF_VALUE));
   return {
     rate,
+    minLevel: BANK.MIN_LEVEL,          // банк открывается с этого уровня
     oilPrice: st.oilPrice != null ? st.oilPrice : BANK.OIL_BASE,
     goldPrice: st.goldPrice != null ? st.goldPrice : BANK.GOLD_BASE,
     limit: loan ? 0 : limit,           // второй кредит не выдаём
@@ -3477,6 +3478,9 @@ app.get('/api/bank', auth, (req, res) => {
 app.post('/api/bank/borrow', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (airport.level < BANK.MIN_LEVEL) {
+    return res.status(403).json({ error: 'level_too_low', message: `Банк открывается с ${BANK.MIN_LEVEL} уровня аэропорта` });
+  }
   if (airport.loan) {
     return res.status(400).json({ error: 'has_loan', message: 'Сначала погасите текущий кредит' });
   }

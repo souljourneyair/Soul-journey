@@ -357,8 +357,26 @@ function showBankrupt() {
 function updateTopboard() {
   const airportEl = $('#topboardAirport');
   if (airportEl) airportEl.textContent = STATE.name || '';
+  updateMenuButtons();
+}
+
+// Видимость пунктов левого меню, зависящих от прогресса:
+//   Авиапарк — только после создания своей авиакомпании;
+//   Банк — с уровня, заданного на сервере (сейчас 5);
+//   Создать АК — когда уровень дошёл до порога и АК ещё нет;
+//   Договоры — когда аэропорт может принимать борты.
+function updateMenuButtons() {
   updateAirlineButton();
   updateEnvelopeButton();
+
+  const fleet = $('#fleetBtn');
+  if (fleet) fleet.classList.toggle('hidden', !STATE.airline);
+
+  const bank = $('#bankBtn');
+  if (bank) {
+    const minLevel = (STATE.bank && STATE.bank.minLevel) || 5;
+    bank.classList.toggle('hidden', (STATE.level || 0) < minLevel);
+  }
 }
 
 // Кнопка конверта видна, когда аэропорт может принимать борты (есть договоры/предложения)
