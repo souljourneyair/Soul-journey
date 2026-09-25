@@ -13,7 +13,7 @@ const {
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost, AIRCRAFT_EVENTS,
-  standAcceptsSizes, aircraftSize, standServiceMinutes,
+  standAcceptsSizes, aircraftSize, standServiceMinutes, standCapacity,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
@@ -1058,7 +1058,12 @@ function occupiedStands(airportId) {
   if (!assignment) return [];
   return assignment
     .filter(i => i >= 0 && stands[i])
-    .map((i, n) => ({ cellIndex: stands[i].cellIndex, size: toPlace[n] }));
+    .map((i, n) => ({
+      cellIndex: stands[i].cellIndex,
+      size: toPlace[n],
+      standSize: stands[i].standSize,
+      level: stands[i].level,
+    }));
 }
 
 // Вертолётные площадки с вместимостью и текущей занятостью.
@@ -1097,16 +1102,16 @@ function standSummaryOf(airportId) {
     heliUsed += Math.min(p.used, p.capacity);
   }
 
-  // ВС-стоянки: всего стоянок по размеру и сколько из них занято.
+  // ВС-стоянки: вместимость по размеру (с учётом уровня — 1..10 на стоянку)
+  // и сколько мест занято. И то и другое считаем в «местах» (слотах), а не в
+  // зданиях, иначе одна большая стоянка считалась бы за одно место.
   const stands = listStands(airportId, true);
-  const occByCell = {};
-  for (const o of occupiedStands(airportId)) occByCell[o.cellIndex] = true;
-
   const totalBy = { small: 0, medium: 0, large: 0 };
+  for (const s of stands) totalBy[s.standSize]++;
+
   const usedBy = { small: 0, medium: 0, large: 0 };
-  for (const s of stands) {
-    totalBy[s.standSize]++;
-    if (occByCell[s.cellIndex]) usedBy[s.standSize]++;
+  for (const o of occupiedStands(airportId)) {
+    if (usedBy[o.standSize] != null) usedBy[o.standSize]++;
   }
 
   return {
@@ -1244,18 +1249,24 @@ function listStands(airportId, includeDamaged) {
     if (b.state === 'rented') continue; // сданная в аренду стоянка не работает на операции
     if (isUnderConstruction(b)) continue;
     if (b.ruined) continue;
-    // Стоянка — одно место, дробить его нельзя, поэтому правило простое:
-    // при повреждении от половины и выше НОВЫЙ борт на неё не встаёт.
-    // Но борт, который уже там стоит, никуда не девается: для показа
-    // занятости такие стоянки нужны, поэтому includeDamaged их оставляет.
+    // При повреждении от половины и выше НОВЫЕ борта на стоянку не встают.
+    // Уже стоящий борт никуда не девается: для показа занятости такие стоянки
+    // нужны, поэтому includeDamaged их оставляет.
     if (!includeDamaged && (b.wear || 0) >= DAMAGE_ECONOMY.WRENCH_WEAR) continue;
-    stands.push({
-      buildingId: b.buildingId,
-      standSize: def.standSize,
-      level: b.upgradeLevel || 1,
-      cellIndex: b.cellIndex,
-      accepts: standAcceptsSizes(def.standSize, b.upgradeLevel || 1),
-    });
+    const level = b.upgradeLevel || 1;
+    const accepts = standAcceptsSizes(def.standSize, level);
+    // Каждый слот — отдельное место под борт: стоянка уровня N держит до
+    // standCapacity бортов, поэтому в раскладке повторяется нужное число раз.
+    const capacity = standCapacity(def.standSize, level);
+    for (let i = 0; i < capacity; i++) {
+      stands.push({
+        buildingId: b.buildingId,
+        standSize: def.standSize,
+        level,
+        cellIndex: b.cellIndex,
+        accepts,
+      });
+    }
   }
   return stands;
 }
@@ -1730,6 +1741,8 @@ function serializeAirport(airport) {
         // стоянка с износом от 50% борта не принимает — показываем это прямо
         standBlocked: !!(def && def.standSize && !b.ruined
           && (b.wear || 0) >= DAMAGE_ECONOMY.WRENCH_WEAR),
+        // вместимость стоянки по уровню (мест под борты); у прочих зданий 0
+        standCapacity: def && def.standSize ? standCapacity(def.standSize, level) : 0,
         cafeVisitors: def && def.seatsByLevel
           ? Math.min(def.seatsByLevel[Math.min(level, def.seatsByLevel.length) - 1] || 0,
               Math.floor(((airport.paxPool || {}).heli || 0)

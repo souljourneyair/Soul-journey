@@ -1367,10 +1367,10 @@ function isNonRentable(buildingId) {
 function slotCapacityOf(building) {
   const id = building.buildingId;
   const level = building.upgradeLevel || 1;
-  // вертолётка: мест = уровень (ур.2 = 2 борта). Стоянка: всегда 1 место
-  // (апгрейд стоянки меняет принимаемые размеры, а не число мест).
+  // вертолётка: мест = уровень (ур.2 = 2 борта).
   if (id === 'helipad') return level * (STATE.apronEconomy?.HELIPAD_SLOTS_PER_LEVEL || 1);
-  if (id.startsWith('stand')) return 1;
+  // стоянка: мест по уровню (1..10), вместимость приходит с сервера
+  if (id.startsWith('stand')) return building.standCapacity || 1;
   return 1;
 }
 
@@ -1389,7 +1389,8 @@ function slotOccupancyOf(building) {
     return { used: 0, total: slotCapacityOf(building) };
   }
 
-  // Стоянки ВС: одно место на стоянку, привязка борта известна с сервера.
+  // Стоянки ВС: мест по уровню (1..10), привязка борта известна с сервера —
+  // standLoad содержит по записи на каждое занятое место.
   if (id.startsWith('stand')) {
     const total = slotCapacityOf(building);
     const used = (STATE.standLoad || []).filter(x => x.cellIndex === building.cellIndex).length;

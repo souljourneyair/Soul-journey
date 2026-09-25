@@ -953,6 +953,21 @@ function standServiceMinutes(upgradeLevel) {
   return arr[idx];
 }
 
+// Вместимость стоянки (сколько бортов на ней помещается) по уровню апгрейда.
+// Малая: 1..5. Средняя и большая: 2,4,6,8,10.
+const STAND_SLOTS_BY_SIZE = {
+  small: [1, 2, 3, 4, 5],
+  medium: [2, 4, 6, 8, 10],
+  large: [2, 4, 6, 8, 10],
+};
+
+function standCapacity(standSize, upgradeLevel) {
+  const arr = STAND_SLOTS_BY_SIZE[standSize];
+  if (!arr) return 0;
+  const idx = Math.min(Math.max(1, upgradeLevel || 1), arr.length) - 1;
+  return arr[idx];
+}
+
 function upgradeMultiplier(upgradeLevel) {
   return 1 + (upgradeLevel - 1) * UPGRADE_ECONOMY.INCOME_BONUS_PER_LEVEL;
 }
@@ -1042,21 +1057,21 @@ const BUILDINGS = {
     cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, nonRentable: true, reputation: 3, xp: 700, removable: true, maxUpgradeLevel: 5,
     upgradeCostMult: 0.2, standSize: 'small',   // вмещает маленькие самолёты
-    aircraftSlots: 1, desc: 'Стоянка для маленького самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин, то есть вдвое с половиной больше прилётов через ту же стоянку.',
+    aircraftSlots: 1, desc: 'Стоянка для маленьких самолётов. Вместимость растёт с уровнем: ур.1 — 1 борт, ур.5 — 5. Плюс апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин.',
   },
   stand_medium: {
     id: 'stand_medium', minLevel: 6, requiresBuilt: ['terminal_a', 'terminal_b', 'fire_station'], name: 'Средняя стоянка ВС', cost: 14000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, nonRentable: true, reputation: 5, xp: 1700, removable: true, maxUpgradeLevel: 5,
     upgradeCostMult: 0.2, standSize: 'medium',  // вмещает средние; с ур.3 — ещё и маленькие
     aircraftSlots: 1,
-    desc: 'Стоянка для среднего (узкофюзеляжного) самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также маленькие самолёты.',
+    desc: 'Стоянка для средних (узкофюзеляжных) самолётов. Вместимость растёт с уровнем: ур.1 — 2 борта, ур.5 — 10. Плюс апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также маленькие самолёты.',
   },
   stand_large: {
     id: 'stand_large', minLevel: 10, requiresBuilt: ['terminal_c', 'fire_station'], name: 'Большая стоянка ВС', cost: 32000, income: 0,  // инфраструктура: доход от работы, не пассивный
     infrastructure: true, nonRentable: true, reputation: 8, xp: 3600, removable: true, maxUpgradeLevel: 5,
     upgradeCostMult: 0.2, standSize: 'large',   // вмещает большие; с ур.3 — ещё средние и маленькие
     aircraftSlots: 1,
-    desc: 'Стоянка для большого (широкофюзеляжного) самолёта. Вмещает один борт. Апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также средние и маленькие самолёты.',
+    desc: 'Стоянка для больших (широкофюзеляжных) самолётов. Вместимость растёт с уровнем: ур.1 — 2 борта, ур.5 — 10. Плюс апгрейд ускоряет обслуживание: ур.1 — 30 мин, ур.5 — 12 мин. С ур.3 вмещает также средние и маленькие самолёты.',
   },
   hangar: {
     id: 'hangar', minLevel: 4, requiresBuilt: ['stand_small'], nonRentable: true, name: 'Ангар', cost: 5000, income: 0,  // инфраструктура: доход от работы, не пассивный
@@ -1204,9 +1219,9 @@ const BUILD_LIMITS = {
   // ограничитель — стоимость и содержание полос и интервал вышек; отдельного
   // потолка на число ВПП больше нет.
   tower: 3,            // диспетчерская вышка
-  stand_small: 10,     // малая стоянка ВС
-  stand_medium: 20,    // средняя стоянка ВС
-  stand_large: 20,     // большая стоянка ВС
+  stand_small: 3,      // малая стоянка ВС
+  stand_medium: 3,     // средняя стоянка ВС
+  stand_large: 3,      // большая стоянка ВС
   fuel_depot: 3,       // топливный склад
   terminal_a: 1, terminal_b: 1, terminal_c: 1,
   terminal_d: 1, terminal_e: 1, terminal_f: 1, // терминалы — по одному каждого типа
@@ -1397,8 +1412,9 @@ function decommissionThreshold(typeDef) {
 // Сколько мест под самолёты даёт здание в зависимости от уровня апгрейда.
 function aircraftSlotsOf(def, upgradeLevel) {
   if (!def || !def.aircraftSlots) return 0;
+  if (def.standSize) return standCapacity(def.standSize, upgradeLevel); // стоянка: 1..10
   if (def.aircraftSlotsPerLevel) return upgradeLevel; // ангар: слотов = уровень (1..4)
-  return def.aircraftSlots; // стоянка: всегда 1
+  return def.aircraftSlots;
 }
 
 // Остаточная цена выкупа лизингового самолёта с учётом износа.
@@ -1428,7 +1444,7 @@ module.exports = {
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
   aircraftCapacity, decommissionThreshold, aircraftUpgradeCost,
   AIRCRAFT_EVENTS,
-  standAcceptsSizes, aircraftSize, standServiceMinutes,
+  standAcceptsSizes, aircraftSize, standServiceMinutes, standCapacity,
   RUNWAY_ECONOMY, runwayWearPerLanding, runwayRepairCost, runwayRepairTicks,
   DAMAGE_ECONOMY, damageMultiplier, damageRepairCost, damageRepairTicks, ruinedDemolishCost,
   ADMIN_ECONOMY, adminUpkeepDiscount, adminBuildSpeedMult, adminMaxOffers,
