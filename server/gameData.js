@@ -1223,6 +1223,7 @@ const BUILD_LIMITS = {
   stand_small: 3,      // малая стоянка ВС
   stand_medium: 3,     // средняя стоянка ВС
   stand_large: 3,      // большая стоянка ВС
+  hangar: 2,           // ангар (ремонт и места под свои самолёты)
   fuel_depot: 3,       // топливный склад
   terminal_a: 1, terminal_b: 1, terminal_c: 1,
   terminal_d: 1, terminal_e: 1, terminal_f: 1, // терминалы — по одному каждого типа
