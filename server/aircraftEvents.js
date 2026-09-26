@@ -31,10 +31,10 @@ function ownPlanes(store, airportId) {
     !a.decommissioned && a.status !== 'flying' && a.status !== 'waiting');
 }
 
-// Имя типа самолёта по его id (для текстов новостей).
-function typeName(ac) {
+// Класс борта без слова «самолёт» — для фраз вида «ваш самолёт (Узкофюзеляжный)».
+function typeClass(ac) {
   const t = AIRCRAFT_TYPES[ac.typeId];
-  return t ? t.name : 'Самолёт';
+  return t ? t.name.replace(/\s+самолёт$/i, '') : 'неизвестного типа';
 }
 
 // Продлить стоянку договорного борта на N минут (ремонт/задержка) и, при
@@ -91,7 +91,10 @@ function runRepair(store, airport, currentTick, kind) {
 function runPassenger(store, airport, currentTick) {
   const minutes = AIRCRAFT_EVENTS.PASSENGER_DELAY_MINUTES;
   const board = rnd(contractPlanes(airport));
-  const own = ownPlanes(store, airport.id);
+  const ownList = ownPlanes(store, airport.id);
+  // ownPlanes возвращает массив: пустой массив — это «нет своих бортов», а не
+  // «есть». Иначе событие выбирало «свой борт» при пустом флоте и писало «Ваш».
+  const own = ownList.length ? ownList[Math.floor(Math.random() * ownList.length)] : null;
 
   // Свой борт, если он есть; иначе договорной (или наоборот — 50/50 при обоих).
   let target = null;
@@ -116,7 +119,7 @@ function runPassenger(store, airport, currentTick) {
   store.updateAirport(airport.id, { money: fresh.money - loss });
   return {
     title: 'Деструктивный пассажир',
-    text: `Дебошир на борту вашего ${typeName(target.ref)} устроил скандал, вылет задержали на ${minutes} минуты. Авиакомпания понесла убыток ${loss.toLocaleString('ru-RU')} у.е. на компенсациях и возвратах.`,
+          text: `Дебошир на борту вашего самолёта (${typeClass(target.ref)}) устроил скандал, вылет задержали на ${minutes} минуты. Авиакомпания понесла убыток ${loss.toLocaleString('ru-RU')} у.е. на компенсациях и возвратах.`,
   };
 }
 
@@ -124,7 +127,10 @@ function runPassenger(store, airport, currentTick) {
 function runCollision(store, airport, currentTick) {
   const minutes = AIRCRAFT_EVENTS.COLLISION_REPAIR_MINUTES;
   const board = rnd(contractPlanes(airport));
-  const own = ownPlanes(store, airport.id);
+  const ownList = ownPlanes(store, airport.id);
+  // Пустой массив — это «своих бортов нет»; берём один конкретный борт, а не
+  // массив, иначе «Ваш» показывался бы даже без своего флота и ломался typeName.
+  const own = ownList.length ? ownList[Math.floor(Math.random() * ownList.length)] : null;
 
   let target = null;
   if (board && own) target = Math.random() < 0.5 ? { type: 'contract', ref: board } : { type: 'own', ref: own };
@@ -143,7 +149,7 @@ function runCollision(store, airport, currentTick) {
   groundOwnPlane(store, target.ref, currentTick + minutes);
   return {
     title: 'Столкновение на перроне',
-    text: `Ваш ${typeName(target.ref)} столкнулся с ${vehicle} на перроне. Стороны договорились о мировом соглашении — ремонт в ангаре займёт час и будет бесплатным.`,
+    text: `Ваш самолёт (${typeClass(target.ref)}) столкнулся с ${vehicle} на перроне. Стороны договорились о мировом соглашении — ремонт в ангаре займёт час и будет бесплатным.`,
   };
 }
 
