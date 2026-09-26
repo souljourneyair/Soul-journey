@@ -17,8 +17,8 @@
 
 
 ### [СДЕЛАНО] Лимиты построек
-BUILD_LIMITS в gameData.js: helipad 3, tower 3, stand_small 10, stand_medium 20,
-stand_large 20, fuel_depot 3, терминалы A-F по 1. ВПП — без лимита (ограничитель — вышки).
+BUILD_LIMITS в gameData.js: helipad 3, tower 3, runway_small 2, runway_full 3,
+runway_big 4, стоянки 3/3/3, fuel_depot 3, терминалы A-F по 1.
 Проверка в /api/build + показ N/лимит в меню стройки + блокировка кнопки.
 
 ### [СДЕЛАНО] Группировка таблицы зданий

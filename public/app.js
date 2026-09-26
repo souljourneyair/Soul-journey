@@ -1431,18 +1431,15 @@ function infraStatusLines(building) {
     if (!rw) return ['🛬 Работает'];
     if (rw.repairing) return [`🚧 Ремонт: ${rw.repairTicksLeft} мин`, 'пропускная −70%'];
     const lines = [];
-    const left = Math.max(0, rw.capacity - rw.used);
-    if (left <= 0) lines.push('🛬 Квота исчерпана');
-    else if (rw.waitTicks > 0) lines.push(`🛬 Интервал вышки: ${rw.waitTicks} мин`);
+    // Суточной квоты у полосы больше нет — поток регулирует вышка, поэтому
+    // показываем только её интервал, а не «израсходовано/лимит».
+    if (rw.waitTicks > 0) lines.push(`🛬 Интервал вышки: ${rw.waitTicks} мин`);
     else lines.push('🛬 Свободна');
-    lines.push(`посадок: ${rw.used}/${rw.capacity} за сутки`);
     const wearPct = Math.round((rw.wear || 0) * 100);
     if (wearPct >= 10) lines.push(`износ ${wearPct}% ⚠️`);
     else if (wearPct > 0) lines.push(`износ ${wearPct}%`);
-    // Причину урезанной квоты объясняем явно: буря режет пропускную вдвое,
-    // и без пометки цифра выглядит ошибкой.
     if (STATE.stormTicksLeft > 0) {
-      lines.push(`🧲 Магнитная буря: пропускная −50% (ещё ${STATE.stormTicksLeft} мин)`);
+      lines.push(`🧲 Магнитная буря: интервал вышки ×3 (ещё ${STATE.stormTicksLeft} мин)`);
     }
     return lines;
   }
@@ -1496,8 +1493,8 @@ function infraStatusHtml(building) {
 }
 
 // Разметка статуса для аккордеон-панели. У вышки — развёрнутый блок вместо
-// короткой строки из таблицы: счётчик и оба лимита выделены как главное,
-// причина упора и очередь идут обычным текстом.
+// короткой строки из таблицы: счётчик пропускной способности выделен как
+// главное, очередь идёт обычным текстом.
 function infraPanelHtml(building) {
   if (building.buildingId === 'tower') {
     const f = STATE.towerFlow;
@@ -1505,16 +1502,9 @@ function infraPanelHtml(building) {
     const lines = [];
     if (f) {
       lines.push({ text: `🛬 за сутки: ${f.used} из ${f.effective} — осталось ${f.remaining}`, hl: true });
-      lines.push({ text: `лимит ВПП ${f.quotaRunways} · лимит вышки ${f.quotaTower}`, hl: true });
-      if (f.remaining <= 0) {
-        lines.push({ text: f.bottleneck === 'tower'
-          ? '⛔ Квота исчерпана — упёрлись в вышку'
-          : '⛔ Квота исчерпана — упёрлись в ВПП', hl: false });
-      } else if (f.bottleneck === 'tower') {
-        lines.push({ text: 'узкое место: вышка (интервал)', hl: false });
-      } else if (f.bottleneck === 'runways') {
-        lines.push({ text: 'узкое место: ВПП (суточная квота)', hl: false });
-      }
+      lines.push({ text: `лимит вышки: ${f.perRunway} × ${f.runways} полос = ${f.effective} за сутки`, hl: true });
+      if (f.remaining <= 0) lines.push({ text: '⛔ Квота исчерпана — вышка на пределе', hl: false });
+      else if (f.interval) lines.push({ text: `интервал: ${f.interval} мин`, hl: false });
     }
     lines.push({ text: queue > 0 ? `в очереди: ${queue}` : 'очереди нет', hl: false });
     return lines

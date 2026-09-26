@@ -1328,22 +1328,25 @@ function assignAll(stands, toPlace) {
 // Взлёты квоту не расходуют, полосу занимает только посадка.
 const MINUTES_PER_DAY = 1440;
 
+// «Паспортная» суточная пропускная способность полосы по каталогу.
+// Это больше НЕ жёсткий лимит на приём бортов (его сняли — поток регулирует
+// вышка). Величина нужна для двух вещей: от неё считается износ за посадку
+// (полоса с лучшим покрытием стирается медленнее) и под неё вышка ужимает
+// интервал, чтобы не душить полосы своего уровня.
 function runwayCapacity(def, level) {
   const arr = def.landingsPerDay;
   if (!arr || !arr.length) return Infinity;
   return arr[Math.min(Math.max((level || 1) - 1, 0), arr.length - 1)];
 }
 
-// Сколько квоты израсходовано на текущий момент (с учётом восстановления).
-// Верхняя граница — сама квота: если происшествие или магнитная буря урезали
-// capacity уже после того, как посадки накопились, счётчик не должен показывать
-// больше 100% (был баг «313/190»). Излишек считается исчерпанной квотой, а не
-// долгом перед полосой.
+// Сколько посадок полоса приняла за последние сутки (с учётом плавного
+// восстановления). Не ограничиваем сверху: жёсткой квоты нет, счётчик нужен
+// для сведения в панели вышки.
 function runwayUsed(b, capacity, currentTick) {
   const stored = b.rwLandings || 0;
   const since = currentTick - (b.rwLandingsTick || 0);
   const restored = since * (capacity / MINUTES_PER_DAY);
-  return Math.min(capacity, Math.max(0, stored - restored));
+  return Math.max(0, stored - restored);
 }
 
 // Все рабочие ВПП аэропорта с текущей загрузкой.
@@ -1386,17 +1389,17 @@ function hasRunwayForSize(airportId, size, currentTick) {
   return listRunways(airportId, currentTick).some(r => r.accepts.includes(size));
 }
 
-// Подобрать полосу для посадки борта: подходит по размеру и есть остаток квоты.
-// usedThisTick — полосы, уже принявшие борт в этом тике: одна полоса
-// принимает не больше одного борта за тик (это и есть прежнее правило
-// «сколько ВПП, столько одновременных посадок»).
+// Подобрать полосу для посадки борта: подходит по размеру и выдержала
+// интервал вышки. Суточной квоты у полосы больше нет — поток регулирует
+// только вышка (её интервал), поэтому здесь остаются лишь размер, пауза
+// между операциями и «одна полоса — один борт за тик».
+// usedThisTick — полосы, уже принявшие борт в этом тике.
 function pickRunwayForLanding(airportId, size, currentTick, usedThisTick) {
   const runways = listRunways(airportId, currentTick)
     .filter(r => r.accepts.includes(size))
     .filter(r => !usedThisTick || !usedThisTick.has(r.cellIndex))
     // интервал вышки: полоса выдерживает паузу между операциями
-    .filter(r => currentTick >= r.nextOpTick)
-    .filter(r => r.used + 1 <= r.capacity);
+    .filter(r => currentTick >= r.nextOpTick);
   if (!runways.length) return null;
   // берём наименее подходящую по размеру (малую раньше большой) и наименее
   // загруженную — чтобы большая полоса оставалась свободной для крупных бортов
@@ -1618,36 +1621,25 @@ function serializeAirport(airport) {
     })(),
     towerInterval: towerInterval(airport.id),           // текущий интервал вышки (мин)
     // Пропускная способность вышки за сутки: сколько операций уже прошло и
-    // сколько осталось. Лимит задают ДВЕ вещи — суточные квоты полос и интервал
-    // вышки. Отдаём оба числа и пометку, что сработало раньше, чтобы игрок
-    // понимал, во что упёрся: в полосу или в вышку.
+    // сколько осталось. Суточных квот у полос нет, поэтому поток регулирует
+    // только интервал вышки: одна полоса пропускает 1440/интервал, все полосы
+    // вместе — умноженное на их число.
     towerFlow: (() => {
       const cur = store.getTickCounter();
       const rws = listRunways(airport.id, cur);
       if (!rws.length) return null;
       const interval = towerInterval(airport.id);
       if (!interval || !isFinite(interval)) return null;
-      // сколько операций интервал позволяет одной полосе за сутки
-      const towerCapPerRunway = Math.max(1, Math.floor(MINUTES_PER_DAY / interval));
-      let quotaRunways = 0, quotaTower = 0, effective = 0, used = 0;
-      for (const r of rws) {
-        quotaRunways += r.capacity;
-        quotaTower += towerCapPerRunway;
-        effective += Math.min(r.capacity, towerCapPerRunway);
-        used += r.used;
-      }
-      used = Math.min(used, effective);
-      const remaining = Math.max(0, Math.round(effective - used));
-      let bottleneck = 'even';
-      if (quotaTower < quotaRunways) bottleneck = 'tower';
-      else if (quotaRunways < quotaTower) bottleneck = 'runways';
+      const perRunway = Math.max(1, Math.floor(MINUTES_PER_DAY / interval));
+      const limit = perRunway * rws.length;
+      const used = rws.reduce((s, r) => s + r.used, 0);
       return {
         used: Math.round(used),
-        effective: Math.round(effective),
-        remaining,
-        quotaRunways: Math.round(quotaRunways),
-        quotaTower: Math.round(quotaTower),
-        bottleneck,
+        effective: limit,
+        remaining: Math.max(0, Math.round(limit - used)),
+        perRunway,
+        runways: rws.length,
+        interval,
       };
     })(),
     hasTower: hasTower(airport.id),                      // есть вышка (нужна для полётов)
