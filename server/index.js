@@ -1793,11 +1793,14 @@ app.post('/api/start-game', auth, (req, res) => {
   if (store.getAirportByUserId(req.user.id)) return res.status(409).json({ error: 'already_started' });
 
   // Путь B ("с воздуха") — Итерация 2, пока форсим путь A.
-  // Новый игрок стартует на уровне 0 БЕЗ построек — админздание и вертолётную
-  // стоянку он ставит сам за стартовый капитал, получая за них опыт до 1 уровня.
+  // Новый игрок стартует на уровне 1: здание администрации уже стоит (дедов
+  // штаб), остальное строит сам. Стартовый капитал уже уменьшен на его цену.
   const airport = store.createAirport(req.user.id, 'A', CONFIG.START_MONEY);
+  store.addBuilding(airport.id, 0, 'admin');
+  // Игра начинается со 1 уровня: сразу даём XP на его порог.
+  store.updateAirport(airport.id, { level: 1, xp: xpRequiredForLevel(1) });
 
-  res.json(serializeAirport(airport));
+  res.json(serializeAirport(store.getAirportById(airport.id)));
 });
 
 // Начать сначала после банкротства: полный сброс аэропорта (уровень 0, стартовые
@@ -1821,7 +1824,8 @@ app.post('/api/airport/restart', auth, (req, res) => {
   store.removeAllContracts(airport.id);
   const updated = store.updateAirport(airport.id, {
     name: null, airline: null, airlineOfferSeen: false,
-    money: CONFIG.START_MONEY, reputation: 0, xp: 0, level: 0,
+    money: CONFIG.START_MONEY, reputation: 0,
+    xp: xpRequiredForLevel(1), level: 1,
     reachedLevel10At: null, startedAt: Date.now(),
     idleSinceTick: null, bankrupt: false,
     ratingBoostEndsTick: null,
@@ -1841,7 +1845,9 @@ app.post('/api/airport/restart', auth, (req, res) => {
     // прошлый результат сохраняется между перезапусками
     previousResult,
   });
-  res.json(serializeAirport(updated));
+  // Штаб снова стоит с самого начала — как у нового игрока.
+  store.addBuilding(airport.id, 0, 'admin');
+  res.json(serializeAirport(store.getAirportById(airport.id)));
 });
 
 // Удалить свой аккаунт полностью (без подтверждения на сервере — подтверждение на клиенте).
@@ -3050,8 +3056,8 @@ app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
     airlineOfferSeen: false,
     money: CONFIG.START_MONEY,
     reputation: 0,
-    xp: 0,
-    level: 0,
+    xp: xpRequiredForLevel(1),
+    level: 1,
     reachedLevel10At: null,
     startedAt: Date.now(),
     idleSinceTick: null,
@@ -3078,7 +3084,9 @@ app.post('/api/admin/players/:username/reset', auth, adminAuth, (req, res) => {
     level2BonusGiven: false, pendingLevel2Bonus: false,
     level5BonusGiven: false, pendingLevel5Bonus: false,
   });
-  res.json(serializeAirport(updated));
+  // Штаб стоит с самого начала — как у нового игрока.
+  store.addBuilding(ctx.airport.id, 0, 'admin');
+  res.json(serializeAirport(store.getAirportById(ctx.airport.id)));
 });
 
 app.post('/api/admin/players/:username/delete', auth, adminAuth, (req, res) => {
