@@ -3228,20 +3228,54 @@ function showDedLetter() {
   }
 
   const audio = $('#dedVoice');
+  const audioRow = $('#dedAudioRow');
   const audioMissing = $('#dedVoiceMissing');
   if (ch.voice) {
-    audio.src = ch.voice;
-    audio.classList.remove('hidden');
+    audio.setAttribute('src', ch.voice);
+    audioRow.classList.remove('hidden');
     audioMissing.classList.add('hidden');
   } else {
     try { audio.pause(); } catch (e) { /* нет источника */ }
     audio.removeAttribute('src');
-    audio.classList.add('hidden');
+    audioRow.classList.add('hidden');
     audioMissing.classList.remove('hidden');
   }
 
   $('#dedLetterModal').classList.remove('hidden');
 }
+
+// Кастомный плеер озвучки (в цвете темы): play/pause, перемотка, время.
+function formatAudioTime(sec) {
+  if (!isFinite(sec) || sec < 0) sec = 0;
+  return `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+}
+(function wireDedPlayer() {
+  const audio = $('#dedVoice');
+  const play = $('#dedPlay');
+  const seek = $('#dedSeek');
+  const cur = $('#dedCur');
+  const dur = $('#dedDur');
+  if (!audio || !play || !seek) return;
+  play.addEventListener('click', () => {
+    if (audio.paused) audio.play().catch(() => {});
+    else audio.pause();
+  });
+  audio.addEventListener('play', () => { play.textContent = '❚❚'; });
+  audio.addEventListener('pause', () => { play.textContent = '▶'; });
+  audio.addEventListener('ended', () => { play.textContent = '▶'; seek.value = '0'; cur.textContent = '0:00'; });
+  audio.addEventListener('loadedmetadata', () => { dur.textContent = formatAudioTime(audio.duration); });
+  audio.addEventListener('timeupdate', () => {
+    cur.textContent = formatAudioTime(audio.currentTime);
+    if (isFinite(audio.duration) && audio.duration > 0) {
+      seek.value = String(Math.round(audio.currentTime / audio.duration * 1000));
+    }
+  });
+  seek.addEventListener('input', () => {
+    if (isFinite(audio.duration) && audio.duration > 0) {
+      audio.currentTime = Number(seek.value) / 1000 * audio.duration;
+    }
+  });
+})();
 
 $('#dedLetterNext')?.addEventListener('click', () => {
   try { $('#dedVoice')?.pause(); } catch (e) { /* ок */ }

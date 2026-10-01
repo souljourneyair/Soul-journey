@@ -1076,17 +1076,30 @@ body.modal-open { overflow: hidden; }
 }
 .ded-letter-img { max-width: 100%; max-height: 360px; object-fit: contain; border-radius: 4px; }
 .ded-letter-text { margin: 0; padding: 12px 14px; font-size: 18px; line-height: 1.6; color: var(--text); white-space: pre-line; }
-/* Плеер в цвете темы: подложка и акцент управления (акцент работает в
-   Chrome/Firefox/Edge; в WebKit подкрашиваем панель и время). */
-.ded-audio {
-  display: flex; align-items: center; gap: 10px; min-height: 48px;
-  padding: 6px 12px; border-radius: 8px;
+/* Кастомный плеер озвучки в цвете темы. Все элементы — цвета кнопки
+   «Дальше» (board-amber), фон-подложка — как у карточек, не акцентируется. */
+.ded-audio { display: flex; flex-direction: column; gap: 8px; }
+.ded-audio-player {
+  display: flex; align-items: center; gap: 12px; min-height: 48px;
+  padding: 6px 14px; border-radius: 8px;
   background: var(--bg-cell); border: 1px solid var(--line);
 }
-.ded-audio audio { width: 100%; accent-color: var(--board-amber); color: var(--board-amber); }
-.ded-audio audio::-webkit-media-controls-panel { background-color: #10161d; }
-.ded-audio audio::-webkit-media-controls-current-time-display,
-.ded-audio audio::-webkit-media-controls-time-remaining-display { color: var(--board-amber); }
+.ded-play {
+  flex: 0 0 auto; width: 42px; height: 42px; border: none; border-radius: 50%;
+  background: var(--board-amber); color: #1a1200; font-size: 16px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.ded-play:hover { filter: brightness(1.1); }
+.ded-time { flex: 0 0 auto; min-width: 40px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--board-amber); }
+.ded-seek { flex: 1; height: 6px; cursor: pointer; -webkit-appearance: none; appearance: none; background: transparent; }
+.ded-seek::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--board-amber); opacity: 0.35; }
+.ded-seek::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px;
+  margin-top: -5px; border-radius: 50%; background: var(--board-amber); cursor: pointer;
+}
+.ded-seek::-moz-range-track { height: 6px; border-radius: 3px; background: var(--board-amber); opacity: 0.35; }
+.ded-seek::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--board-amber); }
+.ded-seek::-moz-range-thumb { width: 16px; height: 16px; border: none; border-radius: 50%; background: var(--board-amber); cursor: pointer; }
 @media (max-width: 640px) {
   .ded-letter-top { flex-direction: column; }
   .ded-avatar { flex: 0 0 auto; width: 144px; height: 173px; align-self: center; }

@@ -561,8 +561,14 @@
         </div>
       </div>
       <div class="ded-audio">
-        <audio id="dedVoice" controls preload="none" class="hidden"></audio>
+        <div class="ded-audio-player" id="dedAudioRow">
+          <button type="button" class="ded-play" id="dedPlay" aria-label="Играть">▶</button>
+          <span class="ded-time" id="dedCur">0:00</span>
+          <input type="range" class="ded-seek" id="dedSeek" min="0" max="1000" value="0" step="1" aria-label="Перемотка">
+          <span class="ded-time" id="dedDur">0:00</span>
+        </div>
         <span id="dedVoiceMissing" class="build-menu-hint hidden">Озвучка пока не загружена</span>
+        <audio id="dedVoice" preload="none"></audio>
       </div>
     </div>
     <button class="btn-primary" id="dedLetterNext">Дальше</button>
