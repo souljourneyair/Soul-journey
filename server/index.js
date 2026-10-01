@@ -1764,6 +1764,8 @@ function serializeAirport(airport) {
     upgradeEconomy: UPGRADE_ECONOMY,
     // картинки зданий из папок uploads/buildings/<id>/ — источник правды
     buildingMedia: mediaScan.buildingsManifest(),
+    // аватары/письма/озвучка персонажей из uploads/characters/<id>/
+    characters: mediaScan.charactersManifest(),
     buildingLabelStyles: store.getBuildingLabelStyles(),
     buildingNames: store.getBuildingNames(),
     buildingDescriptions: store.getBuildingDescriptions(),

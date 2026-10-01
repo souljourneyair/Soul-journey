@@ -17,12 +17,15 @@ const SCREENS_DIR = path.join(PUBLIC_DIR, 'uploads', 'screens');
 const LOGO_DIR = path.join(PUBLIC_DIR, 'uploads', 'logo');
 const FAVICON_DIR = path.join(PUBLIC_DIR, 'uploads', 'favicon');
 const AUTH_BANNER_DIR = path.join(PUBLIC_DIR, 'uploads', 'auth-banner');
+const CHARACTERS_DIR = path.join(PUBLIC_DIR, 'uploads', 'characters');
 const SCREENS = ['auth', 'game'];
 // Логотип: основной и необязательный компактный для узких экранов.
 const LOGO_VARIANTS = ['default', 'small'];
 
 const IMAGE_EXT = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, svg: 1 };
 const VIDEO_EXT = { mp4: 1, webm: 1, ogv: 1, ogg: 1 };
+// Аудио: озвучка писем персонажей.
+const AUDIO_EXT = { mp3: 1, ogg: 1, oga: 1, wav: 1, m4a: 1 };
 // Фавикон: стандартные форматы + ICO. Расширение -> MIME для отдачи браузеру/поисковику.
 const FAVICON_EXT = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, svg: 1, ico: 1 };
 const FAVICON_MIME = {
@@ -43,7 +46,7 @@ const FAVICON_FILES = [
 
 const RESCAN_INTERVAL_MS = 30000; // авто-пересканирование раз в 30 сек
 
-let cache = { buildings: {}, screens: { auth: [], game: [] }, logo: { default: null, small: null }, favicon: null, authBanner: null, scannedAt: 0 };
+let cache = { buildings: {}, screens: { auth: [], game: [] }, logo: { default: null, small: null }, favicon: null, authBanner: null, characters: {}, scannedAt: 0 };
 let knownBuildingIds = [];
 
 function extOf(file) {
@@ -64,6 +67,7 @@ function ensureDirs(buildingIds) {
   fs.mkdirSync(LOGO_DIR, { recursive: true });
   fs.mkdirSync(FAVICON_DIR, { recursive: true });
   fs.mkdirSync(AUTH_BANNER_DIR, { recursive: true });
+  fs.mkdirSync(CHARACTERS_DIR, { recursive: true });
 }
 
 // ?v=<mtime> — чтобы браузер не показывал старую картинку после замены файла.
@@ -141,8 +145,43 @@ function scanLogo() {
   return out;
 }
 
+// Персонажи: папка public/uploads/characters/<id>/ с файлами
+//   portrait.<ext> — аватар, letter.<ext> — картинка письма, voice.<ext> — озвучка.
+// Расширение любое из допустимых. Пустые (0 байт) и битые файлы считаем
+// отсутствующими, иначе вместо заглушки подставилась бы пустая картинка/аудио.
+function scanCharacters() {
+  const out = {};
+  let entries;
+  try { entries = fs.readdirSync(CHARACTERS_DIR, { withFileTypes: true }); } catch (e) { return out; }
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    const id = ent.name;
+    const dir = path.join(CHARACTERS_DIR, id);
+    let files;
+    try { files = fs.readdirSync(dir); } catch (e) { continue; }
+    const entry = { portrait: null, letter: null, voice: null };
+    for (const file of files) {
+      const ext = extOf(file);
+      const isImg = !!IMAGE_EXT[ext];
+      const isAudio = !!AUDIO_EXT[ext];
+      if (!isImg && !isAudio) continue;   // памятки/исходники игнорируем
+      const full = path.join(dir, file);
+      let size = 0;
+      try { size = fs.statSync(full).size; } catch (e) { continue; }
+      if (!size) continue;                // пустой файл — как будто нет
+      const base = path.basename(file, path.extname(file)).toLowerCase();
+      const url = urlFor(`characters/${id}`, file, full);
+      if (base === 'portrait' && isImg) entry.portrait = url;
+      else if (base === 'letter' && isImg) entry.letter = url;
+      else if (base === 'voice' && isAudio) entry.voice = url;
+    }
+    out[id] = entry;
+  }
+  return out;
+}
+
 function rescan() {
-  cache = { buildings: scanBuildings(), screens: scanScreens(), logo: scanLogo(), favicon: scanFavicon(), authBanner: scanAuthBanner(), scannedAt: Date.now() };
+  cache = { buildings: scanBuildings(), screens: scanScreens(), logo: scanLogo(), favicon: scanFavicon(), authBanner: scanAuthBanner(), characters: scanCharacters(), scannedAt: Date.now() };
   return cache;
 }
 
@@ -157,6 +196,11 @@ function init(buildingIds) {
 // Манифест для клиента: { buildingId: { levels: {1: url}, default: url } }.
 function buildingsManifest() {
   return cache.buildings;
+}
+
+// Манифест персонажей: { id: { portrait, letter, voice } } (null — файла нет).
+function charactersManifest() {
+  return cache.characters;
 }
 
 // Разрешение картинки для здания уровня N.
@@ -335,7 +379,7 @@ function removeScreenFile(screen, filename) {
 
 module.exports = {
   SCREENS, LOGO_VARIANTS, IMAGE_EXT, VIDEO_EXT, FAVICON_MIME, FAVICON_FILES,
-  init, rescan, buildingsManifest, resolveBuilding,
+  init, rescan, buildingsManifest, charactersManifest, resolveBuilding,
   pickScreenBackground, listScreen,
   getLogo, listLogoFiles, logoFilePath, removeLogoVariant,
   getFavicon, faviconFilePath, removeFavicon, faviconDiskPath,

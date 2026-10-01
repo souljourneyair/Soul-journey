@@ -2713,7 +2713,7 @@ function closeModal(modal) {
 // уровнем и происшествие. Игрок должен их прочитать и нажать кнопку — иначе
 // случайный клик по полю закрывает окно вместе с наградой, и человек даже не
 // успевает понять, что ему что-то дали.
-const REQUIRED_MODALS = ['welcomeModal', 'eventModal'];
+const REQUIRED_MODALS = ['welcomeModal', 'dedLetterModal', 'eventModal'];
 function isRequiredModal(modal) {
   return modal && REQUIRED_MODALS.includes(modal.id);
 }
@@ -3191,6 +3191,65 @@ function showWelcome() {
   $('#welcomeModal').classList.remove('hidden');
 }
 
+// Окно «Письмо деда»: аватар слева, картинка письма справа, плеер снизу.
+// Медиа берём из STATE.characters.ded (uploads/characters/ded/); чего нет —
+// заменяем запасным вариантом (эмодзи, текст письма, подпись вместо плеера).
+const DED_LETTER_TEXT =
+  'Внучок, если читаешь это — значит, я всё-таки ушёл. Не горюй.\n' +
+  'Ключ от штаба под ковриком, ключ от неба — внутри тебя. Начни с малого:\n' +
+  'поставь домик да вертолётную площадку. Остальное приложится. — Дед';
+
+function showDedLetter() {
+  const ch = (STATE.characters || {}).ded || {};
+
+  const avatar = $('#dedAvatarImg');
+  const avatarFb = $('#dedAvatarFallback');
+  if (ch.portrait) {
+    avatar.src = ch.portrait;
+    avatar.classList.remove('hidden');
+    avatarFb.classList.add('hidden');
+  } else {
+    avatar.removeAttribute('src');
+    avatar.classList.add('hidden');
+    avatarFb.classList.remove('hidden');
+  }
+
+  const letterImg = $('#dedLetterImg');
+  const letterText = $('#dedLetterText');
+  if (ch.letter) {
+    letterImg.src = ch.letter;
+    letterImg.classList.remove('hidden');
+    letterText.classList.add('hidden');
+  } else {
+    letterImg.removeAttribute('src');
+    letterImg.classList.add('hidden');
+    letterText.classList.remove('hidden');
+    letterText.textContent = DED_LETTER_TEXT;
+  }
+
+  const audio = $('#dedVoice');
+  const audioMissing = $('#dedVoiceMissing');
+  if (ch.voice) {
+    audio.src = ch.voice;
+    audio.classList.remove('hidden');
+    audioMissing.classList.add('hidden');
+  } else {
+    try { audio.pause(); } catch (e) { /* нет источника */ }
+    audio.removeAttribute('src');
+    audio.classList.add('hidden');
+    audioMissing.classList.remove('hidden');
+  }
+
+  $('#dedLetterModal').classList.remove('hidden');
+}
+
+$('#dedLetterNext')?.addEventListener('click', () => {
+  try { $('#dedVoice')?.pause(); } catch (e) { /* ок */ }
+  $('#dedLetterModal').classList.add('hidden');
+  welcomeStep = 1;          // после письма — экран «Подарок» (начисление XP)
+  showWelcome();
+});
+
 // Крестик делает то же, что кнопка: награда засчитывается, окно гасится.
 document.querySelector('.welcome-close')?.addEventListener('click', () => {
   $('#welcomeNext')?.click();
@@ -3211,6 +3270,13 @@ $('#welcomeNext')?.addEventListener('click', async () => {
     welcomeStep = 0; level2Shown = false;
     try { STATE = await api('/api/level2-bonus/ack', 'POST', {}); renderAll(); updateTopboard(); }
     catch (err) { /* покажем снова при следующем заходе */ }
+    return;
+  }
+  // Вступление: после экрана «Наследство» показываем письмо деда,
+  // и только затем — экран «Подарок» и начисление опыта.
+  if (welcomeStep === 0) {
+    $('#welcomeModal').classList.add('hidden');
+    showDedLetter();
     return;
   }
   welcomeStep++;

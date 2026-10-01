@@ -1057,3 +1057,28 @@ body.modal-open { overflow: hidden; }
   color: var(--board-amber); border-color: var(--board-amber);
   background: rgba(255, 180, 0, 0.08);
 }
+
+/* ===== Письмо деда (вступление) ===== */
+.ded-letter-card { width: min(720px, 94vw); }
+.ded-letter-body { padding: 18px 22px 6px; display: flex; flex-direction: column; gap: 14px; }
+.ded-letter-top { display: flex; gap: 16px; align-items: stretch; }
+.ded-avatar {
+  flex: 0 0 150px; width: 150px; height: 180px;
+  background: var(--bg-cell); border: 1px solid var(--line); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.ded-avatar-img { width: 100%; height: 100%; object-fit: cover; }
+.ded-avatar-emoji { font-size: 64px; line-height: 1; }
+.ded-letter-paper {
+  flex: 1; min-width: 0; max-height: 320px; overflow: auto;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--line); border-radius: 8px;
+  display: flex; align-items: center; justify-content: center; padding: 8px;
+}
+.ded-letter-img { max-width: 100%; max-height: 300px; object-fit: contain; border-radius: 4px; }
+.ded-letter-text { margin: 0; padding: 10px 12px; font-size: 15px; line-height: 1.6; color: var(--text); white-space: pre-line; }
+.ded-audio { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.ded-audio audio { width: 100%; }
+@media (max-width: 640px) {
+  .ded-letter-top { flex-direction: column; }
+  .ded-avatar { flex: 0 0 auto; width: 120px; height: 140px; align-self: center; }
+}
