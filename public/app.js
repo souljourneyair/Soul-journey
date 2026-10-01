@@ -3255,11 +3255,26 @@ function formatAudioTime(sec) {
   const seek = $('#dedSeek');
   const cur = $('#dedCur');
   const dur = $('#dedDur');
+  const mute = $('#dedMute');
+  const vol = $('#dedVol');
   if (!audio || !play || !seek) return;
+  const updateMuteIcon = () => {
+    if (mute) mute.textContent = (audio.muted || audio.volume === 0) ? '🔇' : '🔊';
+  };
   play.addEventListener('click', () => {
     if (audio.paused) audio.play().catch(() => {});
     else audio.pause();
   });
+  mute?.addEventListener('click', () => {
+    audio.muted = !audio.muted;
+    updateMuteIcon();
+  });
+  vol?.addEventListener('input', () => {
+    audio.volume = Number(vol.value) / 100;
+    if (audio.volume > 0 && audio.muted) audio.muted = false;
+    updateMuteIcon();
+  });
+  updateMuteIcon();
   audio.addEventListener('play', () => { play.textContent = '❚❚'; });
   audio.addEventListener('pause', () => { play.textContent = '▶'; });
   audio.addEventListener('ended', () => { play.textContent = '▶'; seek.value = '0'; cur.textContent = '0:00'; });

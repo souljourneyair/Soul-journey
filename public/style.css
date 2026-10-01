@@ -1091,6 +1091,22 @@ body.modal-open { overflow: hidden; }
 }
 .ded-play:hover { filter: brightness(1.1); }
 .ded-time { flex: 0 0 auto; min-width: 40px; text-align: center; font-family: var(--mono); font-size: 12px; color: var(--board-amber); }
+.ded-mute {
+  flex: 0 0 auto; width: 30px; height: 30px; border: none; border-radius: 50%;
+  background: transparent; color: var(--board-amber); font-size: 15px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.ded-mute:hover { background: rgba(255, 180, 0, 0.12); }
+.ded-vol { flex: 0 0 90px; width: 90px; height: 6px; cursor: pointer; -webkit-appearance: none; appearance: none; background: transparent; }
+.ded-vol::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--board-amber); opacity: 0.35; }
+.ded-vol::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 14px; height: 14px;
+  margin-top: -4px; border-radius: 50%; background: var(--board-amber); cursor: pointer;
+}
+.ded-vol::-moz-range-track { height: 6px; border-radius: 3px; background: var(--board-amber); opacity: 0.35; }
+.ded-vol::-moz-range-progress { height: 6px; border-radius: 3px; background: var(--board-amber); }
+.ded-vol::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: 50%; background: var(--board-amber); cursor: pointer; }
+@media (max-width: 520px) { .ded-vol { display: none; } }
 .ded-seek { flex: 1; height: 6px; cursor: pointer; -webkit-appearance: none; appearance: none; background: transparent; }
 .ded-seek::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--board-amber); opacity: 0.35; }
 .ded-seek::-webkit-slider-thumb {
