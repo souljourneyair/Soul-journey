@@ -8,7 +8,8 @@ const crypto = require('crypto');
 const store = require('./store');
 const { ensureSuperuser } = require('./seed');
 const {
-  CONFIG, BUILDINGS, BUILD_LIMITS, xpRequiredForLevel, levelFromXp,
+  CONFIG, CALENDAR, tickToClock, tickToDate,
+  BUILDINGS, BUILD_LIMITS, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, randomBotName, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
@@ -1336,11 +1337,13 @@ function assignAll(stands, toPlace) {
 }
 
 // ---------- ВПП: размер принимаемых бортов и пропускная способность ----------
-// Квота задаётся как «посадок за игровые сутки» (1440 тиков) и расходуется
-// плавно: запас восстанавливается каждый тик на capacity/1440, а не обнуляется
-// в полночь — иначе игроки копили бы прилёты к сбросу счётчика.
+// ВРЕМЕННО (до отдельного прохода по полосам): квоты/интервалы считаются по
+// старой «сутки = 1440 тиков», чтобы поведение полос не изменилось вместе с
+// календарём. Новый календарь: сутки = 12 тиков (см. CALENDAR). Пропускную
+// способность полос зададим заново интервалом/слотами, а не «посадками/сутки».
+// Квота расходуется плавно: запас восстанавливается на capacity/1440 за тик.
 // Взлёты квоту не расходуют, полосу занимает только посадка.
-const MINUTES_PER_DAY = 1440;
+const MINUTES_PER_DAY = 1440; // legacy-ориентир для полос, не для новой экономики
 
 // «Паспортная» суточная пропускная способность полосы по каталогу.
 // Это больше НЕ жёсткий лимит на приём бортов (его сняли — поток регулирует
@@ -1990,7 +1993,7 @@ function serializeEnvelope(airportId) {
     payPerArrival: o.payPerArrival || o.payPerTick,
     craft: o.craft || 'heli', size: o.size || null,
     flightType: o.flightType || 'vvl',
-    durationDays: Math.round(o.durationTicks / 1440),
+    durationDays: Math.round(o.durationTicks / CALENDAR.TICKS_PER_DAY),
     minutesLeft: Math.max(0, o.expiresTick - nowTick),
     thinking: !!o.thinking,
     botCounter: o.botCounter != null ? o.botCounter : null, // встречное предложение бота (после торга)
@@ -2002,7 +2005,7 @@ function serializeEnvelope(airportId) {
     craft: c.craft || 'heli', size: c.size || null,
     flightType: c.flightType || 'vvl',
     minutesLeft: Math.max(0, c.endsTick - nowTick),
-    daysLeft: Math.max(0, Math.round((c.endsTick - nowTick) / 1440)),
+    daysLeft: Math.max(0, Math.round((c.endsTick - nowTick) / CALENDAR.TICKS_PER_DAY)),
   }));
   return { offers, contracts, canAccept: canAcceptContracts(airportId) };
 }
@@ -2331,7 +2334,7 @@ function serializeFuel(airport) {
         supplierId: airport.fuelContract.supplierId,
         pricePerUnit: airport.fuelContract.pricePerUnit,
         minutesLeft: Math.max(0, airport.fuelContract.endsTick - nowTick),
-        daysLeft: Math.max(0, Math.round((airport.fuelContract.endsTick - nowTick) / 1440)),
+        daysLeft: Math.max(0, Math.round((airport.fuelContract.endsTick - nowTick) / CALENDAR.TICKS_PER_DAY)),
       }
     : null;
   // поставщики с их текущей рыночной ценой (база × рыночный множитель)
@@ -2417,7 +2420,7 @@ app.post('/api/fuel/contract', auth, (req, res) => {
   const nowTick = store.getTickCounter();
   store.updateAirport(airport.id, {
     fuelSupplier: supplierId,
-    fuelContract: { supplierId, pricePerUnit: price, endsTick: nowTick + FUEL_ECONOMY.CONTRACT_DURATION_DAYS * 1440 },
+    fuelContract: { supplierId, pricePerUnit: price, endsTick: nowTick + FUEL_ECONOMY.CONTRACT_DURATION_DAYS * CALENDAR.TICKS_PER_DAY },
   });
   res.json(serializeFuel(store.getAirportByUserId(req.user.id)));
 });
@@ -3519,7 +3522,7 @@ app.post('/api/bank/borrow', auth, (req, res) => {
     loan: {
       amount, rate: state.rate, total, perPayment,
       payments: BANK.PAYMENTS, done: 0, paid: 0,
-      nextTick: now + 1440,       // первое списание через игровые сутки
+      nextTick: now + CALENDAR.TICKS_PER_DAY,   // первое списание через игровые сутки
     },
   });
   logEvent(airport.id, 'tax',
@@ -4030,7 +4033,7 @@ function runTick() {
         const price = +(sup.pricePerUnit * currentFuelMarketMult()).toFixed(3);
         store.updateAirport(airport.id, {
           fuelSupplier: sup.id,
-          fuelContract: { supplierId: sup.id, pricePerUnit: price, endsTick: currentTick + FUEL_ECONOMY.CONTRACT_DURATION_DAYS * 1440 },
+          fuelContract: { supplierId: sup.id, pricePerUnit: price, endsTick: currentTick + FUEL_ECONOMY.CONTRACT_DURATION_DAYS * CALENDAR.TICKS_PER_DAY },
         });
       } else {
         // контракт просто истёк — снимаем
@@ -4411,7 +4414,7 @@ function runTick() {
         patch.loan = null;
         logEvent(airport.id, 'tax', 'Кредит выплачен полностью.');
       } else {
-        patch.loan = { ...loan, done, paid, nextTick: currentTick + 1440 };
+        patch.loan = { ...loan, done, paid, nextTick: currentTick + CALENDAR.TICKS_PER_DAY };
         logEvent(airport.id, 'tax',
           `Платёж по кредиту: −${pay.toLocaleString('ru-RU')} у.е., осталось ${(loan.total - paid).toLocaleString('ru-RU')}`);
       }

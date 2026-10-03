@@ -1895,8 +1895,9 @@ $('#closeLeaderboard').addEventListener('click', () => $('#leaderboardModal').cl
 
 // ===== ЭКОНОМИКА: графики цен нефти и золота =====
 let ECON_DATA = null;
-// Окна фильтра в игровых минутах (тик = минута).
-const ECON_RANGES = { day: 1440, week: 7 * 1440, month: 30 * 1440, year: 365 * 1440 };
+// Окна фильтра в игровых тиках (1 тик = 2 игровых часа): сутки 12, неделя 84,
+// месяц 360, год 4320. См. CALENDAR в server/gameData.js.
+const ECON_RANGES = { day: 12, week: 84, month: 360, year: 4320 };
 let econRange = 'week';
 
 // Проредить длинную серию до maxPoints, сохранив форму: при часовой истории
@@ -3129,10 +3130,10 @@ const SCHEDULE_STATUS = {
   diverted:  { label: 'На запасном',   cls: 'sch-diverted' },
 };
 
-// Игровое время прилёта: тик = игровая минута, сутки = 1440 тиков.
+// Игровое время прилёта: 1 тик = 2 игровых часа, сутки = 12 тиков.
 function tickToClock(tick) {
-  const m = ((tick % 1440) + 1440) % 1440;
-  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  const t = ((Math.floor(tick) % 12) + 12) % 12;
+  return String(t * 2).padStart(2, '0') + ':00';
 }
 
 async function renderSchedule() {

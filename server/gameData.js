@@ -22,7 +22,7 @@ const CONFIG = {
   // Пассивный опыт за тик = XP_PER_TICK_BASE + уровень * XP_PER_TICK_PER_LEVEL.
   // Это вторая половина прогрессии (первая — XP за постройки): игрок получает
   // опыт и за время в игре, растущий с уровнем. Подобрано так, что активный
-  // старт даёт ~3 уровень за первые игровые сутки (1440 тиков).
+  // старт даёт ~3 уровень за первые игровые сутки (12 тиков).
   XP_PER_TICK_BASE: 1,
   XP_PER_TICK_PER_LEVEL: 1,
   // Множитель длительности строительства/апгрейда. 1.0 = сроки из каталога
@@ -51,6 +51,40 @@ const CONFIG = {
   IDLE_MINUTES_BEFORE_PENALTY: 300,  // 5 игровых часов
   IDLE_UPKEEP_MULTIPLIER: 2.0,        // во сколько раз растёт содержание при долгом простое
 };
+
+// ---------- Календарь игры ----------
+// 1 тик (10 сек реального времени) = 2 игровых часа (решение §9.1).
+// Час = полтика, поэтому время идёт шагом 2 часа: 00:00, 02:00, 04:00…
+//   час   = 0.5 тика
+//   сутки = 12 тиков   (2 реальные минуты)
+//   неделя = 84 тика   (14 минут)
+//   месяц = 360 тиков  (1 час), 30 суток
+//   год   = 4320 тиков (12 часов), 360 суток
+// Отсюда считаем отображение времени и «календарные» периоды. Балансовые
+// ставки и квоты пересчитываются отдельными проходами.
+const CALENDAR = {
+  TICKS_PER_HOUR: 0.5,
+  TICKS_PER_DAY: 12,
+  TICKS_PER_WEEK: 84,
+  TICKS_PER_MONTH: 360,
+  TICKS_PER_YEAR: 4320,
+};
+
+// Игровое время для абсолютного тика: «ЧЧ:00». Минуты всегда :00 — шаг 2 часа.
+function tickToClock(tick) {
+  const perDay = CALENDAR.TICKS_PER_DAY;
+  const t = ((Math.floor(tick) % perDay) + perDay) % perDay;
+  return `${String(t * 2).padStart(2, '0')}:00`;
+}
+
+// Полная игровая дата для тика: день месяца (1–30), месяц (1–12), год.
+function tickToDate(tick) {
+  const dayOfYear = Math.floor(Math.floor(tick) / CALENDAR.TICKS_PER_DAY); // с 0
+  const year = Math.floor(dayOfYear / 360) + 1;
+  const month = Math.floor((dayOfYear % 360) / 30) + 1;
+  const day = (dayOfYear % 30) + 1;
+  return { day, month, year };
+}
 
 // ---------- Экономика ботов-компаний (сингл-режим) ----------
 // Боты — виртуальные игроки-компании. Здание (кроме несъёмных) можно
@@ -329,7 +363,7 @@ const DAMAGE_ECONOMY = {
   // Ветшание: 1.4% за игровые сутки. До первой пометки (10%) — около игровой
   // недели, до гаечного ключа (50%) — примерно пять недель. Осмотр зданий
   // становится делом на раз в несколько сессий, а не постоянной суетой.
-  AGING_PER_TICK: 0.0000097,     // 1.4% / 1440 минут
+  AGING_PER_TICK: 0.014 / CALENDAR.TICKS_PER_DAY,  // 1.4% за игровые сутки
   // Сданное в аренду здание не ветшает: его эксплуатирует и содержит бот.
   // Иначе аренда превращалась бы в ловушку «сдал, забыл, вернулся к развалинам».
 
@@ -418,16 +452,16 @@ const DISASTER_ECONOMY = {
   DESTRUCTIVE_KINDS: ['fire', 'meteor'],
   // Не чаще одного происшествия за это время — чтобы за ночь не накопилось
   // три подряд и игрок не вернулся к руинам без объяснений.
-  GLOBAL_COOLDOWN_TICKS: 720,
-  // Среднее время между событиями каждого вида, в игровых минутах.
+  GLOBAL_COOLDOWN_TICKS: CALENDAR.TICKS_PER_DAY / 2,
+  // Среднее время между событиями каждого вида, в игровых сутках.
   // Вместе выходит примерно одно происшествие за игровые сутки.
   MEAN_INTERVAL: {
-    storm: 2880,        // магнитная буря — раз в 2 игровых суток
-    flood: 5760,        // наводнение — раз в 4 суток
-    earthquake: 7200,   // землетрясение — раз в 5 суток
-    birds: 4320,        // птицы — раз в 3 суток
-    fire: 8640,         // пожар — раз в 6 суток
-    meteor: 14400,      // метеорит — раз в 10 суток, самое редкое
+    storm: 2 * CALENDAR.TICKS_PER_DAY,       // магнитная буря — раз в 2 игровых суток
+    flood: 4 * CALENDAR.TICKS_PER_DAY,       // наводнение — раз в 4 суток
+    earthquake: 5 * CALENDAR.TICKS_PER_DAY,  // землетрясение — раз в 5 суток
+    birds: 3 * CALENDAR.TICKS_PER_DAY,       // птицы — раз в 3 суток
+    fire: 6 * CALENDAR.TICKS_PER_DAY,        // пожар — раз в 6 суток
+    meteor: 10 * CALENDAR.TICKS_PER_DAY,     // метеорит — раз в 10 суток, самое редкое
   },
 
   // Компенсация «за персонал и арендаторов» — доля от вложенного в объект.
@@ -547,7 +581,7 @@ function bankRate(oilPrice, goldPrice) {
 }
 
 const TAX = {
-  PERIOD_TICKS: 7 * 1440,   // игровая неделя
+  PERIOD_TICKS: CALENDAR.TICKS_PER_WEEK,   // игровая неделя
   RATE: 0.20,
 };
 
@@ -631,7 +665,7 @@ const RATING = {
 // порядке. Изношенное даёт меньше, вплоть до нуля — стены сами по себе
 // уважения не приносят, приносит ухоженный аэропорт.
 const BUILDING_REPUTATION = {
-  PERIOD_TICKS: 43200,     // игровой месяц (30 игровых суток)
+  PERIOD_TICKS: CALENDAR.TICKS_PER_MONTH,  // игровой месяц (30 игровых суток)
   MAX_PER_PERIOD: 2,
   FULL_UNTIL_WEAR: 0.15,   // до этого износа — полная выплата
 };
@@ -744,7 +778,7 @@ const CONTRACT_ECONOMY = {
   HELI_PAY_PER_ARRIVAL: 55,   // было 70; поднято в 1.5 раза ради ранней игры       // базовая оплата за один прилёт
   ARRIVAL_PAY_PER_RATING: 40,       // +40 за прилёт за балл рейтинга (до +200)
   ARRIVAL_PAY_PER_LEVEL: 12,       // +12 за уровень аэропорта
-  // Срок договора — случайно в этом диапазоне (в игровых сутках = 1440 минут)
+  // Срок договора — случайно в этом диапазоне (в игровых сутках)
   MIN_DURATION_DAYS: 3,
   MAX_DURATION_DAYS: 7,
   // Сколько предложений висит в конверте одновременно
@@ -817,11 +851,11 @@ function contractPayPerArrival(rating, level) {
   return Math.max(1, Math.round(base * variance));
 }
 
-// Срок нового договора в минутах (тиках).
+// Срок нового договора в игровых сутках, переведённых в тики.
 function contractDurationTicks() {
   const days = CONTRACT_ECONOMY.MIN_DURATION_DAYS
     + Math.floor(Math.random() * (CONTRACT_ECONOMY.MAX_DURATION_DAYS - CONTRACT_ECONOMY.MIN_DURATION_DAYS + 1));
-  return days * 1440;
+  return days * CALENDAR.TICKS_PER_DAY;
 }
 
 function randomBotNames(count) {
@@ -901,10 +935,9 @@ const SEASON = {
 
 const EVENT_LOG = {
   MAX_ENTRIES: 60,             // сколько записей храним
-  // Сводка о заработке за период. Игровой месяц (30 суток) — это 120 реальных
-  // часов, сводка приходила бы раз в пять суток и не имела смысла. Поэтому
-  // период — игровые сутки, то есть 4 реальных часа. Меняется одной строкой.
-  SUMMARY_PERIOD_TICKS: 1440,
+  // Сводка о заработке за период — игровые сутки (12 тиков = 2 реальные минуты).
+  // Меняется одной строкой, если захочется реже (например, неделя).
+  SUMMARY_PERIOD_TICKS: CALENDAR.TICKS_PER_DAY,
 };
 
 const ADMIN_ECONOMY = {
@@ -1347,8 +1380,8 @@ const AIRCRAFT_ECONOMY = {
 // договорной борт на стоянке или собственный борт игрока — и применяет эффект.
 // Новости об инцидентах попадают в раздел «Новости».
 const AIRCRAFT_EVENTS = {
-  // Раз в игровую неделю (7 × 1440 минут) для каждого аэропорта.
-  PERIOD_TICKS: 7 * 1440,
+  // Раз в игровую неделю (84 тика) для каждого аэропорта.
+  PERIOD_TICKS: CALENDAR.TICKS_PER_WEEK,
   // --- Отказы техники: ремонт в ангаре N минут, договорной борт платит ---
   // Плата = payPerArrival борта × множитель (см. ниже).
   BRAKE:   { repairMinutes: 5,  payMult: 1.0 },
@@ -1375,7 +1408,7 @@ const AIRCRAFT_EVENTS = {
   // --- Амбулифт протаранил коридор выхода на посадку: штраф ---
   AMBULIFT_FINE: 30000,
   // --- Шутка про бомбу: рейтинг держится 5 звёзд неделю ---
-  BOMB_JOKE_RATING_TICKS: 7 * 1440,
+  BOMB_JOKE_RATING_TICKS: CALENDAR.TICKS_PER_WEEK,
 };
 
 // Цена апгрейда самолёта до targetLevel (2 или 3).
@@ -1444,7 +1477,8 @@ function repairCost(wear, buyCost) {
 }
 
 module.exports = {
-  CONFIG, BUILDINGS, BUILD_LIMITS, XP_FOR_LEVEL, xpRequiredForLevel, levelFromXp,
+  CONFIG, CALENDAR, tickToClock, tickToDate,
+  BUILDINGS, BUILD_LIMITS, XP_FOR_LEVEL, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, BOT_COMPANY_NAMES, randomBotName, randomBotNames, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
   AIRCRAFT_TYPES, AIRCRAFT_ECONOMY, aircraftSlotsOf, buyoutPrice, resalePrice, repairCost,
