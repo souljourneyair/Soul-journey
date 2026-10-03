@@ -1121,6 +1121,9 @@ body.modal-open { overflow: hidden; }
   .ded-avatar { flex: 0 0 auto; width: 144px; height: 173px; align-self: center; }
 }
 
+/* ===== Диалоговое окно персонажа ===== */
+.char-dialog-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; }
+
 /* ===== Задачи (главы) ===== */
 #questsList { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
 .quest-row {

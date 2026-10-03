@@ -965,19 +965,73 @@ async function build(buildingId) {
     toast('Построено!');
     return;
   } catch (err) {
-    // Перед площадкой нужно скосить траву: предложим и сразу выполним.
+    // Перед площадкой нужно скосить траву: окно дяди Гоши, а не системный диалог.
     if (err.code === 'needs_mow') {
       const cost = (STATE.mow && STATE.mow.cost) || 1000;
-      if (!confirm(`Скосить траву под площадку (${cost.toLocaleString('ru-RU')} у.е.)?`)) return;
-      try {
-        STATE = await api('/api/quests/mow', 'POST', {});
-        renderAll();
-        toast('Покос пошёл — подождите пару минут, трава ляжет');
-      } catch (e2) { toast(e2.message, true); }
+      showCharDialog({
+        characterId: 'gosha', scene: 'mow', title: 'ДЯДЯ ГОША', emoji: '🧑🔧',
+        fallbackText: 'Для этого надо скосить траву в поле. Хочешь, я это сделаю?',
+        actions: [
+          {
+            label: `Скосить траву (${cost.toLocaleString('ru-RU')} у.е.)`, primary: true,
+            onClick: async () => {
+              try {
+                STATE = await api('/api/quests/mow', 'POST', {});
+                closeCharDialog();
+                renderAll();
+                toast('Покос пошёл — трава ляжет через пару минут');
+              } catch (e2) { toast(e2.message, true); }
+            },
+          },
+          { label: 'Позже', onClick: closeCharDialog },
+        ],
+      });
       return;
     }
     toast(err.message, true);
   }
+}
+
+// Универсальное диалоговое окно персонажа: аватар + картинка/текст сцены + кнопки.
+function showCharDialog(opts) {
+  const { characterId, scene, title, emoji, fallbackText, actions } = opts || {};
+  const ch = ((STATE && STATE.characters) || {})[characterId] || {};
+  const sc = (ch.scenes || {})[scene] || {};
+  $('#charDialogTitle').textContent = title || 'ДИАЛОГ';
+
+  const av = $('#charDialogAvatar');
+  const fb = $('#charDialogAvatarFb');
+  if (ch.portrait) {
+    av.src = ch.portrait; av.classList.remove('hidden'); fb.classList.add('hidden');
+  } else {
+    av.removeAttribute('src'); av.classList.add('hidden');
+    fb.textContent = emoji || '🙂'; fb.classList.remove('hidden');
+  }
+
+  const img = $('#charDialogImg');
+  const txt = $('#charDialogText');
+  if (sc.image) {
+    img.src = sc.image; img.classList.remove('hidden'); txt.classList.add('hidden');
+  } else {
+    img.removeAttribute('src'); img.classList.add('hidden');
+    txt.classList.remove('hidden');
+    txt.textContent = sc.text || fallbackText || '';
+  }
+
+  const box = $('#charDialogActions');
+  box.innerHTML = '';
+  for (const a of actions || []) {
+    const b = document.createElement('button');
+    b.className = a.primary ? 'btn-primary' : 'btn-secondary';
+    b.textContent = a.label;
+    b.addEventListener('click', () => { if (a.onClick) a.onClick(); });
+    box.appendChild(b);
+  }
+  $('#charDialogModal').classList.remove('hidden');
+}
+
+function closeCharDialog() {
+  $('#charDialogModal')?.classList.add('hidden');
 }
 
 // ===== BUILDING MODAL (аренда / продажа / выкуп / снос) =====
@@ -3233,24 +3287,31 @@ function showDedLetter() {
     avatarFb.classList.remove('hidden');
   }
 
+  // Новый манифест: scenes.letter.{image,audio,text}. Старый (плоский) —
+  // подстраховка на случай несинхронного деплоя.
+  const letterScene = (ch.scenes && ch.scenes.letter) || { image: ch.letter, audio: ch.voice };
+  // Озвучка письма исторически лежит как voice.<ext> (сцена «voice»).
+  const letterAudio = letterScene.audio
+    || (ch.scenes && ch.scenes.voice && ch.scenes.voice.audio)
+    || ch.voice || null;
   const letterImg = $('#dedLetterImg');
   const letterText = $('#dedLetterText');
-  if (ch.letter) {
-    letterImg.src = ch.letter;
+  if (letterScene.image) {
+    letterImg.src = letterScene.image;
     letterImg.classList.remove('hidden');
     letterText.classList.add('hidden');
   } else {
     letterImg.removeAttribute('src');
     letterImg.classList.add('hidden');
     letterText.classList.remove('hidden');
-    letterText.textContent = DED_LETTER_TEXT;
+    letterText.textContent = letterScene.text || DED_LETTER_TEXT;
   }
 
   const audio = $('#dedVoice');
   const audioRow = $('#dedAudioRow');
   const audioMissing = $('#dedVoiceMissing');
-  if (ch.voice) {
-    audio.setAttribute('src', ch.voice);
+  if (letterAudio) {
+    audio.setAttribute('src', letterAudio);
     audioRow.classList.remove('hidden');
     audioMissing.classList.add('hidden');
   } else {

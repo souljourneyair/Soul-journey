@@ -145,10 +145,13 @@ function scanLogo() {
   return out;
 }
 
-// Персонажи: папка public/uploads/characters/<id>/ с файлами
-//   portrait.<ext> — аватар, letter.<ext> — картинка письма, voice.<ext> — озвучка.
-// Расширение любое из допустимых. Пустые (0 байт) и битые файлы считаем
-// отсутствующими, иначе вместо заглушки подставилась бы пустая картинка/аудио.
+// Персонажи: папка public/uploads/characters/<id>/.
+//   portrait.<ext> — аватар (общий для всех сцен персонажа);
+//   <scene>.<ext>  — картинка сцены (letter, mow, acquaintance, cafe, …);
+//   <scene>.<audio>— озвучка сцены; <scene>.txt — текст сцены (фолбэк, если
+//                    картинки нет).
+// Имена сцен — латиницей. Пустые (0 байт) и битые файлы считаем отсутствующими,
+// иначе вместо заглушки подставилась бы пустая картинка/аудио.
 function scanCharacters() {
   const out = {};
   let entries;
@@ -159,21 +162,29 @@ function scanCharacters() {
     const dir = path.join(CHARACTERS_DIR, id);
     let files;
     try { files = fs.readdirSync(dir); } catch (e) { continue; }
-    const entry = { portrait: null, letter: null, voice: null };
+    const entry = { portrait: null, scenes: {} };
+    const sceneOf = (name) => entry.scenes[name] || (entry.scenes[name] = {});
     for (const file of files) {
       const ext = extOf(file);
       const isImg = !!IMAGE_EXT[ext];
       const isAudio = !!AUDIO_EXT[ext];
-      if (!isImg && !isAudio) continue;   // памятки/исходники игнорируем
+      const isTxt = ext === 'txt';
+      if (!isImg && !isAudio && !isTxt) continue;   // памятки/исходники игнорируем
       const full = path.join(dir, file);
       let size = 0;
       try { size = fs.statSync(full).size; } catch (e) { continue; }
       if (!size) continue;                // пустой файл — как будто нет
       const base = path.basename(file, path.extname(file)).toLowerCase();
-      const url = urlFor(`characters/${id}`, file, full);
-      if (base === 'portrait' && isImg) entry.portrait = url;
-      else if (base === 'letter' && isImg) entry.letter = url;
-      else if (base === 'voice' && isAudio) entry.voice = url;
+      if (base === 'portrait' && isImg) { entry.portrait = urlFor(`characters/${id}`, file, full); continue; }
+      const sc = sceneOf(base);
+      if (isImg) sc.image = urlFor(`characters/${id}`, file, full);
+      else if (isAudio) sc.audio = urlFor(`characters/${id}`, file, full);
+      else if (isTxt) {
+        try {
+          const text = fs.readFileSync(full, 'utf8').trim();
+          if (text) sc.text = text;
+        } catch (e) { /* нечитаемый текст — пропускаем */ }
+      }
     }
     out[id] = entry;
   }
