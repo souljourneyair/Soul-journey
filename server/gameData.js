@@ -1476,6 +1476,11 @@ function repairCost(wear, buyCost) {
   );
 }
 
+// Покос травы перед вертолётной площадкой (задача Гоши). Стоимость списывается
+// сразу, работа идёт DURATION_TICKS; по завершении даёт «кредит» на одну
+// площадку — тратится при её постройке. Перед КАЖДОЙ площадкой заново.
+const MOW = { COST: 1000, DURATION_TICKS: 1 };
+
 // ==================== ГЛАВЫ, ЗАДАЧИ, ЦЕЛИ ====================
 // Сюжетный каркас игры. Глава = цель + набор задач + награда.
 // Задачу игра проверяет САМА (auto.type) — игроку остаётся выполнить условие.
@@ -1493,9 +1498,9 @@ const CHAPTERS = [
     id: 1, key: 'nasledstvo', name: 'Наследство', minLevel: 1,
     goal: 'Поставить первую вертолётную площадку и принять первый борт.',
     tasks: [
-      { id: 'ch1_mow', title: 'Скосить траву', acceptRequired: true,
-        cost: 1000, durationTicks: 1, auto: { type: 'manual' },
-        desc: 'Дядя Гоша скосит траву под вертолётную площадку. 1 000 у.е.' },
+      { id: 'ch1_mow', title: 'Скосить траву',
+        auto: { type: 'counter', key: 'mowCount', target: 1 },
+        desc: 'Перед каждой вертолётной площадкой дядя Гоша косит траву. 1 000 у.е.' },
       { id: 'ch1_helipad', title: 'Построить вертолётную площадку',
         auto: { type: 'building', buildingId: 'helipad' },
         desc: 'Возведите вертолётную площадку.' },
@@ -1540,7 +1545,7 @@ function nextChapterId(id) {
 }
 
 module.exports = {
-  CONFIG, CALENDAR, tickToClock, tickToDate,
+  CONFIG, CALENDAR, tickToClock, tickToDate, MOW,
   CHAPTERS, chapterById, nextChapterId,
   BUILDINGS, BUILD_LIMITS, XP_FOR_LEVEL, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, BOT_COMPANY_NAMES, randomBotName, randomBotNames, generateRentOffers, rentAcceptChance,

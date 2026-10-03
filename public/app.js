@@ -111,7 +111,11 @@ async function api(path, method = 'GET', body = null) {
   if (res.status === 403 && data.error === 'banned') {
     handleBanKick(data.message);
   }
-  if (!res.ok) throw new Error(data.message || data.error || 'Ошибка запроса');
+  if (!res.ok) {
+    const err = new Error(data.message || data.error || 'Ошибка запроса');
+    err.code = data.error;
+    throw err;
+  }
   return data;
 }
 
@@ -959,7 +963,19 @@ async function build(buildingId) {
     STATE = state;
     renderAll();
     toast('Построено!');
+    return;
   } catch (err) {
+    // Перед площадкой нужно скосить траву: предложим и сразу выполним.
+    if (err.code === 'needs_mow') {
+      const cost = (STATE.mow && STATE.mow.cost) || 1000;
+      if (!confirm(`Скосить траву под площадку (${cost.toLocaleString('ru-RU')} у.е.)?`)) return;
+      try {
+        STATE = await api('/api/quests/mow', 'POST', {});
+        renderAll();
+        toast('Покос пошёл — подождите пару минут, трава ляжет');
+      } catch (e2) { toast(e2.message, true); }
+      return;
+    }
     toast(err.message, true);
   }
 }

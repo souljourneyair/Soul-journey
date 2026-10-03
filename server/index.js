@@ -9,7 +9,7 @@ const store = require('./store');
 const { ensureSuperuser } = require('./seed');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
-  CHAPTERS, chapterById, nextChapterId,
+  CHAPTERS, chapterById, nextChapterId, MOW,
   BUILDINGS, BUILD_LIMITS, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, randomBotName, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
@@ -1517,9 +1517,6 @@ function serializeAircraft(airportId) {
   });
 }
 
-// Здания, для которых нужна выполненная задача главы (строительный гейт).
-const BUILD_TASK_GATE = { helipad: 'ch1_mow' };
-
 // ---------- Главы, задачи, цели (данные — CHAPTERS в gameData.js) ----------
 // Инициализация задач главы: ручные («Принять») стартуют в статусе offered,
 // автоматические — сразу active.
@@ -1551,6 +1548,8 @@ function questAutoDone(airport, task) {
       return airportRating(airport) >= auto.target;
     case 'profit_days':
       return (airport.profitStreak || 0) >= auto.target;
+    case 'counter':
+      return (airport[auto.key] || 0) >= auto.target;
     default:
       return false;
   }
@@ -1793,6 +1792,13 @@ function serializeAirport(airport) {
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
     welcomeXp: CONFIG.WELCOME_XP || 500,
     quests: serializeQuests(airport),          // глава, задачи, награда
+    mow: {
+      cost: MOW.COST,
+      credits: airport.mowCredits || 0,        // скольких площадок хватит покоса
+      count: airport.mowCount || 0,            // сколько раз косили всего
+      ticksLeft: airport.mowEndsTick != null
+        ? Math.max(0, airport.mowEndsTick - store.getTickCounter()) : 0,
+    },
     // по каждому терминалу: прилетело, обработано, улетело, сейчас в очереди
     terminalLoad: listTerminals(airport.id).map(t => {
       const st = (airport.termStats || {})[t.cellIndex] || { arrived: 0, served: 0, departed: 0 };
@@ -1947,6 +1953,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     heliFlow: { arrived: 0, departed: 0 },
     // главы и задачи — сначала
     ...initChapterQuests(1), profitStreak: 0,
+    mowCount: 0, mowCredits: 0, mowEndsTick: null,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
     eventLog: [], newsLog: [],
     // счётчики приветствия — чтобы новый заход снова показал вступление
@@ -2043,6 +2050,24 @@ app.post('/api/welcome/claim', auth, (req, res) => {
     welcomeXpGiven: true, welcomeSeen: true,
   });
   res.json({ ...serializeAirport(updated), _welcomeXp: xp });
+});
+
+// Скосить траву (дядя Гоша): 1 000 у.е. сразу, работа идёт MOW.DURATION_TICKS.
+// По завершении даёт кредит на одну площадку — см. /api/build.
+app.post('/api/quests/mow', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (airport.mowEndsTick != null) {
+    return res.status(400).json({ error: 'mow_busy', message: 'Покос уже идёт' });
+  }
+  if ((airport.money || 0) < MOW.COST) {
+    return res.status(400).json({ error: 'not_enough_money', message: `Нужно ${MOW.COST.toLocaleString('ru-RU')} у.е.` });
+  }
+  const updated = store.updateAirport(airport.id, {
+    money: (airport.money || 0) - MOW.COST,
+    mowEndsTick: store.getTickCounter() + MOW.DURATION_TICKS,
+  });
+  res.json(serializeAirport(updated));
 });
 
 // Принять задачу главы (ручные задачи — «Скосить траву» и т.п.).
@@ -2612,15 +2637,22 @@ app.post('/api/build', auth, (req, res) => {
 
   const def = BUILDINGS[buildingId];
   if (!def) return res.status(400).json({ error: 'unknown_building' });
-  // Задачи-гейты: некоторые объекты нельзя строить, пока не выполнена задача
-  // главы (например, вертолётную площадку — пока не скошена трава у Гоши).
-  const gate = BUILD_TASK_GATE[buildingId];
-  if (gate) {
-    const q = (airport.quests || {})[gate];
-    if (!q || q.status !== 'done') {
+  // Вертолётная площадка: перед КАЖДОЙ нужен свой покос (кредит от Гоши), а
+  // вторая ещё и ждёт, пока на первую не прилетит первый борт.
+  if (buildingId === 'helipad') {
+    if ((airport.mowCredits || 0) < 1) {
       return res.status(400).json({
-        error: 'quest_required',
-        message: 'Сначала выполните задачу главы в меню «Задачи»',
+        error: 'needs_mow',
+        message: 'Сначала скосите траву (дядя Гоша). Это нужно перед каждой площадкой.',
+      });
+    }
+    const helipads = store.getBuildingsByAirport(airport.id)
+      .filter(b => b.buildingId === 'helipad'
+        && (b.state || 'owned') !== 'sold' && !isUnderConstruction(b)).length;
+    if (helipads >= 1 && (airport.paxArrived || 0) < 1) {
+      return res.status(400).json({
+        error: 'first_bort_required',
+        message: 'Вторая площадка подождёт: сначала примите первый борт на первую.',
       });
     }
   }
@@ -2688,7 +2720,10 @@ app.post('/api/build', auth, (req, res) => {
   const endsTick = store.getTickCounter()
     + Math.max(1, Math.round(buildDurationTicks(def) * adminBuildSpeedMult(adminLevel(airport.id))));
   store.addBuilding(airport.id, cellIndex, buildingId, { type: 'build', endsTick, xp: def.xp });
-  const updated = store.updateAirport(airport.id, { money: newMoney });
+  const buildPatch = { money: newMoney };
+  // Покос — разовый кредит на одну площадку: при постройке он тратится.
+  if (buildingId === 'helipad') buildPatch.mowCredits = Math.max(0, (airport.mowCredits || 0) - 1);
+  const updated = store.updateAirport(airport.id, buildPatch);
 
   res.json(serializeAirport(updated));
 });
@@ -4699,6 +4734,15 @@ function runTick() {
     if (newMoney < 0 && !bankrupt) {
       notifications.push(`⚠️ Долг ${Math.abs(newMoney).toLocaleString('ru-RU')} у.е. Содержание аэропорта в минусе — репутация падает!`);
     }
+    // Завершение покоса: выдаём кредит на одну площадку.
+    if (freshAirport.mowEndsTick != null && currentTick >= freshAirport.mowEndsTick) {
+      patch.mowEndsTick = null;
+      patch.mowCount = (freshAirport.mowCount || 0) + 1;
+      patch.mowCredits = (freshAirport.mowCredits || 0) + 1;
+      notifications.push('🌿 Трава скошена — можно строить площадку');
+      logEvent(airport.id, 'quest', 'Трава скошена, площадку можно строить');
+    }
+
     let updated = store.updateAirport(airport.id, patch);
 
     // Проверяем задачи/главы на свежем состоянии и сохраняем результат.

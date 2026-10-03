@@ -365,6 +365,10 @@ function createAirport(userId, startType, money) {
     pendingChapterReward: null, // глава завершена, ждём показа награды
     // «Дни в плюсе»: серия игровых суток, закрытых с прибылью (задачи главы)
     profitStreak: 0,
+    // Покос травы (дядя Гоша): счётчик, доступные «кредиты» на площадку и таймер
+    mowCount: 0,
+    mowCredits: 0,
+    mowEndsTick: null,
   };
   data.airports.push(airport);
   save(data);
