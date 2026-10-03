@@ -1794,6 +1794,8 @@ function serializeAirport(airport) {
     quests: serializeQuests(airport),          // глава, задачи, награда
     mow: {
       cost: MOW.COST,
+      durationTicks: MOW.DURATION_TICKS,
+      mowing: airport.mowEndsTick != null,     // идёт покос прямо сейчас
       credits: airport.mowCredits || 0,        // скольких площадок хватит покоса
       count: airport.mowCount || 0,            // сколько раз косили всего
       ticksLeft: airport.mowEndsTick != null

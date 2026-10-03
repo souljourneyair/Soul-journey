@@ -688,7 +688,8 @@ function objectsTableFingerprint() {
   const fuel = STATE.fuel ? `${STATE.fuel.stored}/${STATE.fuel.capacity}` : '';
   const groups = [...openGroups].sort().join(',');
   const cells = [...openBuildingCells].sort((a,b)=>a-b).join(',');
-  return `${rows}#grp:${groups}#cells:${cells}#view:${accRentView}#occ:${occ}#fuel:${fuel}`;
+  const mow = STATE.mow && STATE.mow.mowing ? `mow:${STATE.mow.ticksLeft}` : '';
+  return `${rows}#grp:${groups}#cells:${cells}#view:${accRentView}#occ:${occ}#fuel:${fuel}#${mow}`;
 }
 
 function renderObjectsTable(force) {
@@ -698,8 +699,12 @@ function renderObjectsTable(force) {
   _objectsTableFingerprint = fp;
   tbody.innerHTML = '';
 
+  const mowActive = !!(STATE.mow && STATE.mow.mowing);
+  // Пока Гоша косит — держим вертолётный перрон раскрытым, чтобы игрок видел прогресс.
+  if (mowActive) openGroups.add('helipads');
+
   const buildings = [...STATE.buildings].sort((a, b) => a.cellIndex - b.cellIndex);
-  if (buildings.length === 0) {
+  if (buildings.length === 0 && !mowActive) {
     tbody.innerHTML = '<tr><td colspan="3" class="objects-empty">Пока нет построек — постройте первый объект в меню справа</td></tr>';
     return;
   }
@@ -736,13 +741,47 @@ function renderObjectsTable(force) {
     } else {
       const members = group.key === 'other' ? [...group.members, ...strays] : group.members;
       const groupBuildings = members.flatMap(id => byId(id));
-      if (groupBuildings.length === 0) return;
-      renderGroupHeaderRow(group.key, group.title, groupBuildings.length, tbody, 0);
+      // Пока идёт покос и площадок ещё нет — показываем строку Гоши в перроне.
+      const showMow = group.key === 'helipads' && mowActive;
+      const count = groupBuildings.length + (showMow ? 1 : 0);
+      if (count === 0) return;
+      renderGroupHeaderRow(group.key, group.title, count, tbody, 0);
       if (openGroups.has(group.key)) {
         groupBuildings.forEach(b => renderBuildingRow(b, tbody, 1));
+        if (showMow) renderMowRow(tbody, 1);
       }
     }
   });
+}
+
+// Строка «Дядя Гоша косит траву» в вертолётном перроне, пока идёт покос.
+function renderMowRow(tbody, indent) {
+  const ch = (STATE.characters || {}).gosha || {};
+  const photoHtml = ch.portrait
+    ? `<img src="${ch.portrait}" alt="" class="obj-photo-img">`
+    : `<span class="obj-photo-emoji">🧑‍🔧</span>`;
+  const left = (STATE.mow && STATE.mow.ticksLeft) || 0;
+  const total = (STATE.mow && STATE.mow.durationTicks) || 6;
+  const prog = Math.max(0, Math.min(1, (total - left) / total));
+  const tr = document.createElement('tr');
+  tr.className = 'objects-row mow-row';
+  tr.innerHTML = `
+    <td class="obj-name-cell" style="padding-left:${14 + indent * 22}px">
+      <div class="obj-name-inner">
+        <span class="obj-branch">└</span>
+        <div class="obj-photo">${photoHtml}</div>
+        <div class="obj-name-wrap">
+          <span class="obj-name">Дядя Гоша косит траву</span>
+          <span class="obj-subname">готовит поле под вертолётную площадку</span>
+        </div>
+      </div>
+    </td>
+    <td class="obj-desc">Расчищает площадку под вертолётную площадку. Пока трава не скошена, площадку не построить.</td>
+    <td class="obj-action">
+      <span class="obj-working">${progressRing(prog, 28)}<span>Косит<br><span class="obj-action-line">осталось ${left * 10} сек</span></span></span>
+    </td>
+  `;
+  tbody.appendChild(tr);
 }
 
 // Строка-заголовок группы (кликабельная, со счётчиком и стрелкой).

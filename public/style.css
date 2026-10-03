@@ -1121,6 +1121,10 @@ body.modal-open { overflow: hidden; }
   .ded-avatar { flex: 0 0 auto; width: 144px; height: 173px; align-self: center; }
 }
 
+/* ===== Покос травы в перроне ===== */
+.mow-row { background: rgba(120, 200, 90, 0.06); }
+.mow-row .obj-name { color: var(--board-amber); }
+
 /* ===== Диалоговое окно персонажа ===== */
 .char-dialog-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; }
 
