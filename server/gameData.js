@@ -27,8 +27,9 @@ const CONFIG = {
   XP_PER_TICK_PER_LEVEL: 1,
   // Множитель длительности строительства/апгрейда. 1.0 = сроки из каталога
   // (buildTicks) как есть; меньше — быстрее (для отладки). Например 0.05 —
-  // стройка в 20 раз быстрее. Вернуть в 1 для реального баланса времени.
-  BUILD_TIME_SCALE: 0.05,
+  // стройка в 20 раз быстрее.
+  // Для боя — 1.0 (честный темп); для локальной отладки можно временно снизить.
+  BUILD_TIME_SCALE: 1.0,
   // На сколько снижены доход/репутация здания, пока идёт его апгрейд (доля).
   // 0.5 = здание во время улучшения работает вполсилы. Позже проставим
   // индивидуальные значения из дизайн-документа (у админки -50%, вышки -80% и т.д.).
@@ -178,10 +179,9 @@ const FUEL_ECONOMY = {
   // Наценка на топливо, купленное «на стороне» (дозаправка в Б или когда склад пуст).
   AWAY_PRICE_MULT: 1.0,
   // --- Рынок топлива (колебание цен) ---
-  // Множитель цены = 1 + вклад_нефти + вклад_золота + шум, в пределах ±MARKET_SWING.
+  // Множитель цены = 1 + вклад_нефти + вклад_золота, в пределах ±MARKET_SWING.
   OIL_WEIGHT: 0.6,        // вклад цены нефти (сильнее всего)
   GOLD_WEIGHT: 0.25,      // вклад цены золота (слабее)
-  NOISE_WEIGHT: 0.05,     // случайный рыночный шум (небольшой, не перебивает сигнал)
   MARKET_SWING: 0.3,      // максимальное отклонение цены (±30%)
   OIL_BASELINE: 70,       // «нейтральная» цена нефти (при ней вклад = 0)
   GOLD_BASELINE: 2000,    // «нейтральная» цена золота
@@ -195,12 +195,13 @@ const FUEL_ECONOMY = {
   CONTRACT_DEFAULT_THRESHOLD: 25, // порог дозаправки по умолчанию (% вместимости)
 };
 
-// Рыночный множитель цены топлива из цен нефти/золота + шума.
+// Рыночный множитель цены топлива из цен нефти/золота.
 // Возвращает число вокруг 1.0, ограниченное ±MARKET_SWING.
 // Мёртвая зона: если цена отклонилась от базы меньше чем на DEAD_ZONE, её
 // вклад ОБНУЛЯЕТСЯ. Нужно, чтобы мелкое биение рынка (в пределах 1%) не
-// дёргало прилёты, билеты и договоры.
-function fuelMarketMultiplier(oilPrice, goldPrice, noise) {
+// дёргало прилёты, билеты и договоры. Случайное биение рынка задаёт
+// marketStepPrice (HOURLY_NOISE), а не отдельный коэффициент здесь.
+function fuelMarketMultiplier(oilPrice, goldPrice) {
   const E = FUEL_ECONOMY;
   const oilBase = E.OIL_BASELINE, goldBase = E.GOLD_BASELINE;
   const oil = oilPrice != null ? oilPrice : oilBase;
@@ -209,8 +210,7 @@ function fuelMarketMultiplier(oilPrice, goldPrice, noise) {
   const goldDev = (gold - goldBase) / goldBase;
   const oilTerm = Math.abs(oilDev) < MARKET_ECONOMY.DEAD_ZONE ? 0 : oilDev * oilBase * E.OIL_SENSITIVITY;
   const goldTerm = Math.abs(goldDev) < MARKET_ECONOMY.DEAD_ZONE ? 0 : goldDev * goldBase * E.GOLD_SENSITIVITY;
-  const n = (noise != null ? noise : 0) * E.NOISE_WEIGHT;
-  const mult = 1 + oilTerm * E.OIL_WEIGHT + goldTerm * E.GOLD_WEIGHT + n;
+  const mult = 1 + oilTerm * E.OIL_WEIGHT + goldTerm * E.GOLD_WEIGHT;
   const lo = 1 - E.MARKET_SWING, hi = 1 + E.MARKET_SWING;
   return Math.max(lo, Math.min(hi, mult));
 }
@@ -576,6 +576,10 @@ const RATING = {
   WINDOW: 50,              // по скольким последним оценкам считаем среднее
   MIN_SAMPLES: 10,         // пока меньше — показываем стартовое значение
   START: 3.0,              // с чего начинает новый аэропорт
+  // Максимум оценок в окно рейтинга с одного события (рейса). Без этого один
+  // крупный самолёт на 155–310 пассажиров затирал всё окно из 50 оценок, и
+  // рейтинг скакал от рейса к рейсу. Теперь один рейс даёт не более N.
+  MAX_SCORES_PER_EVENT: 5,
   // Из чего складывается впечатление одного пассажира (потом зажимаем в 0..2).
   BASE: 2.0,
   TURBULENCE_CHANCE: 0.2,  // шанс тряски в полёте

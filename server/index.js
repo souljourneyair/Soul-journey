@@ -230,10 +230,14 @@ function addPassengerScores(airportId, count, opts) {
   const fresh = store.getAirportById(airportId);
   if (!fresh) return { reputation: 0, scores: [] };
   const scores = (fresh.ratingScores || []).slice();
+  // В окно рейтинга пишем не более MAX_SCORES_PER_EVENT оценок за событие,
+  // иначе крупный борт затирал бы окно целиком. Репутацию по-прежнему считаем
+  // по всем пассажирам — стабилизируем именно рейтинг.
+  const toWindow = Math.min(count, RATING.MAX_SCORES_PER_EVENT);
   let rep = 0;
   for (let i = 0; i < count; i++) {
     const sc = passengerScore(opts || {});
-    scores.push(sc);
+    if (i < toWindow) scores.push(sc);
     rep += sc;
   }
   store.updateAirport(airportId, { ratingScores: scores.slice(-RATING.WINDOW) });
@@ -257,6 +261,16 @@ function checkRequirements(airport, rules) {
     .filter(b => !isUnderConstruction(b) && !b.ruined && (b.state || 'owned') === 'owned');
   const nameOf = (id) => (BUILDINGS[id] ? BUILDINGS[id].name : id);
 
+  // «Спящие» здания нельзя построить/апгрейдить прямым запросом: раньше фильтр
+  // был только на клиенте, и POST-ом можно было возвести отель/грузовой хаб с
+  // пассивным доходом. Разрешаем только явно открытое.
+  if (rules.hidden) {
+    return { error: 'building_hidden', message: 'Это здание пока недоступно' };
+  }
+  // Офис авиакомпании доступен только после создания собственной АК.
+  if (rules.requiresAirline && !airport.airline) {
+    return { error: 'requires_airline', message: 'Нужна собственная авиакомпания' };
+  }
   if (rules.minLevel && (airport.level || 0) < rules.minLevel) {
     return { error: 'level_too_low', message: `Нужен уровень аэропорта ${rules.minLevel}` };
   }
@@ -911,7 +925,7 @@ function fuelUnitPrice(airport) {
 // биение множителя дёргало бы топливо, билеты и договоры ежечасно.
 function recomputeFuelMarketMult() {
   const s = store.getSettings();
-  const mult = fuelMarketMultiplier(s.oilPrice, s.goldPrice, 0);
+  const mult = fuelMarketMultiplier(s.oilPrice, s.goldPrice);
   store.setSetting('fuelMarketMult', +mult.toFixed(3));
   return +mult.toFixed(3);
 }
@@ -4649,7 +4663,7 @@ function processAircraftTick(airport, currentTick, notifications) {
           reputation -= hit.repLoss;
           landAircraft(ac, type, hit.broke);
         } else {
-          // нет полосы (занята, исчерпана квота или не тот размер) либо нет стоянки
+          // нет полосы (занята или не тот размер) либо нет стоянки
           income -= type.idlePenaltyPerTick;
           reputation -= type.idleRepPenaltyPerTick;
           store.updateAircraft(ac.id, { status: 'waiting' });
@@ -4673,7 +4687,7 @@ function processAircraftTick(airport, currentTick, notifications) {
       } else {
         income -= type.idlePenaltyPerTick;
         reputation -= type.idleRepPenaltyPerTick;
-        const reason = !standFree ? 'нет свободной стоянки' : 'нет свободной ВПП (занята или исчерпана суточная квота)';
+        const reason = !standFree ? 'нет свободной стоянки' : 'нет свободной ВПП (занята)';
         notifications.push(`⚠️ ${type.name} кружит — ${reason}. Идут издержки.`);
       }
     } else if (ac.status === 'broken' || ac.status === 'idle') {
