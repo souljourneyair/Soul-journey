@@ -979,7 +979,7 @@ async function build(buildingId) {
                 STATE = await api('/api/quests/mow', 'POST', {});
                 closeCharDialog();
                 renderAll();
-                toast('Покос пошёл — трава ляжет через пару минут');
+                toast('Покос пошёл — трава ляжет через минуту');
               } catch (e2) { toast(e2.message, true); }
             },
           },
