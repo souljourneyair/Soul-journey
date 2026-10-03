@@ -486,6 +486,8 @@ function renderAll() {
   renderRepairAllBar();
   renderObjectsTable();
   renderBuildMenu();
+  renderQuests();
+  checkQuestReward();
 }
 
 function renderStats() {
@@ -3522,6 +3524,91 @@ function normalizeFontSize(value) {
   const trimmed = String(value).trim();
   return /^\d+(\.\d+)?$/.test(trimmed) ? `${trimmed}px` : trimmed;
 }
+
+// ===== ЗАДАЧИ (главы) =====
+let questRewardShown = false;
+
+function renderQuests() {
+  const q = STATE && STATE.quests;
+  const list = $('#questsList');
+  if (!list || !q) return;
+  $('#questsChapter').textContent = q.chapter
+    ? `ГЛАВА ${q.chapter.id} · ${q.chapter.name}` : 'ГЛАВА';
+  const goal = $('#questsGoal');
+  if (goal) goal.textContent = q.chapter ? q.chapter.goal : '';
+  const tasks = q.tasks || [];
+  let html = '';
+  if (q.pendingReward) {
+    html += `<div class="quest-reward">
+      <div><b>Глава завершена!</b> ${q.rewardText || ''}</div>
+      <button class="btn-primary" id="questRewardClaim">Забрать награду` +
+      (q.rewardMoney ? ` (+${q.rewardMoney.toLocaleString('ru-RU')} у.е.)` : '') + `</button>
+    </div>`;
+  }
+  html += tasks.map(t => {
+    let action;
+    if (t.status === 'done') {
+      action = '<span class="quest-check">✓ Выполнено</span>';
+    } else if (t.status === 'offered' && t.acceptRequired) {
+      action = `<button class="btn-secondary quest-accept" data-task="${t.id}">Принять` +
+        (t.cost ? ` (${t.cost.toLocaleString('ru-RU')} у.е.)` : '') + `</button>`;
+    } else if (t.status === 'active' && t.acceptRequired && t.ticksLeft > 0) {
+      action = `<span class="quest-timer">${t.ticksLeft * 2} ч</span>`;
+    } else {
+      action = '<span class="quest-wait">в процессе</span>';
+    }
+    return `<div class="quest-row${t.status === 'done' ? ' quest-done' : ''}">
+      <div class="quest-body">
+        <div class="quest-title">${t.title}</div>
+        <div class="quest-desc">${t.desc || ''}</div>
+      </div>
+      <div class="quest-side">${action}</div>
+    </div>`;
+  }).join('');
+  list.innerHTML = html;
+  $('#questRewardClaim')?.addEventListener('click', claimQuestReward);
+  const badge = $('#questsBadge');
+  if (badge) {
+    const n = tasks.filter(t => t.status === 'offered').length + (q.pendingReward ? 1 : 0);
+    badge.textContent = n;
+    badge.classList.toggle('hidden', n === 0);
+  }
+}
+
+async function acceptQuest(taskId) {
+  try {
+    STATE = await api('/api/quests/accept', 'POST', { taskId });
+    renderAll();
+  } catch (err) { toast(err.message || 'Не удалось принять задачу'); }
+}
+
+async function claimQuestReward() {
+  try {
+    STATE = await api('/api/quests/reward/ack', 'POST', {});
+    questRewardShown = false;
+    renderAll();
+  } catch (err) { toast('Не удалось получить награду'); }
+}
+
+function openQuests() {
+  renderQuests();
+  $('#questsModal')?.classList.remove('hidden');
+}
+
+// Автопоказ окна награды, когда глава завершена.
+function checkQuestReward() {
+  if (!STATE || !STATE.quests || !STATE.quests.pendingReward) { questRewardShown = false; return; }
+  if (questRewardShown) return;
+  questRewardShown = true;
+  openQuests();
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.quest-accept');
+  if (btn) { e.preventDefault(); acceptQuest(btn.dataset.task); }
+});
+$('#questsBtn')?.addEventListener('click', openQuests);
+$('#closeQuests')?.addEventListener('click', () => $('#questsModal')?.classList.add('hidden'));
 
 // ===== INIT =====
 loadBackgrounds(); // фоны экранов (вход виден сразу, до логина)

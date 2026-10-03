@@ -9,6 +9,7 @@ const store = require('./store');
 const { ensureSuperuser } = require('./seed');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
+  CHAPTERS, chapterById, nextChapterId,
   BUILDINGS, BUILD_LIMITS, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, randomBotName, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
@@ -1516,6 +1517,97 @@ function serializeAircraft(airportId) {
   });
 }
 
+// Здания, для которых нужна выполненная задача главы (строительный гейт).
+const BUILD_TASK_GATE = { helipad: 'ch1_mow' };
+
+// ---------- Главы, задачи, цели (данные — CHAPTERS в gameData.js) ----------
+// Инициализация задач главы: ручные («Принять») стартуют в статусе offered,
+// автоматические — сразу active.
+function initChapterQuests(chapterId) {
+  const ch = chapterById(chapterId) || chapterById(1);
+  const quests = {};
+  if (ch) {
+    for (const t of ch.tasks) {
+      quests[t.id] = { status: t.acceptRequired ? 'offered' : 'active' };
+    }
+  }
+  return { chapter: ch ? ch.id : 1, quests, pendingChapterReward: null };
+}
+
+// Выполнено ли условие авто-задачи (ручные проверяются по таймеру отдельно).
+function questAutoDone(airport, task) {
+  const auto = task.auto || {};
+  switch (auto.type) {
+    case 'building':
+      return store.getBuildingsByAirport(airport.id)
+        .some(b => b.buildingId === auto.buildingId && !isUnderConstruction(b) && !b.ruined);
+    case 'pax':
+      return (airport.paxServed || 0) >= auto.target;
+    case 'pax_arrived':
+      return (airport.paxArrived || 0) >= auto.target;
+    case 'level':
+      return (airport.level || 0) >= auto.target;
+    case 'rating':
+      return airportRating(airport) >= auto.target;
+    case 'profit_days':
+      return (airport.profitStreak || 0) >= auto.target;
+    default:
+      return false;
+  }
+}
+
+// Обновить задачи текущей главы за тик: отметить выполненные, завершить главу.
+// Возвращает патч для store.updateAirport или null, если ничего не изменилось.
+function refreshQuests(airport, currentTick, notifications) {
+  const ch = chapterById(airport.chapter || 1);
+  if (!ch || airport.pendingChapterReward) return null;
+  const quests = { ...(airport.quests || {}) };
+  let changed = false;
+  for (const t of ch.tasks) {
+    const q = quests[t.id] || (quests[t.id] = { status: t.acceptRequired ? 'offered' : 'active' });
+    if (q.status === 'done') continue;
+    if (t.acceptRequired) {
+      if (q.status === 'offered') continue;              // ещё не приняли
+      if (q.endsTick != null && currentTick >= q.endsTick) {
+        q.status = 'done'; changed = true;
+        logEvent(airport.id, 'quest', `Задача выполнена: ${t.title}`);
+      }
+      continue;
+    }
+    if (questAutoDone(airport, t)) {
+      q.status = 'done'; changed = true;
+      logEvent(airport.id, 'quest', `Задача выполнена: ${t.title}`);
+    }
+  }
+  const allDone = ch.tasks.every(t => (quests[t.id] || {}).status === 'done');
+  if (!allDone) return changed ? { quests } : null;
+  // Вся глава пройдена — показываем окно награды.
+  notifications.push(`🏆 Глава «${ch.name}» завершена!`);
+  logEvent(airport.id, 'quest', `Глава «${ch.name}» завершена`);
+  return { quests, pendingChapterReward: ch.id };
+}
+
+function serializeQuests(airport) {
+  const ch = chapterById(airport.chapter || 1);
+  const quests = airport.quests || {};
+  const now = store.getTickCounter();
+  return {
+    chapter: ch ? { id: ch.id, name: ch.name, goal: ch.goal } : null,
+    tasks: ch ? ch.tasks.map(t => {
+      const q = quests[t.id] || {};
+      return {
+        id: t.id, title: t.title, desc: t.desc, giver: t.giver || null,
+        acceptRequired: !!t.acceptRequired, cost: t.cost || 0,
+        status: q.status || (t.acceptRequired ? 'offered' : 'active'),
+        ticksLeft: q.endsTick != null ? Math.max(0, q.endsTick - now) : 0,
+      };
+    }) : [],
+    pendingReward: airport.pendingChapterReward || null,
+    rewardText: ch ? (ch.reward ? ch.reward.text : null) : null,
+    rewardMoney: ch && ch.reward ? (ch.reward.money || 0) : 0,
+  };
+}
+
 function serializeAirport(airport) {
   const owner = store.findUserById(airport.userId);
   const buildings = store.getBuildingsByAirport(airport.id);
@@ -1700,6 +1792,7 @@ function serializeAirport(airport) {
     username: owner ? owner.username : null,   // чтобы подсветить себя в рейтинге
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
     welcomeXp: CONFIG.WELCOME_XP || 500,
+    quests: serializeQuests(airport),          // глава, задачи, награда
     // по каждому терминалу: прилетело, обработано, улетело, сейчас в очереди
     terminalLoad: listTerminals(airport.id).map(t => {
       const st = (airport.termStats || {})[t.cellIndex] || { arrived: 0, served: 0, departed: 0 };
@@ -1815,7 +1908,7 @@ app.post('/api/start-game', auth, (req, res) => {
   const airport = store.createAirport(req.user.id, 'A', CONFIG.START_MONEY);
   store.addBuilding(airport.id, 0, 'admin');
   // Игра начинается со 1 уровня: сразу даём XP на его порог.
-  store.updateAirport(airport.id, { level: 1, xp: xpRequiredForLevel(1) });
+  store.updateAirport(airport.id, { level: 1, xp: xpRequiredForLevel(1), ...initChapterQuests(1) });
 
   res.json(serializeAirport(store.getAirportById(airport.id)));
 });
@@ -1850,7 +1943,10 @@ app.post('/api/airport/restart', auth, (req, res) => {
     loan: null,
     fuelStored: 0, fuelSupplier: null, fuelContract: null, fuelAutoContract: false, fuelRefillThreshold: 25,
     paxPool: { heli: 0, vvl: 0, mvl: 0 }, termQueue: [],
-    heliCarried: 0, paxServed: 0, paxProcessed: 0, heliFlow: { arrived: 0, departed: 0 },
+    heliCarried: 0, paxServed: 0, paxProcessed: 0, paxArrived: 0, paxDeparted: 0,
+    heliFlow: { arrived: 0, departed: 0 },
+    // главы и задачи — сначала
+    ...initChapterQuests(1), profitStreak: 0,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
     eventLog: [], newsLog: [],
     // счётчики приветствия — чтобы новый заход снова показал вступление
@@ -1947,6 +2043,57 @@ app.post('/api/welcome/claim', auth, (req, res) => {
     welcomeXpGiven: true, welcomeSeen: true,
   });
   res.json({ ...serializeAirport(updated), _welcomeXp: xp });
+});
+
+// Принять задачу главы (ручные задачи — «Скосить траву» и т.п.).
+// Списывает стоимость и запускает таймер, если он есть.
+app.post('/api/quests/accept', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const { taskId } = req.body || {};
+  const ch = chapterById(airport.chapter || 1);
+  const task = ch && ch.tasks.find(t => t.id === taskId);
+  if (!task || !task.acceptRequired) {
+    return res.status(400).json({ error: 'bad_task', message: 'Такой задачи нет' });
+  }
+  const quests = { ...(airport.quests || {}) };
+  const q = quests[taskId] || { status: 'offered' };
+  if (q.status !== 'offered') {
+    return res.status(400).json({ error: 'already_taken', message: 'Задача уже принята' });
+  }
+  if (task.cost && (airport.money || 0) < task.cost) {
+    return res.status(400).json({ error: 'not_enough_money', message: `Нужно ${task.cost.toLocaleString('ru-RU')} у.е.` });
+  }
+  q.status = 'active';
+  if (task.durationTicks) q.endsTick = store.getTickCounter() + task.durationTicks;
+  quests[taskId] = q;
+  const updated = store.updateAirport(airport.id, {
+    quests,
+    money: (airport.money || 0) - (task.cost || 0),
+  });
+  res.json(serializeAirport(updated));
+});
+
+// Подтвердить награду за завершённую главу: начислить деньги/XP и перейти к
+// следующей главе (или остаться в последней).
+app.post('/api/quests/reward/ack', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const chapterId = airport.pendingChapterReward;
+  if (chapterId == null) return res.json(serializeAirport(airport));
+  const ch = chapterById(chapterId);
+  const reward = ch ? ch.reward : null;
+  const money = (airport.money || 0) + (reward ? (reward.money || 0) : 0);
+  const xp = (airport.xp || 0) + (reward ? (reward.xp || 0) : 0);
+  const nextId = nextChapterId(chapterId);
+  const next = nextId != null ? initChapterQuests(nextId) : { chapter: chapterId };
+  const updated = store.updateAirport(airport.id, {
+    money, xp, level: levelFromXp(xp),
+    pendingChapterReward: null,
+    chapter: next.chapter,
+    ...(nextId != null ? { quests: next.quests } : {}),
+  });
+  res.json(serializeAirport(updated));
 });
 
 // Установка названия аэропорта (при первом входе).
@@ -2465,6 +2612,18 @@ app.post('/api/build', auth, (req, res) => {
 
   const def = BUILDINGS[buildingId];
   if (!def) return res.status(400).json({ error: 'unknown_building' });
+  // Задачи-гейты: некоторые объекты нельзя строить, пока не выполнена задача
+  // главы (например, вертолётную площадку — пока не скошена трава у Гоши).
+  const gate = BUILD_TASK_GATE[buildingId];
+  if (gate) {
+    const q = (airport.quests || {})[gate];
+    if (!q || q.status !== 'done') {
+      return res.status(400).json({
+        error: 'quest_required',
+        message: 'Сначала выполните задачу главы в меню «Задачи»',
+      });
+    }
+  }
   // Уникальные здания (админздание) — не более одного на аэропорт.
   if (def.unique) {
     const already = store.getBuildingsByAirport(airport.id).some(b => b.buildingId === buildingId);
@@ -4478,6 +4637,8 @@ function runTick() {
         patch.seasonStartValue = airportValue(airport.id, freshAirport);
       }
       patch.periodStats = { sinceTick: currentTick, money: 0, repGain: 0, repLoss: 0 };
+      // «Дни в плюсе» для задач главы: считаем игровые сутки с прибылью подряд.
+      patch.profitStreak = periodStats.money > 0 ? (freshAirport.profitStreak || 0) + 1 : 0;
     }
     if (bankrupt) patch.bankrupt = true;
     // Подарок за второй уровень. Проверяем по факту уровня, а не по событию
@@ -4538,7 +4699,11 @@ function runTick() {
     if (newMoney < 0 && !bankrupt) {
       notifications.push(`⚠️ Долг ${Math.abs(newMoney).toLocaleString('ru-RU')} у.е. Содержание аэропорта в минусе — репутация падает!`);
     }
-    const updated = store.updateAirport(airport.id, patch);
+    let updated = store.updateAirport(airport.id, patch);
+
+    // Проверяем задачи/главы на свежем состоянии и сохраняем результат.
+    const questPatch = refreshQuests(updated, currentTick, notifications);
+    if (questPatch) updated = store.updateAirport(airport.id, questPatch) || updated;
 
     const user = store.findUserById(airport.userId);
     if (user) {

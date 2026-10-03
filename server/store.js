@@ -359,6 +359,12 @@ function createAirport(userId, startType, money) {
     lastAircraftEventTick: 0,
     // предыдущий результат (на конец прошлой игры): { xp, level, buildingsBuilt, endedAt }
     previousResult: null,
+    // --- Главы, задачи, цели (данные — CHAPTERS в gameData.js) ---
+    chapter: 1,               // текущая глава
+    quests: {},               // { [taskId]: { status, endsTick } }
+    pendingChapterReward: null, // глава завершена, ждём показа награды
+    // «Дни в плюсе»: серия игровых суток, закрытых с прибылью (задачи главы)
+    profitStreak: 0,
   };
   data.airports.push(airport);
   save(data);

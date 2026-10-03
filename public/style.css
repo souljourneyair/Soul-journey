@@ -1120,3 +1120,23 @@ body.modal-open { overflow: hidden; }
   .ded-letter-top { flex-direction: column; }
   .ded-avatar { flex: 0 0 auto; width: 144px; height: 173px; align-self: center; }
 }
+
+/* ===== Задачи (главы) ===== */
+#questsList { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
+.quest-row {
+  display: flex; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 10px 12px; border: 1px solid var(--text-dim); border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.quest-body { min-width: 0; }
+.quest-title { font-weight: 600; }
+.quest-desc { font-size: 0.85em; color: var(--text-dim); margin-top: 2px; }
+.quest-side { flex: 0 0 auto; text-align: right; }
+.quest-done { opacity: 0.55; }
+.quest-check { color: var(--board-amber); font-weight: 600; }
+.quest-timer, .quest-wait { color: var(--text-dim); font-size: 0.85em; }
+.quest-reward {
+  display: flex; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 12px; margin-bottom: 8px; border-radius: 8px;
+  border: 1px solid var(--board-amber); background: rgba(255, 180, 0, 0.08);
+}

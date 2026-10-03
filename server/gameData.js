@@ -1476,8 +1476,72 @@ function repairCost(wear, buyCost) {
   );
 }
 
+// ==================== ГЛАВЫ, ЗАДАЧИ, ЦЕЛИ ====================
+// Сюжетный каркас игры. Глава = цель + набор задач + награда.
+// Задачу игра проверяет САМА (auto.type) — игроку остаётся выполнить условие.
+// Ручные задачи (acceptRequired) требуют кнопки «Принять», могут стоить денег
+// и идти какое-то время (durationTicks).
+//   auto.type: 'building'  { buildingId }   — здание построено
+//              'pax'       { target }        — обслужено пассажиров всего
+//              'pax_arrived'{ target }       — принято пассажиров (первый борт)
+//              'level'     { target }        — достигнут уровень
+//              'rating'    { target }        — рейтинг не ниже порога
+//              'profit_days'{ target }       — столько игровых суток подряд в плюсе
+//              'manual'                      — завершается по таймеру после «Принять»
+const CHAPTERS = [
+  {
+    id: 1, key: 'nasledstvo', name: 'Наследство', minLevel: 1,
+    goal: 'Поставить первую вертолётную площадку и принять первый борт.',
+    tasks: [
+      { id: 'ch1_mow', title: 'Скосить траву', acceptRequired: true,
+        cost: 1000, durationTicks: 1, auto: { type: 'manual' },
+        desc: 'Дядя Гоша скосит траву под вертолётную площадку. 1 000 у.е.' },
+      { id: 'ch1_helipad', title: 'Построить вертолётную площадку',
+        auto: { type: 'building', buildingId: 'helipad' },
+        desc: 'Возведите вертолётную площадку.' },
+      { id: 'ch1_first_bort', title: 'Принять первый борт',
+        auto: { type: 'pax_arrived', target: 1 },
+        desc: 'Заключите договор и примите первый борт.' },
+      { id: 'ch1_level2', title: 'Выйти на 2 уровень',
+        auto: { type: 'level', target: 2 },
+        desc: 'Второй уровень открывает главу «Вертолётные прогулки».' },
+    ],
+    reward: { money: 2000, xp: 0,
+      text: 'Мэр выделяет субсидию и открывает две ближние вертолётные точки.' },
+  },
+  {
+    id: 2, key: 'heli_walks', name: 'Вертолётные прогулки', minLevel: 2,
+    goal: 'Наладить связь по двум открытым точкам и выйти на рейтинг 3.0.',
+    tasks: [
+      { id: 'ch2_cafe', title: 'Построить малое кафе', giver: 'nina',
+        auto: { type: 'building', buildingId: 'small_cafe' },
+        desc: 'Тётя Нина поможет с малым кафе у площадки.' },
+      { id: 'ch2_pax100', title: 'Обслужить 100 пассажиров',
+        auto: { type: 'pax', target: 100 },
+        desc: 'Примите и вывезите 100 пассажиров по вертолётным точкам.' },
+      { id: 'ch2_profit3', title: 'Три дня подряд в плюсе',
+        auto: { type: 'profit_days', target: 3 },
+        desc: 'Три игровых суток подряд закрывайте день с прибылью.' },
+      { id: 'ch2_rating3', title: 'Рейтинг 3.0',
+        auto: { type: 'rating', target: 3.0 },
+        desc: 'Доведите рейтинг обслуживания до 3.0.' },
+    ],
+    reward: { money: 5000, xp: 0,
+      text: 'Мэр дарит медицинский вертолёт и открывает служебную площадку под городские службы.' },
+  },
+];
+
+function chapterById(id) {
+  return CHAPTERS.find(c => c.id === id) || null;
+}
+function nextChapterId(id) {
+  const i = CHAPTERS.findIndex(c => c.id === id);
+  return i >= 0 && i + 1 < CHAPTERS.length ? CHAPTERS[i + 1].id : null;
+}
+
 module.exports = {
   CONFIG, CALENDAR, tickToClock, tickToDate,
+  CHAPTERS, chapterById, nextChapterId,
   BUILDINGS, BUILD_LIMITS, XP_FOR_LEVEL, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, BOT_COMPANY_NAMES, randomBotName, randomBotNames, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,

@@ -133,6 +133,7 @@
 
   <main class="game-main">
     <nav class="left-menu" id="leftMenu">
+  <button id="questsBtn" class="left-menu-btn">Задачи<span id="questsBadge" class="envelope-badge hidden">0</span></button>
       <div class="left-menu-title">МЕНЮ</div>
       <button id="fleetBtn" class="left-menu-btn hidden">✈ Авиапарк</button>
       <button id="scheduleBtn" class="left-menu-btn">🕐 Расписание</button>
@@ -284,6 +285,20 @@
 </div>
 
 <!-- ===== МОДАЛКА РАСПИСАНИЯ ПРИЛЁТОВ ===== -->
+<!-- ===== МОДАЛКА ЗАДАЧ (главы) ===== -->
+<div id="questsModal" class="modal hidden">
+  <div class="modal-card board-frame">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">ЗАДАЧИ</span>
+      <span class="board-sub" id="questsChapter">ГЛАВА</span>
+    </div>
+    <div class="build-menu-hint" id="questsGoal"></div>
+    <div id="questsList"></div>
+    <button class="btn-secondary" id="closeQuests">Закрыть</button>
+  </div>
+</div>
+
 <div id="scheduleModal" class="modal hidden">
   <div class="modal-card board-frame schedule-modal">
     <div class="board-header">
