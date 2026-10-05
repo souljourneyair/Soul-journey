@@ -4481,8 +4481,14 @@ function runTick() {
     // Розыгрыш идёт всегда, даже когда игрок не в сети: он увидит модальное
     // окно при следующем заходе. Защитный интервал не даёт событиям копиться.
     const settingsNow = store.getSettings();
-    // объявленный метеорит: время пришло — падает
-    if (disasters.meteorDue(freshAirport, currentTick)) {
+    if (!DISASTER_ECONOMY.RANDOM_ENABLED) {
+      // Случайные ЧС выключены: гасим несостоявшийся прогноз метеорита,
+      // ничего не разыгрываем. Ручные админ-ЧС остаются (см. выше).
+      if (freshAirport.meteorAtTick != null) {
+        store.updateAirport(airport.id, { meteorAtTick: null, meteorBig: null });
+      }
+    } else if (disasters.meteorDue(freshAirport, currentTick)) {
+      // объявленный метеорит: время пришло — падает
       store.updateAirport(airport.id, { meteorAtTick: null, meteorBig: null });
       disasters.trigger(store, store.getAirportById(airport.id), 'meteor', currentTick);
     } else {
@@ -4522,11 +4528,15 @@ function runTick() {
     // по реальному времени: 10% за 2 часа (см. DAMAGE_ECONOMY.AGING_PER_TICK).
     // Не ветшают: сданные в аренду (их содержит бот), строящиеся, на ремонте
     // и уже разрушенные.
+    const ageF = DAMAGE_ECONOMY.AGING_LEVEL_FACTORS;
     for (const b of store.getBuildingsByAirport(airport.id)) {
       if (b.ruined) continue;
       if ((b.state || 'owned') !== 'owned' || isUnderConstruction(b)) continue;
       if (b.repairEndsTick != null && currentTick < b.repairEndsTick) continue;
-      const aged = Math.min(1, (b.wear || 0) + DAMAGE_ECONOMY.AGING_PER_TICK);
+      // Чем выше уровень — тем медленнее ветшает (см. AGING_LEVEL_FACTORS).
+      const lvl = b.upgradeLevel || 1;
+      const factor = ageF[Math.min(Math.max(lvl - 1, 0), ageF.length - 1)];
+      const aged = Math.min(1, (b.wear || 0) + DAMAGE_ECONOMY.AGING_PER_TICK * factor);
       if (aged !== (b.wear || 0)) store.updateBuildingAtCell(airport.id, b.cellIndex, { wear: aged });
     }
 
