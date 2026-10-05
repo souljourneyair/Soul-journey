@@ -1559,11 +1559,13 @@ function infraStatusLines(building) {
     const o = slotOccupancyOf(building);
     const waiting = Math.floor((STATE.paxPool || {}).heli || 0);
     const seats = STATE.heliSeats || 2;
+    const wearPct = Math.round((building.wear || 0) * 100);
     return [
       o.used > 0 ? `🚁 Занята (${o.used}/${o.total})` : `🚁 Свободна (0/${o.total})`,
       `ждут вылета: ${waiting} чел.`,
       `борт берёт ${seats}`,
-    ];
+      wearPct >= 1 ? `износ ${wearPct}%${wearPct >= 50 ? ' ⚠️ нужно починить' : ''}` : null,
+    ].filter(Boolean);
   }
 
   if (id === 'tower') {

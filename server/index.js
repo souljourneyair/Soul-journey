@@ -1039,11 +1039,7 @@ function totalApronSlots(airportId) {
   for (const b of buildings) {
     if (b.buildingId !== 'helipad') continue;
     if (b.ruined) continue;   // разрушенная площадка не принимает
-    const base = (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
-    const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
-    // Округляем к ближайшему, а не вниз: иначе даже 1% износа съедал бы место
-    // от апгрейда (floor(2 × 0.99) = 1) и площадка 2 уровня не отличалась бы от 1.
-    slots += Math.max(1, Math.round(base * damageMultiplier(capacityWear(b), repairing)));
+    slots += helipadCapacity(b, currentTick);
   }
   return slots;
 }
@@ -1054,6 +1050,22 @@ function totalApronSlots(airportId) {
 function capacityWear(b) {
   const w = b.wear || 0;
   return w < DAMAGE_ECONOMY.MIN_REPAIRABLE_WEAR ? 0 : w;
+}
+
+// Вместимость вертолётной площадки в бортах. Слоты = уровень (апгрейд даёт
+// места). Износ снимает место только при СИЛЬНОМ повреждении — по одному за
+// каждые 50%, — а не съедает апгрейд мелкой долей процента (раньше
+// floor(2 × 0.99) = 1, и 2-й уровень не отличался от 1-го). Ремонт временно
+// урезает до доли REPAIR_CAPACITY_MULT.
+function helipadCapacity(b, currentTick) {
+  const base = (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
+  const wear = capacityWear(b);
+  let cap = base - Math.floor(wear / 0.5);
+  const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
+  if (repairing) {
+    cap = Math.min(cap, Math.max(1, Math.round(base * DAMAGE_ECONOMY.REPAIR_CAPACITY_MULT)));
+  }
+  return Math.max(1, cap);
 }
 
 // Какие стоянки ВС сейчас заняты. Раскладка та же, что при проверке места:
@@ -1095,9 +1107,7 @@ function listHelipads(airportId) {
     if (b.buildingId !== 'helipad') continue;
     if ((b.state || 'owned') === 'sold' || b.state === 'rented') continue;
     if (isUnderConstruction(b) || b.ruined) continue;
-    const base = (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
-    const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
-    const capacity = Math.max(1, Math.round(base * damageMultiplier(capacityWear(b), repairing)));
+    const capacity = helipadCapacity(b, currentTick);
     const used = borts.filter(x => (x.craft || 'heli') === 'heli' && x.padCell === b.cellIndex).length;
     out.push({ cellIndex: b.cellIndex, level: b.upgradeLevel || 1, capacity, used });
   }
@@ -1878,6 +1888,7 @@ function serializeAirport(airport) {
       };
     }),
     catalog: BUILDINGS,
+    apronEconomy: { HELIPAD_SLOTS_PER_LEVEL: APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL },
     buildLimits: BUILD_LIMITS,
     botEconomy: BOT_ECONOMY,
     upgradeEconomy: UPGRADE_ECONOMY,
