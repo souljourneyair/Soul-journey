@@ -1573,6 +1573,9 @@ function questAutoDone(airport, task) {
 function refreshQuests(airport, currentTick, notifications) {
   const ch = chapterById(airport.chapter || 1);
   if (!ch || airport.pendingChapterReward) return null;
+  // Награда за текущую главу уже выдана — не пере-завершаем (иначе у последней
+  // главы, где нет следующей, окно награды всплывало бы бесконечно).
+  if (airport.chapterRewarded === ch.id) return null;
   const quests = { ...(airport.quests || {}) };
   let changed = false;
   for (const t of ch.tasks) {
@@ -2132,6 +2135,7 @@ app.post('/api/quests/reward/ack', auth, (req, res) => {
     money, xp, level: levelFromXp(xp),
     pendingChapterReward: null,
     chapter: next.chapter,
+    chapterRewarded: chapterId,   // защита от повторного завершения этой главы
     ...(nextId != null ? { quests: next.quests } : {}),
   });
   res.json(serializeAirport(updated));
