@@ -1041,8 +1041,9 @@ function totalApronSlots(airportId) {
     if (b.ruined) continue;   // разрушенная площадка не принимает
     const base = (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
     const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
-    // Округляем вниз, но целая площадка всегда принимает хотя бы один борт.
-    slots += Math.max(1, Math.floor(base * damageMultiplier(capacityWear(b), repairing)));
+    // Округляем к ближайшему, а не вниз: иначе даже 1% износа съедал бы место
+    // от апгрейда (floor(2 × 0.99) = 1) и площадка 2 уровня не отличалась бы от 1.
+    slots += Math.max(1, Math.round(base * damageMultiplier(capacityWear(b), repairing)));
   }
   return slots;
 }
@@ -1096,7 +1097,7 @@ function listHelipads(airportId) {
     if (isUnderConstruction(b) || b.ruined) continue;
     const base = (b.upgradeLevel || 1) * APRON_ECONOMY.HELIPAD_SLOTS_PER_LEVEL;
     const repairing = b.repairEndsTick != null && currentTick < b.repairEndsTick;
-    const capacity = Math.max(1, Math.floor(base * damageMultiplier(capacityWear(b), repairing)));
+    const capacity = Math.max(1, Math.round(base * damageMultiplier(capacityWear(b), repairing)));
     const used = borts.filter(x => (x.craft || 'heli') === 'heli' && x.padCell === b.cellIndex).length;
     out.push({ cellIndex: b.cellIndex, level: b.upgradeLevel || 1, capacity, used });
   }
@@ -4506,8 +4507,8 @@ function runTick() {
     }
 
     // --- Ветшание зданий ---
-    // Всё ветшает само: покрытие трескается, техника изнашивается. Медленно —
-    // 1.4% за игровые сутки, то есть до первой пометки около игровой недели.
+    // Всё ветшает само: покрытие трескается, техника изнашивается. Темп задан
+    // по реальному времени: 10% за 2 часа (см. DAMAGE_ECONOMY.AGING_PER_TICK).
     // Не ветшают: сданные в аренду (их содержит бот), строящиеся, на ремонте
     // и уже разрушенные.
     for (const b of store.getBuildingsByAirport(airport.id)) {
