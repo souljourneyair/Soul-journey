@@ -123,6 +123,10 @@ function readFromDisk() {
       if (!a.paxPool) a.paxPool = { heli: 0, vvl: 0, mvl: 0 };
       if (a.heliCarried === undefined) a.heliCarried = 0;
       if (a.paxServed === undefined) a.paxServed = 0;
+      // Исторический недоучёт: прилёты писались в paxProcessed, но не в
+      // paxServed. Подтягиваем общий счёт «обслужено» до пропущенного значения,
+      // чтобы прогресс и задачи не терялись.
+      if ((a.paxProcessed || 0) > a.paxServed) a.paxServed = a.paxProcessed;
       if (!a.termQueue) a.termQueue = [];
       if (!a.newsLog) a.newsLog = [];
       if (a.lastAircraftEventTick === undefined) a.lastAircraftEventTick = 0;

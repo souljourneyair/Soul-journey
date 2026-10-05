@@ -592,19 +592,20 @@ function renderStats() {
       fuelWrap.style.display = 'none';
     }
   }
-  // пассажиры: общая сумма всех обслуженных (улетевшие+прилетевшие, верт.+самолёты)
+  // пассажиры: общий счёт обслуженных (улетевшие + прилетевшие, верт.+самолёты).
+  // Именно его видят игрок и проверяют задачи, поэтому и в шапке — paxServed,
+  // а не «прошло через терминалы» (paxProcessed — это внутренний счётчик
+  // для требований зданий minPaxProcessed).
   const paxWrap = $('#statPaxWrap');
   if (paxWrap) {
-    // В шапке — только обработанные терминалами. Полный итог вместе
-    // с улетевшими переехал в панель здания администрации.
-    const processed = STATE.paxProcessed || 0;
+    const served = STATE.paxServed || 0;
     const queue = STATE.termQueue || 0;
     const el = $('#statPax');
-    el.textContent = processed.toLocaleString('ru-RU');
+    el.textContent = served.toLocaleString('ru-RU');
     el.classList.toggle('stat-negative', queue > 0);
     el.title = queue > 0
-      ? `Обработано терминалами. Сейчас в очереди: ${queue}`
-      : 'Обработано терминалами';
+      ? `Обслужено пассажиров. Сейчас в очереди: ${queue}`
+      : 'Обслужено пассажиров';
   }
   bumpStat($('#statMoney'));
 
@@ -1253,7 +1254,7 @@ function adminStatsHtml(building) {
     `<span>Содержание аэропорта: −${Math.round(STATE.upkeepPerTick || 0)}/мин</span>` +
     `<span>Расходы всего: −${Math.round(STATE.expensesPerTick || 0)}/мин</span>` +
     `<span>За всё время: прилетело ${n(STATE.paxArrived)}, улетело ${n(STATE.paxDeparted)}</span>` +
-    `<span>Всего через аэропорт: ${n(STATE.paxProcessed)}</span>`;
+    `<span>Всего обслужено: ${n(STATE.paxServed)}</span>`;
   if (a) {
     html +=
       `<span>Апгрейд даёт: содержание −${(a.upkeepDiscount * 100).toFixed(1)}%, ` +
