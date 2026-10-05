@@ -1531,7 +1531,7 @@ const CHAPTERS = [
         auto: { type: 'building', buildingId: 'small_cafe' },
         desc: 'Тётя Нина поможет с малым кафе у площадки.' },
       { id: 'ch2_pax100', title: 'Обслужить 100 пассажиров',
-        auto: { type: 'pax', target: 100 },
+        auto: { type: 'pax_processed', target: 100 },
         desc: 'Примите и вывезите 100 пассажиров по вертолётным точкам.' },
       { id: 'ch2_profit3', title: 'Три дня подряд в плюсе',
         auto: { type: 'profit_days', target: 3 },

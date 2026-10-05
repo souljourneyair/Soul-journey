@@ -1551,6 +1551,8 @@ function questAutoDone(airport, task) {
         .some(b => b.buildingId === auto.buildingId && !isUnderConstruction(b) && !b.ruined);
     case 'pax':
       return (airport.paxServed || 0) >= auto.target;
+    case 'pax_processed':
+      return (airport.paxProcessed || 0) >= auto.target;
     case 'pax_arrived':
       return (airport.paxArrived || 0) >= auto.target;
     case 'level':
@@ -5129,6 +5131,10 @@ function processContractsTick(airport, currentTick, notifications) {
         const fA = store.getAirportById(airport.id) || airport;
         store.updateAirport(airport.id, {
           paxArrived: (fA.paxArrived || 0) + broughtHeli,
+          // Прилёт — это тоже обслуживание: прилетевшие входят в общий счёт
+          // «обслужено» (paxServed), а не только в paxProcessed. Раньше здесь
+          // paxServed не рос, и задача «Обслужить N пассажиров» не срабатывала.
+          paxServed: (fA.paxServed || 0) + broughtHeli,
           paxProcessed: (fA.paxProcessed || 0) + broughtHeli,
         });
         // Опыт за приём вертолёта — только на ранних уровнях. Дальше
@@ -5190,6 +5196,7 @@ function processContractsTick(airport, currentTick, notifications) {
         const fP = store.getAirportById(airport.id) || airport;
         store.updateAirport(airport.id, {
           paxArrived: (fP.paxArrived || 0) + broughtPlane,
+          paxServed: (fP.paxServed || 0) + broughtPlane,
           paxProcessed: (fP.paxProcessed || 0) + broughtPlane,
         });
 
