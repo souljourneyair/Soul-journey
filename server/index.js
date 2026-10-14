@@ -355,6 +355,10 @@ function checkRequirements(airport, rules) {
 // возникает. Это задумано — очередь показывает игроку, что он перебрал
 // договоров и пора расторгнуть лишние.
 function maxActiveContracts(airportId) {
+  // Глава 1 (обучение): активен только один договор — первый разовый рейс.
+  const ap = store.getAirportById(airportId);
+  if (ap && (ap.chapter || 1) === 1) return { heli: 1, plane: 0, total: 1 };
+
   const perContract = 60 / APRON_ECONOMY.CONTRACT_ARRIVAL_INTERVAL;
   const over = CONTRACT_ECONOMY.MAX_ACTIVE_OVERBOOK;
   const base = CONTRACT_ECONOMY.MAX_ACTIVE_BASE;
@@ -1572,10 +1576,8 @@ function questAutoDone(airport, task) {
 // Возвращает патч для store.updateAirport или null, если ничего не изменилось.
 function refreshQuests(airport, currentTick, notifications) {
   const ch = chapterById(airport.chapter || 1);
+  // После последней главы chapter = -1 → главы нет, задач нет.
   if (!ch || airport.pendingChapterReward) return null;
-  // Награда за текущую главу уже выдана — не пере-завершаем (иначе у последней
-  // главы, где нет следующей, окно награды всплывало бы бесконечно).
-  if (airport.chapterRewarded === ch.id) return null;
   const quests = { ...(airport.quests || {}) };
   let changed = false;
   for (const t of ch.tasks) {
@@ -1808,6 +1810,7 @@ function serializeAirport(airport) {
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
     welcomeXp: CONFIG.WELCOME_XP || 500,
     quests: serializeQuests(airport),          // глава, задачи, награда
+    chartersAvailable: (airport.chapter || 1) >= 2,  // чартеры открываются в главе 2
     mow: {
       cost: MOW.COST,
       durationTicks: MOW.DURATION_TICKS,
@@ -1973,6 +1976,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     // главы и задачи — сначала
     ...initChapterQuests(1), profitStreak: 0,
     mowCount: 0, mowCredits: 0, mowEndsTick: null,
+    ch1ContractAccepted: false, chapterRewarded: null,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
     eventLog: [], newsLog: [],
     // счётчики приветствия — чтобы новый заход снова показал вступление
@@ -2130,14 +2134,19 @@ app.post('/api/quests/reward/ack', auth, (req, res) => {
   const money = (airport.money || 0) + (reward ? (reward.money || 0) : 0);
   const xp = (airport.xp || 0) + (reward ? (reward.xp || 0) : 0);
   const nextId = nextChapterId(chapterId);
-  const next = nextId != null ? initChapterQuests(nextId) : { chapter: chapterId };
-  const updated = store.updateAirport(airport.id, {
-    money, xp, level: levelFromXp(xp),
-    pendingChapterReward: null,
-    chapter: next.chapter,
-    chapterRewarded: chapterId,   // защита от повторного завершения этой главы
-    ...(nextId != null ? { quests: next.quests } : {}),
-  });
+  const patch = { money, xp, level: levelFromXp(xp), pendingChapterReward: null };
+  if (nextId != null) {
+    const next = initChapterQuests(nextId);
+    patch.chapter = next.chapter;
+    patch.quests = next.quests;
+  } else {
+    // Последняя глава: целей больше нет. chapter = -1 — это «сюжет пройден»,
+    // иначе пустой список задач снова считался бы выполненным и окно награды
+    // всплывало бы бесконечно.
+    patch.chapter = -1;
+    patch.quests = {};
+  }
+  const updated = store.updateAirport(airport.id, patch);
   res.json(serializeAirport(updated));
 });
 
@@ -2199,7 +2208,12 @@ function serializeEnvelope(airportId) {
     minutesLeft: Math.max(0, c.endsTick - nowTick),
     daysLeft: Math.max(0, Math.round((c.endsTick - nowTick) / CALENDAR.TICKS_PER_DAY)),
   }));
-  return { offers, contracts, canAccept: canAcceptContracts(airportId) };
+  const ap = store.getAirportById(airportId);
+  return {
+    offers, contracts,
+    canAccept: canAcceptContracts(airportId),
+    chartersAvailable: !!(ap && (ap.chapter || 1) >= 2),
+  };
 }
 
 // Расписание прилётов: что и когда садится, с обратным отсчётом.
@@ -2368,6 +2382,13 @@ app.post('/api/envelope/accept', auth, (req, res) => {
 
   const nowTick = store.getTickCounter();
   const arrivalInterval = arrivalIntervalFor(airport.level, offer.craft);
+  // Глава 1: первый договор — разовый рейс (один вертолёт для задания),
+  // после прилёта договор закрывается. В остальных главах рейсы повторяются.
+  const single = (airport.chapter || 1) === 1;
+  // В главе 1 договор заключается ровно один раз за всю главу.
+  if (single && airport.ch1ContractAccepted) {
+    return res.status(400).json({ error: 'chapter_one_single', message: 'В первой главе заключается только один договор' });
+  }
   store.addContract(airport.id, {
     airline: offer.airline,
     payPerTick: offer.payPerTick,
@@ -2375,12 +2396,15 @@ app.post('/api/envelope/accept', auth, (req, res) => {
     craft: offer.craft || 'heli',       // 'heli' | 'plane'
     size: offer.size || null,           // размер самолёта (для plane)
     flightType: offer.flightType || 'vvl',
+    single,
 
     endsTick: nowTick + offer.durationTicks,
     signedTick: nowTick,
     nextArrivalTick: nowTick + Math.round(arrivalInterval * (0.5 + Math.random())),
   });
   store.removeContractOffer(offer.id);
+  // В главе 1 запоминаем, что единственный договор уже заключён.
+  if (single) store.updateAirport(airport.id, { ch1ContractAccepted: true });
   res.json(serializeEnvelope(airport.id));
 });
 
@@ -2993,6 +3017,10 @@ app.post('/api/building/upgrade', auth, (req, res) => {
   const ctx = getOwnedBuildingOr404(req, res);
   if (!ctx) return;
   const { airport, building, def } = ctx;
+  // Апгрейд администрации не открывается в первой главе (обучение).
+  if (def && def.id === 'admin' && (airport.chapter || 1) === 1) {
+    return res.status(400).json({ error: 'chapter_locked', message: 'Апгрейд администрации откроется в следующей главе' });
+  }
   // Апгрейд доступен для любого здания, включая несносимое админздание —
   // это отдельная механика от продажи/сноса.
   if (building.state !== 'owned') return res.status(400).json({ error: 'wrong_state', message: 'Нельзя улучшать здание, пока оно в аренде или продано' });
@@ -5074,9 +5102,14 @@ function processContractsTick(airport, currentTick, notifications) {
         size: c.size || null,
         flightType: c.flightType || 'vvl',
       });
-      const iv = arrivalIntervalFor(fresh.level, c.craft);
-      const variance = 1 + (Math.random() * 2 - 1) * APRON_ECONOMY.ARRIVAL_INTERVAL_VARIANCE;
-      store.updateContract(c.id, { nextArrivalTick: currentTick + Math.round(iv * variance) });
+      if (c.single) {
+        // Разовый договор (глава 1): борт уже в пути, повторных рейсов нет.
+        store.removeContract(c.id);
+      } else {
+        const iv = arrivalIntervalFor(fresh.level, c.craft);
+        const variance = 1 + (Math.random() * 2 - 1) * APRON_ECONOMY.ARRIVAL_INTERVAL_VARIANCE;
+        store.updateContract(c.id, { nextArrivalTick: currentTick + Math.round(iv * variance) });
+      }
     }
   }
 
@@ -5265,13 +5298,16 @@ function processContractsTick(airport, currentTick, notifications) {
 
   // 5) Появление новых предложений
   const activeOffers = store.getContractOffers(airport.id);
-  const maxOffers = adminMaxOffers(adminLevel(airport.id));
+  const chapterOneOffer = (fresh.chapter || 1) === 1;
+  // Глава 1: одно предложение и один договор за всю главу.
+  const maxOffers = chapterOneOffer ? 1 : adminMaxOffers(adminLevel(airport.id));
   // Если договоров уже столько, сколько аэропорт тянет, новых не предлагаем:
   // иначе конверт забивается предложениями, которые невозможно принять.
   const activeByCraft = activeContractsByCraft(airport.id);
   const capsByCraft = maxActiveContracts(airport.id);
   const atContractCap = activeByCraft.heli >= capsByCraft.heli && activeByCraft.plane >= capsByCraft.plane;
-  if (canAcceptContracts(airport.id) && !atContractCap && activeOffers.length < maxOffers) {
+  const ch1Done = chapterOneOffer && fresh.ch1ContractAccepted;
+  if (canAcceptContracts(airport.id) && !atContractCap && !ch1Done && activeOffers.length < maxOffers) {
     const pads = countHelipads(airport.id);
     const stands = listStands(airport.id).length;
     let chance = Math.min(

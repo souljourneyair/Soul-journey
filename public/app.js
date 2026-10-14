@@ -73,6 +73,7 @@ const BUILDING_ICONS = {
   cargo_terminal: '📦', fire_station: '🚒', terminal_b: '🏬', cafe: '☕', hotel: '🏨',
   runway_big: '🛬', vip_lounge: '💺', terminal_d: '🏬', conference_center: '🏢',
   cargo_hub: '📦', terminal_c: '🌍', terminal_e: '🌍', terminal_f: '🌐',
+  mchs: '🚑', small_cafe: '☕',
 };
 
 function showScreen(id) {
@@ -492,6 +493,7 @@ function renderAll() {
   renderBuildMenu();
   renderQuests();
   checkQuestReward();
+  applyCharterAvailability();
 }
 
 function renderStats() {
@@ -633,7 +635,7 @@ let _objectsTableFingerprint = null;
 // Категории для группировки таблицы зданий.
 // Порядок = порядок показа групп. members — id зданий этой группы.
 const BUILDING_GROUPS = [
-  { key: 'helipads', title: 'Вертолётный перрон', members: ['helipad'] },
+  { key: 'helipads', title: 'Вертолётный перрон', members: ['helipad', 'mchs'] },
   { key: 'stands', title: 'Самолётный перрон', subgroups: [
       { key: 'stand_small', title: 'Малые стоянки', members: ['stand_small'] },
       { key: 'stand_medium', title: 'Средние стоянки', members: ['stand_medium'] },
@@ -940,6 +942,41 @@ function renderBuildMenu() {
 
   const purchasable = purchasableBuildings();
 
+  // Покос травы — отдельная кнопка над каталогом. Нужен, пока не скошено под
+  // очередную площадку (Гоша один, по одному покосу на площадку). Пока траву
+  // не скосили, постройка вертолётной площадки заблокирована.
+  const mow = STATE.mow || {};
+  const helipadsBuilt = (STATE.buildings || [])
+    .filter(b => b.buildingId === 'helipad' && (b.state || 'owned') !== 'sold').length;
+  const helipadLimit = (STATE.buildLimits || {}).helipad;
+  const heliCanMore = helipadLimit == null || helipadsBuilt < helipadLimit;
+  const hasMowCredit = (mow.credits || 0) >= 1;
+  if (heliCanMore && !hasMowCredit) {
+    const item = document.createElement('div');
+    item.className = 'build-item build-item-mow' + (mow.mowing ? ' locked' : '');
+    item.innerHTML = `
+      <div class="build-item-top">
+        <span class="build-item-name">🌿 Скосить траву</span>
+        <span class="build-item-cost">${(mow.cost || 1000).toLocaleString('ru-RU')} у.е.</span>
+      </div>
+      <div class="build-item-desc">Дядя Гоша скосит траву под вертолётную площадку.</div>
+      <div class="build-item-meta"><span>${mow.mowing ? `Косится… осталось ${(mow.ticksLeft || 0) * 10} сек` : 'Нужно перед площадкой'}</span></div>
+    `;
+    const btn = document.createElement('button');
+    btn.className = 'btn-secondary';
+    btn.style.width = '100%';
+    if (mow.mowing) {
+      btn.textContent = 'Косится…';
+      btn.disabled = true;
+    } else {
+      btn.textContent = STATE.money < (mow.cost || 1000) ? 'Недостаточно средств' : 'Скосить траву';
+      btn.disabled = STATE.money < (mow.cost || 1000);
+      btn.addEventListener('click', openMowDialog);
+    }
+    item.appendChild(btn);
+    menu.appendChild(item);
+  }
+
   purchasable.forEach(def => {
     // Пока нет администрации, доступна только она сама: без штаба аэропорта
     // не существует, и начинать с вертолётной площадки в чистом поле нельзя.
@@ -951,8 +988,9 @@ function renderBuildMenu() {
     // может быть списком: раньше клиент сравнивал его со строкой, и здание
     // с несколькими требованиями считалось заблокированным навсегда — даже
     // когда всё нужное построено.
+    const needMow = def.id === 'helipad' && !hasMowCredit;
     const missing = missingRequirement(def);
-    const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing;
+    const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing || needMow;
     const tooExpensive = STATE.money < def.cost;
     // лимит количества этого здания
     const limit = (STATE.buildLimits || {})[def.id];
@@ -969,7 +1007,8 @@ function renderBuildMenu() {
       <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
       <div class="build-item-meta">
         <span>${
-          needsAdminFirst ? 'Ждём администрацию'
+          needMow ? 'Сначала скосите траву'
+          : needsAdminFirst ? 'Ждём администрацию'
           : missing ? missing
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
         }</span>
@@ -1005,31 +1044,34 @@ async function build(buildingId) {
     toast('Построено!');
     return;
   } catch (err) {
-    // Перед площадкой нужно скосить траву: окно дяди Гоши, а не системный диалог.
-    if (err.code === 'needs_mow') {
-      const cost = (STATE.mow && STATE.mow.cost) || 1000;
-      showCharDialog({
-        characterId: 'gosha', scene: 'mow', title: 'ДЯДЯ ГОША', emoji: '🧑🔧',
-        fallbackText: 'Для этого надо скосить траву в поле. Хочешь, я это сделаю?',
-        actions: [
-          {
-            label: `Скосить траву (${cost.toLocaleString('ru-RU')} у.е.)`, primary: true,
-            onClick: async () => {
-              try {
-                STATE = await api('/api/quests/mow', 'POST', {});
-                closeCharDialog();
-                renderAll();
-                toast('Покос пошёл — трава ляжет через минуту');
-              } catch (e2) { toast(e2.message, true); }
-            },
-          },
-          { label: 'Позже', onClick: closeCharDialog },
-        ],
-      });
-      return;
-    }
+    // Перед площадкой нужно скосить траву: окно дяди Гоши.
+    if (err.code === 'needs_mow') { openMowDialog(); return; }
     toast(err.message, true);
   }
+}
+
+// Окно дяди Гоши с предложением скосить траву (отдельная кнопка покоса).
+function openMowDialog() {
+  const mow = STATE.mow || {};
+  const cost = mow.cost || 1000;
+  showCharDialog({
+    characterId: 'gosha', scene: 'mow', title: 'ДЯДЯ ГОША', emoji: '🧑🔧',
+    fallbackText: 'Для этого надо скосить траву в поле. Хочешь, я это сделаю?',
+    actions: [
+      {
+        label: `Скосить траву (${cost.toLocaleString('ru-RU')} у.е.)`, primary: true,
+        onClick: async () => {
+          try {
+            STATE = await api('/api/quests/mow', 'POST', {});
+            closeCharDialog();
+            renderAll();
+            toast('Покос пошёл — трава ляжет за полминуты');
+          } catch (e2) { toast(e2.message, true); }
+        },
+      },
+      { label: 'Позже', onClick: closeCharDialog },
+    ],
+  });
 }
 
 // Универсальное диалоговое окно персонажа: аватар + картинка/текст сцены + кнопки.
@@ -1185,7 +1227,9 @@ function renderBuildingModal() {
     return;
   }
 
-  if (state === 'owned' && building.nextUpgradeCost && !building.ruined) {
+  const adminPanelLocked = def.id === 'admin'
+    && STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1;
+  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !adminPanelLocked) {
     const canAffordUpgrade = STATE.money >= building.nextUpgradeCost;
     const upgradeBtn = actionBtn(
       canAffordUpgrade ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${(building.upgradeWithRepair || building.nextUpgradeCost).toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств для апгрейда',
@@ -1416,7 +1460,17 @@ function renderBuildingPanel(cellIndex, container) {
     return;
   }
 
-  if (state === 'owned' && building.nextUpgradeCost && !building.ruined) {
+  // В первой главе администрацию не улучшаем (обучение).
+  const adminChapterLocked = def.id === 'admin'
+    && STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1;
+  if (adminChapterLocked) {
+    const hint = document.createElement('div');
+    hint.className = 'build-menu-hint';
+    hint.textContent = 'Апгрейд администрации откроется в следующей главе.';
+    actions.appendChild(hint);
+  }
+
+  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !adminChapterLocked) {
     // У некоторых зданий каждый уровень открывается своими условиями —
     // показываем, чего не хватает, вместо молчаливой блокировки.
     const upRules = (def.upgradeRequires || {})[(building.upgradeLevel || 1) + 1];
@@ -2370,10 +2424,25 @@ let envelopeData = { offers: [], contracts: [], canAccept: false };
 async function openEnvelope() {
   try {
     envelopeData = await api('/api/envelope');
+    applyCharterAvailability();
     renderEnvelope();
     $('#envelopeModal').classList.remove('hidden');
   } catch (err) {
     toast(err.message, true);
+  }
+}
+
+// Чартеры открываются во второй главе. В первой — вкладку прячем и
+// принудительно держим открытой вкладку «Договоры».
+function applyCharterAvailability() {
+  const available = !STATE || STATE.chartersAvailable !== false;
+  const tabBtn = document.querySelector('.lb-tab[data-env="charter"]');
+  if (tabBtn) tabBtn.classList.toggle('hidden', !available);
+  if (!available) {
+    document.querySelectorAll('.lb-tab[data-env]').forEach(b =>
+      b.classList.toggle('lb-tab-active', b.dataset.env === 'offers'));
+    $('#envCharter')?.classList.add('hidden');
+    document.querySelector('.envelope-body')?.classList.remove('hidden');
   }
 }
 
