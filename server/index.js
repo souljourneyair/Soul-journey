@@ -1612,7 +1612,7 @@ function serializeQuests(airport) {
   const quests = airport.quests || {};
   const now = store.getTickCounter();
   return {
-    chapter: ch ? { id: ch.id, name: ch.name, goal: ch.goal } : null,
+    chapter: ch ? { id: ch.id, key: ch.key, name: ch.name, goal: ch.goal } : null,
     tasks: ch ? ch.tasks.map(t => {
       const q = quests[t.id] || {};
       return {

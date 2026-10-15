@@ -3816,6 +3816,7 @@ async function acceptQuest(taskId) {
 }
 
 async function claimQuestReward() {
+  closeCharDialog();
   try {
     STATE = await api('/api/quests/reward/ack', 'POST', {});
     questRewardShown = false;
@@ -3828,12 +3829,23 @@ function openQuests() {
   $('#questsModal')?.classList.remove('hidden');
 }
 
-// Автопоказ окна награды, когда глава завершена.
+// Награда за главу — диалог мэра с портретом и обращением. Открывается один
+// раз, когда глава завершена; кнопка забирает награду.
 function checkQuestReward() {
-  if (!STATE || !STATE.quests || !STATE.quests.pendingReward) { questRewardShown = false; return; }
+  const q = STATE && STATE.quests;
+  if (!q || !q.pendingReward) { questRewardShown = false; return; }
   if (questRewardShown) return;
   questRewardShown = true;
-  openQuests();
+  const scene = q.chapter ? `ch${q.chapter.id}` : 'reward';
+  const money = q.rewardMoney || 0;
+  showCharDialog({
+    characterId: 'mayor', scene, title: 'МЭР', emoji: '🏛️',
+    fallbackText: q.rewardText || 'Награда за пройденную главу.',
+    actions: [{
+      label: 'Забрать награду' + (money ? ` (+${money.toLocaleString('ru-RU')} у.е.)` : ''),
+      primary: true, onClick: claimQuestReward,
+    }],
+  });
 }
 
 document.addEventListener('click', (e) => {
