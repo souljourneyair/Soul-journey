@@ -481,6 +481,7 @@ function bumpStat(el) {
 
 function renderAll() {
   checkWelcome();
+  checkGoshaIntro();
   checkLevel2Bonus();
   checkLevel5Bonus();
   checkHubFinale();
@@ -3619,6 +3620,36 @@ function checkWelcome() {
   if (!$('#welcomeModal').classList.contains('hidden')) return;
   welcomeStep = 0;
   showWelcome();
+}
+
+// Знакомство с дядей Гошей (вступление, шаг 5). Показывается один раз —
+// после вступления, когда уже введено имя аэропорта. Гоша даёт первую задачу
+// «Скосить траву» (она уже висит в меню «Задачи»).
+let goshaIntroShown = false;
+function checkGoshaIntro() {
+  if (!STATE || STATE.goshaIntroSeen || goshaIntroShown) return;
+  if (!STATE.name || !STATE.welcomeSeen) return;
+  const blockers = ['welcomeModal', 'airportNameModal', 'dedLetterModal', 'charDialogModal', 'bankruptModal'];
+  if (blockers.some(id => {
+    const el = document.getElementById(id);
+    return el && !el.classList.contains('hidden');
+  })) return;
+  goshaIntroShown = true;
+  showCharDialog({
+    characterId: 'gosha', scene: 'acquaintance', title: 'ДЯДЯ ГОША', emoji: '🧑‍🔧',
+    fallbackText: 'Привет, племяш! Сколько лет, сколько зим! Ты решил восстановить дело '
+      + 'своего старика? Это похвально! Я и тётя Нина готовы помочь тебе в этом. Слышал, '
+      + 'ты хочешь построить вертолётную площадку? Для этого надо скосить траву в поле. '
+      + 'Хочешь, я это сделаю?',
+    actions: [{
+      label: 'Понятно', primary: true,
+      onClick: async () => {
+        closeCharDialog();
+        try { STATE = await api('/api/gosha-intro/ack', 'POST', {}); renderAll(); }
+        catch (e) { /* не критично */ }
+      },
+    }],
+  });
 }
 
 // Показ очереди происшествий: игрок заходит и первым делом узнаёт, что

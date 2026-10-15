@@ -1812,6 +1812,7 @@ function serializeAirport(airport) {
     username: owner ? owner.username : null,   // чтобы подсветить себя в рейтинге
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
     welcomeXp: CONFIG.WELCOME_XP || 500,
+    goshaIntroSeen: !!airport.goshaIntroSeen,  // видел ли знакомство с Гошей
     quests: serializeQuests(airport),          // глава, задачи, награда
     chartersAvailable: (airport.chapter || 1) >= 2,  // чартеры открываются в главе 2
     mow: {
@@ -1979,7 +1980,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     // главы и задачи — сначала
     ...initChapterQuests(1), profitStreak: 0,
     mowCount: 0, mowCredits: 0, mowEndsTick: null,
-    ch1ContractAccepted: false, chapterRewarded: null,
+    ch1ContractAccepted: false, chapterRewarded: null, goshaIntroSeen: false,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
     eventLog: [], newsLog: [],
     // счётчики приветствия — чтобы новый заход снова показал вступление
@@ -2076,6 +2077,14 @@ app.post('/api/welcome/claim', auth, (req, res) => {
     welcomeXpGiven: true, welcomeSeen: true,
   });
   res.json({ ...serializeAirport(updated), _welcomeXp: xp });
+});
+
+// Знакомство с дядей Гошей показано (вступительное окно, один раз).
+app.post('/api/gosha-intro/ack', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const updated = store.updateAirport(airport.id, { goshaIntroSeen: true });
+  res.json(serializeAirport(updated));
 });
 
 // Скосить траву (дядя Гоша): 1 000 у.е. сразу, работа идёт MOW.DURATION_TICKS.
