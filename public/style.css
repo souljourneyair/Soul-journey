@@ -1121,6 +1121,9 @@ body.modal-open { overflow: hidden; }
   .ded-avatar { flex: 0 0 auto; width: 144px; height: 173px; align-self: center; }
 }
 
+/* Здание администрации: в колонке «Действие» — текущая глава */
+.obj-chapter { color: var(--board-amber); font-weight: 600; }
+
 /* ===== Покос травы в перроне ===== */
 .mow-row { background: rgba(120, 200, 90, 0.06); }
 .mow-row .obj-name { color: var(--board-amber); }

@@ -820,7 +820,14 @@ function renderBuildingRow(building, tbody, indent) {
     : `<span class="obj-photo-emoji">${iconValue}</span>`;
 
   let actionText = '';
-  if (building.constructionType === 'build') {
+  // У здания администрации в колонке «Действие» — текущая глава, и ничего
+  // больше (по просьбе заказчика).
+  if (building.buildingId === 'admin') {
+    const ch = STATE.quests && STATE.quests.chapter;
+    actionText = ch
+      ? `<span class="obj-chapter">📖 Глава ${ch.id}: ${escapeHtml(ch.name)}</span>`
+      : '<span class="obj-chapter">📖 Сюжет пройден</span>';
+  } else if (building.constructionType === 'build') {
     actionText = `<span class="obj-working">${progressRing(constructionProgress(building), 28, building.constructionTicksLeft)}<span>Строится<br><span class="obj-action-line">осталось ${building.constructionTicksLeft} мин</span></span></span>`;
   } else if (building.constructionType === 'upgrade') {
     actionText = `<span class="obj-working">${progressRing(constructionProgress(building), 28, building.constructionTicksLeft)}<span>Улучшается до ур. ${building.pendingUpgradeLevel}<br><span class="obj-action-line">осталось ${building.constructionTicksLeft} мин</span></span></span>`;
@@ -916,6 +923,10 @@ function missingRequirement(rules) {
   if (rules.requiresAnyOf && rules.requiresAnyOf.length && !rules.requiresAnyOf.some(has)) {
     return `Нужно одно из: ${rules.requiresAnyOf.map(nameOf).join(' или ')}`;
   }
+  for (const [id, need] of Object.entries(rules.requiresBuildingCount || {})) {
+    const have = built.filter(b => b.buildingId === id).length;
+    if (have < need) return `Нужно: ${nameOf(id)} (${have}/${need})`;
+  }
   for (const [id, lvl] of Object.entries(rules.requiresBuildingLevel || {})) {
     const b = built.find(x => x.buildingId === id);
     if (!b || (b.upgradeLevel || 1) < lvl) return `Нужен ${nameOf(id)} ур. ${lvl}`;
@@ -951,7 +962,10 @@ function renderBuildMenu() {
   const helipadLimit = (STATE.buildLimits || {}).helipad;
   const heliCanMore = helipadLimit == null || helipadsBuilt < helipadLimit;
   const hasMowCredit = (mow.credits || 0) >= 1;
-  if (heliCanMore && !hasMowCredit) {
+  // Вторая площадка открывается только после первого принятого борта.
+  const firstBortArrived = (STATE.paxArrived || 0) >= 1;
+  const secondPadBlocked = helipadsBuilt >= 1 && !firstBortArrived;
+  if (heliCanMore && !hasMowCredit && !secondPadBlocked) {
     const item = document.createElement('div');
     item.className = 'build-item build-item-mow' + (mow.mowing ? ' locked' : '');
     item.innerHTML = `
@@ -988,9 +1002,10 @@ function renderBuildMenu() {
     // может быть списком: раньше клиент сравнивал его со строкой, и здание
     // с несколькими требованиями считалось заблокированным навсегда — даже
     // когда всё нужное построено.
-    const needMow = def.id === 'helipad' && !hasMowCredit;
+    const needFirstBort = def.id === 'helipad' && secondPadBlocked;
+    const needMow = def.id === 'helipad' && !hasMowCredit && !needFirstBort;
     const missing = missingRequirement(def);
-    const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing || needMow;
+    const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing || needMow || needFirstBort;
     const tooExpensive = STATE.money < def.cost;
     // лимит количества этого здания
     const limit = (STATE.buildLimits || {})[def.id];
@@ -1007,7 +1022,8 @@ function renderBuildMenu() {
       <div class="build-item-desc">${displayBuildingDesc(def.id)}</div>
       <div class="build-item-meta">
         <span>${
-          needMow ? 'Сначала скосите траву'
+          needFirstBort ? 'Сначала примите первый борт'
+          : needMow ? 'Сначала скосите траву'
           : needsAdminFirst ? 'Ждём администрацию'
           : missing ? missing
           : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
@@ -1227,9 +1243,8 @@ function renderBuildingModal() {
     return;
   }
 
-  const adminPanelLocked = def.id === 'admin'
-    && STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1;
-  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !adminPanelLocked) {
+  const chapterOnePanelLock = !!(STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1);
+  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !chapterOnePanelLock) {
     const canAffordUpgrade = STATE.money >= building.nextUpgradeCost;
     const upgradeBtn = actionBtn(
       canAffordUpgrade ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${(building.upgradeWithRepair || building.nextUpgradeCost).toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств для апгрейда',
@@ -1460,17 +1475,16 @@ function renderBuildingPanel(cellIndex, container) {
     return;
   }
 
-  // В первой главе администрацию не улучшаем (обучение).
-  const adminChapterLocked = def.id === 'admin'
-    && STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1;
-  if (adminChapterLocked) {
+  // В первой главе апгрейды отключены целиком (обучение).
+  const chapterOneLock = !!(STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1);
+  if (chapterOneLock && state === 'owned' && building.nextUpgradeCost && !building.ruined) {
     const hint = document.createElement('div');
     hint.className = 'build-menu-hint';
-    hint.textContent = 'Апгрейд администрации откроется в следующей главе.';
+    hint.textContent = 'Апгрейды откроются в следующей главе.';
     actions.appendChild(hint);
   }
 
-  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !adminChapterLocked) {
+  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !chapterOneLock) {
     // У некоторых зданий каждый уровень открывается своими условиями —
     // показываем, чего не хватает, вместо молчаливой блокировки.
     const upRules = (def.upgradeRequires || {})[(building.upgradeLevel || 1) + 1];

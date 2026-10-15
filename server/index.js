@@ -1553,6 +1553,9 @@ function questAutoDone(airport, task) {
     case 'building':
       return store.getBuildingsByAirport(airport.id)
         .some(b => b.buildingId === auto.buildingId && !isUnderConstruction(b) && !b.ruined);
+    case 'building_count':
+      return store.getBuildingsByAirport(airport.id)
+        .filter(b => b.buildingId === auto.buildingId && !isUnderConstruction(b) && !b.ruined).length >= auto.target;
     case 'pax':
       return (airport.paxServed || 0) >= auto.target;
     case 'pax_processed':
@@ -3017,9 +3020,10 @@ app.post('/api/building/upgrade', auth, (req, res) => {
   const ctx = getOwnedBuildingOr404(req, res);
   if (!ctx) return;
   const { airport, building, def } = ctx;
-  // Апгрейд администрации не открывается в первой главе (обучение).
-  if (def && def.id === 'admin' && (airport.chapter || 1) === 1) {
-    return res.status(400).json({ error: 'chapter_locked', message: 'Апгрейд администрации откроется в следующей главе' });
+  // В первой главе апгрейды отключены целиком: пока идёт обучение, игрок не
+  // тратит деньги на улучшения.
+  if ((airport.chapter || 1) === 1) {
+    return res.status(400).json({ error: 'chapter_locked', message: 'Апгрейды откроются в следующей главе' });
   }
   // Апгрейд доступен для любого здания, включая несносимое админздание —
   // это отдельная механика от продажи/сноса.
