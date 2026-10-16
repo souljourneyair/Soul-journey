@@ -1813,6 +1813,7 @@ function serializeAirport(airport) {
     welcomeSeen: !!airport.welcomeSeen,        // видел ли игрок вступление
     welcomeXp: CONFIG.WELCOME_XP || 500,
     goshaIntroSeen: !!airport.goshaIntroSeen,  // видел ли знакомство с Гошей
+    ninaIntroSeen: !!airport.ninaIntroSeen,    // видел ли знакомство с Ниной
     quests: serializeQuests(airport),          // глава, задачи, награда
     chartersAvailable: (airport.chapter || 1) >= 2,  // чартеры открываются в главе 2
     mow: {
@@ -1980,7 +1981,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     // главы и задачи — сначала
     ...initChapterQuests(1), profitStreak: 0,
     mowCount: 0, mowCredits: 0, mowEndsTick: null,
-    ch1ContractAccepted: false, chapterRewarded: null, goshaIntroSeen: false,
+    ch1ContractAccepted: false, chapterRewarded: null, goshaIntroSeen: false, ninaIntroSeen: false,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
     eventLog: [], newsLog: [],
     // счётчики приветствия — чтобы новый заход снова показал вступление
@@ -2084,6 +2085,14 @@ app.post('/api/gosha-intro/ack', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
   const updated = store.updateAirport(airport.id, { goshaIntroSeen: true });
+  res.json(serializeAirport(updated));
+});
+
+// Знакомство с тётей Ниной показано (завязка главы 2, один раз).
+app.post('/api/nina-intro/ack', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const updated = store.updateAirport(airport.id, { ninaIntroSeen: true });
   res.json(serializeAirport(updated));
 });
 

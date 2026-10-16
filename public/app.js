@@ -494,6 +494,7 @@ function renderAll() {
   renderBuildMenu();
   renderQuests();
   checkQuestReward();
+  checkNinaIntro();
   applyCharterAvailability();
 }
 
@@ -3827,6 +3828,37 @@ async function claimQuestReward() {
 function openQuests() {
   renderQuests();
   $('#questsModal')?.classList.remove('hidden');
+}
+
+// Знакомство с тётей Ниной — завязка главы 2. Показывается один раз при
+// старте главы 2: Нина намекает построить малое кафе (задача уже в «Задачах»).
+let ninaIntroShown = false;
+function checkNinaIntro() {
+  const q = STATE && STATE.quests;
+  if (!q || !q.chapter || q.chapter.id !== 2) return;
+  if (STATE.ninaIntroSeen || ninaIntroShown) return;
+  if (!STATE.name) return;
+  const blockers = ['welcomeModal', 'airportNameModal', 'dedLetterModal', 'charDialogModal', 'bankruptModal'];
+  if (blockers.some(id => {
+    const el = document.getElementById(id);
+    return el && !el.classList.contains('hidden');
+  })) return;
+  ninaIntroShown = true;
+  showCharDialog({
+    characterId: 'nina', scene: 'acquaintance', title: 'ТЁТЯ НИНА', emoji: '👩‍🍳',
+    fallbackText: 'Как я рада тебя видеть! Совсем большой стал! Я рада, что ты решил '
+      + 'продолжить дело своего деда. Говорят, что в современных предприятиях есть кафе, '
+      + 'где люди могут отдохнуть. Подумай, может и тебе стоит построить кафе? А я тебе '
+      + 'в этом помогу.',
+    actions: [{
+      label: 'Понятно', primary: true,
+      onClick: async () => {
+        closeCharDialog();
+        try { STATE = await api('/api/nina-intro/ack', 'POST', {}); renderAll(); openQuests(); }
+        catch (e) { /* не критично */ }
+      },
+    }],
+  });
 }
 
 // Награда за главу — диалог мэра с портретом и обращением. Открывается один

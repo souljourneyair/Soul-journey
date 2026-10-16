@@ -368,6 +368,7 @@ function createAirport(userId, startType, money) {
     quests: {},               // { [taskId]: { status, endsTick } }
     pendingChapterReward: null, // глава завершена, ждём показа награды
     goshaIntroSeen: false,    // показали ли знакомство с дядей Гошей
+    ninaIntroSeen: false,     // показали ли знакомство с тётей Ниной (глава 2)
     // «Дни в плюсе»: серия игровых суток, закрытых с прибылью (задачи главы)
     profitStreak: 0,
     // Покос травы (дядя Гоша): счётчик, доступные «кредиты» на площадку и таймер
