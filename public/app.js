@@ -495,6 +495,7 @@ function renderAll() {
   renderQuests();
   checkQuestReward();
   checkNinaIntro();
+  checkNinaLetter();
   applyCharterAvailability();
 }
 
@@ -3502,9 +3503,29 @@ function formatAudioTime(sec) {
 $('#dedLetterNext')?.addEventListener('click', () => {
   try { $('#dedVoice')?.pause(); } catch (e) { /* ок */ }
   $('#dedLetterModal').classList.add('hidden');
-  welcomeStep = 1;          // после письма — экран «Подарок» (начисление XP)
-  showWelcome();
+  showRewardDialog();       // после письма — окно награды (начисление XP)
 });
+
+// Окно награды вступления (шаг 4): отдельный диалог, кнопка начисляет XP.
+function showRewardDialog() {
+  const xp = (STATE && STATE.welcomeXp) || 500;
+  showCharDialog({
+    characterId: '', scene: '', title: 'НАГРАДА', emoji: '⭐',
+    fallbackText: `Вы получаете ${xp} очков опыта за вход в игру. Удачи в делах!`,
+    actions: [{ label: 'Забрать', primary: true, onClick: claimWelcomeReward }],
+  });
+}
+
+async function claimWelcomeReward() {
+  closeCharDialog();
+  try {
+    const res = await api('/api/welcome/claim', 'POST', {});
+    STATE = res;
+    if (res._welcomeXp) toast(`+${res._welcomeXp} XP за вход в игру`);
+    renderAll();
+    updateTopboard();
+  } catch (e) { /* не критично */ }
+}
 
 // Крестик делает то же, что кнопка: награда засчитывается, окно гасится.
 document.querySelector('.welcome-close')?.addEventListener('click', () => {
@@ -3855,6 +3876,38 @@ function checkNinaIntro() {
       onClick: async () => {
         closeCharDialog();
         try { STATE = await api('/api/nina-intro/ack', 'POST', {}); renderAll(); openQuests(); }
+        catch (e) { /* не критично */ }
+      },
+    }],
+  });
+}
+
+// Письмо Нины про рейтинг — событие главы 1. Показывается один раз, когда
+// принят первый борт: «чем лучше кормишь и вывозишь — тем чаще летают».
+let ninaLetterShown = false;
+function checkNinaLetter() {
+  const q = STATE && STATE.quests;
+  if (!q || !q.chapter || q.chapter.id !== 1) return;
+  if ((STATE.paxArrived || 0) < 1) return;
+  if (STATE.ninaLetterSeen || ninaLetterShown) return;
+  if (!STATE.name) return;
+  const blockers = ['welcomeModal', 'airportNameModal', 'dedLetterModal', 'charDialogModal', 'bankruptModal'];
+  if (blockers.some(id => {
+    const el = document.getElementById(id);
+    return el && !el.classList.contains('hidden');
+  })) return;
+  ninaLetterShown = true;
+  showCharDialog({
+    characterId: 'nina', scene: 'letter', title: 'ПИСЬМО ОТ ТЁТИ НИНЫ', emoji: '✉️',
+    fallbackText: 'Здравствуй, дорогой! Пишу тебе про важное: чем лучше ты кормишь и '
+      + 'вывозишь пассажиров, тем выше рейтинг аэропорта. А от рейтинга зависит, как '
+      + 'часто к тебе полетят борта и сколько людей они привезут. Так что встречай '
+      + 'гостей с теплом — и дела пойдут в гору. Обнимаю, тётя Нина.',
+    actions: [{
+      label: 'Понятно', primary: true,
+      onClick: async () => {
+        closeCharDialog();
+        try { STATE = await api('/api/nina-letter/ack', 'POST', {}); renderAll(); }
         catch (e) { /* не критично */ }
       },
     }],
