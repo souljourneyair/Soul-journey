@@ -1124,6 +1124,14 @@ body.modal-open { overflow: hidden; }
 /* Здание администрации: в колонке «Действие» — текущая глава */
 .obj-chapter { color: var(--board-amber); font-weight: 600; }
 
+/* ===== Баннер паузы ===== */
+.paused-banner {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  z-index: 2000; padding: 8px 16px; border-radius: 8px;
+  background: var(--board-amber); color: #1a1200; font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
 /* ===== Направления (точки) ===== */
 #pointsList { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
 .points-group-title { font-weight: 600; color: var(--board-amber); margin-top: 8px; }

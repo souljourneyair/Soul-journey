@@ -1649,6 +1649,16 @@ function infraStatusLines(building) {
     ].filter(Boolean);
   }
 
+  if (id === 'mchs') {
+    // Служебная площадка МЧС: показываем подаренный медвертолёт.
+    const lines = [STATE.hasMedicalHeli ? '🚑 Медвертолёт на службе' : '🚑 Ожидает спецборт'];
+    if (building.wear >= 0.01) {
+      const wearPct = Math.round((building.wear || 0) * 100);
+      lines.push(`износ ${wearPct}%${wearPct >= 50 ? ' ⚠️' : ''}`);
+    }
+    return lines;
+  }
+
   if (id === 'tower') {
     // В таблице у вышки — только интервал. Остальные показатели (счётчик
     // пропускной, узкое место, очередь) живут в её панели: столбец «Действие»
@@ -3965,6 +3975,7 @@ function updatePauseButton() {
   const paused = !!(STATE && STATE.paused);
   btn.textContent = paused ? '▶ Продолжить' : '⏸ Пауза';
   btn.classList.toggle('left-menu-btn-danger', paused);
+  $('#pausedBanner')?.classList.toggle('hidden', !paused);
 }
 
 $('#pauseBtn')?.addEventListener('click', togglePause);
