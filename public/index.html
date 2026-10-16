@@ -134,6 +134,7 @@
   <main class="game-main">
     <nav class="left-menu" id="leftMenu">
   <button id="questsBtn" class="left-menu-btn">Задачи<span id="questsBadge" class="envelope-badge hidden">0</span></button>
+  <button id="pointsBtn" class="left-menu-btn">🧭 Направления<span id="pointsBadge" class="envelope-badge hidden">0</span></button>
       <div class="left-menu-title">МЕНЮ</div>
       <button id="fleetBtn" class="left-menu-btn hidden">✈ Авиапарк</button>
       <button id="scheduleBtn" class="left-menu-btn">🕐 Расписание</button>
@@ -142,7 +143,8 @@
       <button id="bankBtn" class="left-menu-btn hidden">🏦 Банк</button>
       <button id="leaderboardBtn" class="left-menu-btn">🏆 Рейтинг</button>
       <button id="economyBtn" class="left-menu-btn">📈 Экономика</button>
-      <button id="restartBtn" class="left-menu-btn left-menu-btn-danger">↺ Начать сначала</button>
+      <button id="pauseBtn" class="left-menu-btn">⏸ Пауза</button>
+  <button id="restartBtn" class="left-menu-btn left-menu-btn-danger">↺ Начать сначала</button>
       <button id="supportBtn" class="left-menu-btn left-menu-btn-support">💛 Поддержать</button>
       <button id="logoutBtn" class="left-menu-btn">⎋ Выход</button>
     </nav>
@@ -285,6 +287,20 @@
 </div>
 
 <!-- ===== МОДАЛКА РАСПИСАНИЯ ПРИЛЁТОВ ===== -->
+<!-- ===== МОДАЛКА НАПРАВЛЕНИЙ (точки) ===== -->
+<div id="pointsModal" class="modal hidden">
+  <div class="modal-card board-frame">
+    <button class="modal-close" aria-label="Закрыть">×</button>
+    <div class="board-header">
+      <span class="board-title">НАПРАВЛЕНИЯ</span>
+      <span class="board-sub" id="pointsSub">ТОЧКИ</span>
+    </div>
+    <div class="build-menu-hint" id="pointsGoal">Открытые направления, с которыми можно наладить авиасвязь.</div>
+    <div id="pointsList"></div>
+    <button class="btn-secondary" id="closePoints">Закрыть</button>
+  </div>
+</div>
+
 <!-- ===== МОДАЛКА ЗАДАЧ (главы) ===== -->
 <div id="questsModal" class="modal hidden">
   <div class="modal-card board-frame">

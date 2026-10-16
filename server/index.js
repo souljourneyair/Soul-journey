@@ -9,7 +9,7 @@ const store = require('./store');
 const { ensureSuperuser } = require('./seed');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
-  CHAPTERS, chapterById, nextChapterId, MOW,
+  CHAPTERS, chapterById, nextChapterId, MOW, POINTS, pointById,
   BUILDINGS, BUILD_LIMITS, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, randomBotName, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
@@ -266,7 +266,7 @@ function checkRequirements(airport, rules) {
   // «Спящие» здания нельзя построить/апгрейдить прямым запросом: раньше фильтр
   // был только на клиенте, и POST-ом можно было возвести отель/грузовой хаб с
   // пассивным доходом. Разрешаем только явно открытое.
-  if (rules.hidden) {
+  if (rules.hidden && !(airport.unlockedBuildings || []).includes(rules.id)) {
     return { error: 'building_hidden', message: 'Это здание пока недоступно' };
   }
   // Офис авиакомпании доступен только после создания собственной АК.
@@ -1815,6 +1815,11 @@ function serializeAirport(airport) {
     goshaIntroSeen: !!airport.goshaIntroSeen,  // видел ли знакомство с Гошей
     ninaIntroSeen: !!airport.ninaIntroSeen,    // видел ли знакомство с Ниной
     ninaLetterSeen: !!airport.ninaLetterSeen,  // видел ли письмо Нины про рейтинг
+    openPoints: airport.openPoints || [],       // открытые направления (id)
+    points: POINTS.map(p => ({ ...p, open: (airport.openPoints || []).includes(p.id) })),
+    paused: !!airport.paused,                    // пауза аэропорта (временная механика)
+    unlockedBuildings: airport.unlockedBuildings || [],   // открытые наградой здания
+    hasMedicalHeli: !!airport.hasMedicalHeli,    // подарен медвертолёт (городские службы)
     quests: serializeQuests(airport),          // глава, задачи, награда
     chartersAvailable: (airport.chapter || 1) >= 2,  // чартеры открываются в главе 2
     mow: {
@@ -1983,6 +1988,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     ...initChapterQuests(1), profitStreak: 0,
     mowCount: 0, mowCredits: 0, mowEndsTick: null,
     ch1ContractAccepted: false, chapterRewarded: null, goshaIntroSeen: false, ninaIntroSeen: false, ninaLetterSeen: false,
+    openPoints: [], unlockedBuildings: [], hasMedicalHeli: false, paused: false,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
     eventLog: [], newsLog: [],
     // счётчики приветствия — чтобы новый заход снова показал вступление
@@ -2081,6 +2087,16 @@ app.post('/api/welcome/claim', auth, (req, res) => {
   res.json({ ...serializeAirport(updated), _welcomeXp: xp });
 });
 
+// Пауза аэропорта (временное решение): включить/выключить. Пока включена,
+// тик для этого аэропорта пропускается — не разориться в оффлайне.
+app.post('/api/airport/pause', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const paused = !!(req.body || {}).paused;
+  const updated = store.updateAirport(airport.id, { paused });
+  res.json(serializeAirport(updated));
+});
+
 // Знакомство с дядей Гошей показано (вступительное окно, один раз).
 app.post('/api/gosha-intro/ack', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
@@ -2165,6 +2181,19 @@ app.post('/api/quests/reward/ack', auth, (req, res) => {
   const xp = (airport.xp || 0) + (reward ? (reward.xp || 0) : 0);
   const nextId = nextChapterId(chapterId);
   const patch = { money, xp, level: levelFromXp(xp), pendingChapterReward: null };
+  // Награда может открывать направления (точки на карте).
+  if (reward && Array.isArray(reward.unlockPoints) && reward.unlockPoints.length) {
+    const cur = new Set(airport.openPoints || []);
+    for (const id of reward.unlockPoints) if (pointById(id)) cur.add(id);
+    patch.openPoints = [...cur];
+  }
+  // Награда может открывать «скрытые» здания и дарить спецборт.
+  if (reward && Array.isArray(reward.unlockBuildings) && reward.unlockBuildings.length) {
+    const cur = new Set(airport.unlockedBuildings || []);
+    for (const id of reward.unlockBuildings) if (BUILDINGS[id]) cur.add(id);
+    patch.unlockedBuildings = [...cur];
+  }
+  if (reward && reward.medHeli) patch.hasMedicalHeli = true;
   if (nextId != null) {
     const next = initChapterQuests(nextId);
     patch.chapter = next.chapter;
@@ -2711,23 +2740,26 @@ app.post('/api/build', auth, (req, res) => {
 
   const def = BUILDINGS[buildingId];
   if (!def) return res.status(400).json({ error: 'unknown_building' });
-  // Вертолётная площадка: перед КАЖДОЙ нужен свой покос (кредит от Гоши), а
-  // вторая ещё и ждёт, пока на первую не прилетит первый борт.
-  if (buildingId === 'helipad') {
+  // Любая площадка (обычная вертолётная или служебная МЧС): перед КАЖДОЙ нужен
+  // свой покос (кредит от Гоши). Вторая ОБЫЧНАЯ площадка ещё и ждёт, пока на
+  // первую не прилетит первый борт.
+  if (buildingId === 'helipad' || buildingId === 'mchs') {
     if ((airport.mowCredits || 0) < 1) {
       return res.status(400).json({
         error: 'needs_mow',
         message: 'Сначала скосите траву (дядя Гоша). Это нужно перед каждой площадкой.',
       });
     }
-    const helipads = store.getBuildingsByAirport(airport.id)
-      .filter(b => b.buildingId === 'helipad'
-        && (b.state || 'owned') !== 'sold' && !isUnderConstruction(b)).length;
-    if (helipads >= 1 && (airport.paxArrived || 0) < 1) {
-      return res.status(400).json({
-        error: 'first_bort_required',
-        message: 'Вторая площадка подождёт: сначала примите первый борт на первую.',
-      });
+    if (buildingId === 'helipad') {
+      const helipads = store.getBuildingsByAirport(airport.id)
+        .filter(b => b.buildingId === 'helipad'
+          && (b.state || 'owned') !== 'sold' && !isUnderConstruction(b)).length;
+      if (helipads >= 1 && (airport.paxArrived || 0) < 1) {
+        return res.status(400).json({
+          error: 'first_bort_required',
+          message: 'Вторая площадка подождёт: сначала примите первый борт на первую.',
+        });
+      }
     }
   }
   // Уникальные здания (админздание) — не более одного на аэропорт.
@@ -2796,7 +2828,9 @@ app.post('/api/build', auth, (req, res) => {
   store.addBuilding(airport.id, cellIndex, buildingId, { type: 'build', endsTick, xp: def.xp });
   const buildPatch = { money: newMoney };
   // Покос — разовый кредит на одну площадку: при постройке он тратится.
-  if (buildingId === 'helipad') buildPatch.mowCredits = Math.max(0, (airport.mowCredits || 0) - 1);
+  if (buildingId === 'helipad' || buildingId === 'mchs') {
+    buildPatch.mowCredits = Math.max(0, (airport.mowCredits || 0) - 1);
+  }
   const updated = store.updateAirport(airport.id, buildPatch);
 
   res.json(serializeAirport(updated));
@@ -4295,6 +4329,9 @@ function runTick() {
   }
 
   for (const airport of airports) {
+    // Пауза (временное решение): пока включена — аэропорт заморожен, ничего не
+    // начисляется и не списывается. Полезно, чтобы не разориться в оффлайне.
+    if (airport.paused) continue;
     const buildings = store.getBuildingsByAirport(airport.id);
     let incomePerTick = 0;
 

@@ -493,6 +493,8 @@ function renderAll() {
   renderObjectsTable();
   renderBuildMenu();
   renderQuests();
+  renderPoints();
+  updatePauseButton();
   checkQuestReward();
   checkNinaIntro();
   checkNinaLetter();
@@ -942,7 +944,7 @@ function purchasableBuildings() {
   // Уникальные здания (админздание) скрываем после постройки; остальные,
   // включая вертолётную стоянку, доступны к постройке всегда.
   return Object.values(STATE.catalog)
-    .filter(b => !b.hidden)                            // скрытые (без механики) не показываем игроку
+    .filter(b => !b.hidden || (STATE.unlockedBuildings || []).includes(b.id)) // скрытые скрываем, пока не открыты наградой
     .filter(b => !b.unique || !builtIds.has(b.id))
     .filter(b => !b.requiresAirline || STATE.airline) // офис — только после создания АК
     .sort((a, b) => a.minLevel - b.minLevel || a.cost - b.cost);
@@ -960,15 +962,21 @@ function renderBuildMenu() {
   // очередную площадку (Гоша один, по одному покосу на площадку). Пока траву
   // не скосили, постройка вертолётной площадки заблокирована.
   const mow = STATE.mow || {};
-  const helipadsBuilt = (STATE.buildings || [])
-    .filter(b => b.buildingId === 'helipad' && (b.state || 'owned') !== 'sold').length;
-  const helipadLimit = (STATE.buildLimits || {}).helipad;
-  const heliCanMore = helipadLimit == null || helipadsBuilt < helipadLimit;
+  const builtCount = (id) => (STATE.buildings || [])
+    .filter(b => b.buildingId === id && (b.state || 'owned') !== 'sold').length;
+  const helipadsBuilt = builtCount('helipad');
+  const mchsBuilt = builtCount('mchs');
+  const limits = STATE.buildLimits || {};
+  const mchsUnlocked = (STATE.unlockedBuildings || []).includes('mchs');
+  const heliCanMore = limits.helipad == null || helipadsBuilt < limits.helipad;
+  const mchsCanMore = mchsUnlocked && (limits.mchs == null || mchsBuilt < limits.mchs);
   const hasMowCredit = (mow.credits || 0) >= 1;
-  // Вторая площадка открывается только после первого принятого борта.
+  // Вторая ОБЫЧНАЯ площадка открывается только после первого принятого борта.
   const firstBortArrived = (STATE.paxArrived || 0) >= 1;
   const secondPadBlocked = helipadsBuilt >= 1 && !firstBortArrived;
-  if (heliCanMore && !hasMowCredit && !secondPadBlocked) {
+  // Покос нужен, пока есть куда строить площадку (обычную или служебную МЧС).
+  const padRemaining = (heliCanMore && !secondPadBlocked) || mchsCanMore;
+  if (padRemaining && !hasMowCredit) {
     const item = document.createElement('div');
     item.className = 'build-item build-item-mow' + (mow.mowing ? ' locked' : '');
     item.innerHTML = `
@@ -1005,8 +1013,9 @@ function renderBuildMenu() {
     // может быть списком: раньше клиент сравнивал его со строкой, и здание
     // с несколькими требованиями считалось заблокированным навсегда — даже
     // когда всё нужное построено.
+    const isPad = def.id === 'helipad' || def.id === 'mchs';
     const needFirstBort = def.id === 'helipad' && secondPadBlocked;
-    const needMow = def.id === 'helipad' && !hasMowCredit && !needFirstBort;
+    const needMow = isPad && !hasMowCredit && !needFirstBort;
     const missing = missingRequirement(def);
     const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing || needMow || needFirstBort;
     const tooExpensive = STATE.money < def.cost;
@@ -3939,6 +3948,68 @@ document.addEventListener('click', (e) => {
 });
 $('#questsBtn')?.addEventListener('click', openQuests);
 $('#closeQuests')?.addEventListener('click', () => $('#questsModal')?.classList.add('hidden'));
+
+// ===== ПАУЗА (временная механика) =====
+async function togglePause() {
+  try {
+    STATE = await api('/api/airport/pause', 'POST', { paused: !(STATE && STATE.paused) });
+    updatePauseButton();
+    renderAll();
+    toast(STATE.paused ? 'Пауза включена — аэропорт заморожен' : 'Пауза снята');
+  } catch (e) { toast(e.message, true); }
+}
+
+function updatePauseButton() {
+  const btn = $('#pauseBtn');
+  if (!btn) return;
+  const paused = !!(STATE && STATE.paused);
+  btn.textContent = paused ? '▶ Продолжить' : '⏸ Пауза';
+  btn.classList.toggle('left-menu-btn-danger', paused);
+}
+
+$('#pauseBtn')?.addEventListener('click', togglePause);
+
+// ===== НАПРАВЛЕНИЯ (точки) =====
+function renderPoints() {
+  const list = $('#pointsList');
+  const pts = STATE && STATE.points;
+  if (!list || !pts) return;
+  const opened = pts.filter(p => p.open);
+  const sub = $('#pointsSub');
+  if (sub) sub.textContent = `ОТКРЫТО: ${opened.length} ИЗ ${pts.length}`;
+  const groups = [
+    { key: 'heli', title: 'Вертолётные (ближние)', icon: '🚁' },
+    { key: 'vvl', title: 'Самолётные (ВВЛ)', icon: '✈️' },
+    { key: 'mvl', title: 'Международные (МВЛ)', icon: '🌍' },
+  ];
+  list.innerHTML = groups.map(g => {
+    const items = pts.filter(p => p.access === g.key);
+    if (!items.length) return '';
+    return `<div class="points-group-title">${g.icon} ${g.title}</div>` +
+      items.map(p => `<div class="point-row${p.open ? ' point-open' : ''}">
+        <div class="point-body">
+          <div class="point-name">${escapeHtml(p.name)}</div>
+          <div class="point-meta">${escapeHtml(p.type)} · ${p.distanceKm} км</div>
+        </div>
+        <div class="point-side">${p.open
+          ? '<span class="point-check">✓ Открыто</span>'
+          : '<span class="point-locked">🔒 Закрыто</span>'}</div>
+      </div>`).join('');
+  }).join('');
+  const badge = $('#pointsBadge');
+  if (badge) {
+    badge.textContent = opened.length;
+    badge.classList.toggle('hidden', opened.length === 0);
+  }
+}
+
+function openPointsModal() {
+  renderPoints();
+  $('#pointsModal')?.classList.remove('hidden');
+}
+
+$('#pointsBtn')?.addEventListener('click', openPointsModal);
+$('#closePoints')?.addEventListener('click', () => $('#pointsModal')?.classList.add('hidden'));
 
 // ===== INIT =====
 loadBackgrounds(); // фоны экранов (вход виден сразу, до логина)

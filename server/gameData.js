@@ -10,7 +10,9 @@ const CONFIG = {
   LEVEL2_BONUS_XP: 1000,       // подарок за второй уровень
   LEVEL2_BONUS_REP: 5,
   LEVEL5_BONUS_XP: 2000,       // подарок за пятый уровень
-  TICK_MS: 10 * 1000,      // 1 тик = 10 секунд реального времени (игровая минута)
+  // 1 тик = 2 игровых часа. ВРЕМЕННО ускорено ×3 (для теста): 10с → ~3.3с.
+  // Вернуть к 10 * 1000 для боевого темпа.
+  TICK_MS: Math.round(10 * 1000 / 3),
   TARGET_LEVEL: 10,        // веха для рейтинга «Гонка»: время до этого уровня
   MAX_LEVEL: 40,           // потолок игры — раньше уровень обрезался по TARGET_LEVEL
   // Авиакомпания открывается не уровнем, а достроенным хабом: все шесть
@@ -1060,7 +1062,7 @@ const BUILDINGS = {
   // Отдельное здание; открывается наградой главы 2 (см. §5.1). Механика заданий
   // мэра — позже, поэтому пока скрыто.
   mchs: {
-    id: 'mchs', nonRentable: true, name: 'МЧС', minLevel: 3, hidden: true,
+    id: 'mchs', nonRentable: true, name: 'МЧС', minLevel: 2, hidden: true,
     cost: 5000, income: 0,
     infrastructure: true, reputation: 5, xp: 500, removable: true, maxUpgradeLevel: 1,
     desc: 'Служебная вертолётная площадка под городские службы: скорая, пожарные, лесоохрана. Коммерческие договоры сюда не садятся — только спецборты мэра.',
@@ -1490,6 +1492,22 @@ function repairCost(wear, buyCost) {
   );
 }
 
+// ==================== НАПРАВЛЕНИЯ (ТОЧКИ) ====================
+// Фиксированный набор точек вокруг родного аэропорта. Пока реализован список
+// направлений и их открытие; привязка договоров к точкам и карта-схема — позже.
+//   access: 'heli' — вертолётная (ближняя), 'vvl' — самолётная ВВЛ,
+//           'mvl' — международная. size — спрос: small/middle/big.
+const POINTS = [
+  { id: 'tihaya', name: 'Турбаза «Тихая»', access: 'heli', type: 'туризм', distanceKm: 20, size: 'small' },
+  { id: 'ozersk', name: 'Озёрск', access: 'heli', type: 'туризм', distanceKm: 120, size: 'small' },
+  { id: 'kedrovo', name: 'Кедрово', access: 'heli', type: 'промышленный', distanceKm: 180, size: 'small' },
+  { id: 'zarechye', name: 'Заречье', access: 'heli', type: 'деловой', distanceKm: 240, size: 'middle' },
+  { id: 'sosnovka', name: 'Сосновка', access: 'heli', type: 'туризм', distanceKm: 300, size: 'middle' },
+  { id: 'verhniy_mayak', name: 'Верхний Маяк', access: 'vvl', type: 'туризм', distanceKm: 380, size: 'middle' },
+  { id: 'krayniy', name: 'Крайний (конкурент)', access: 'vvl', type: 'деловой', distanceKm: 420, size: 'middle' },
+];
+function pointById(id) { return POINTS.find(p => p.id === id) || null; }
+
 // Покос травы перед вертолётной площадкой (задача Гоши). Стоимость списывается
 // сразу, работа идёт DURATION_TICKS; по завершении даёт «кредит» на одну
 // площадку — тратится при её постройке. Перед КАЖДОЙ площадкой заново.
@@ -1526,8 +1544,8 @@ const CHAPTERS = [
         auto: { type: 'building_count', buildingId: 'helipad', target: 2 },
         desc: 'Постройте вторую площадку — с неё начинается глава «Вертолётные прогулки».' },
     ],
-    reward: { money: 2000, xp: 0,
-      text: 'Мэр выделяет субсидию и открывает две ближние вертолётные точки.' },
+    reward: { money: 2000, xp: 0, unlockPoints: ['tihaya', 'ozersk'],
+      text: 'Мэр выделяет субсидию и открывает две ближние вертолётные точки — Турбаза «Тихая» и Озёрск.' },
   },
   {
     id: 2, key: 'heli_walks', name: 'Вертолётные прогулки', minLevel: 2,
@@ -1546,8 +1564,8 @@ const CHAPTERS = [
         auto: { type: 'rating', target: 3.0 },
         desc: 'Доведите рейтинг обслуживания до 3.0.' },
     ],
-    reward: { money: 5000, xp: 0,
-      text: 'Мэр дарит медицинский вертолёт и открывает служебную площадку под городские службы.' },
+    reward: { money: 5000, xp: 0, unlockBuildings: ['mchs'], medHeli: true,
+      text: 'Мэр дарит медицинский вертолёт и открывает служебную площадку МЧС под городские службы. Пожарная часть доступна с 3 уровня.' },
   },
 ];
 
@@ -1561,7 +1579,7 @@ function nextChapterId(id) {
 
 module.exports = {
   CONFIG, CALENDAR, tickToClock, tickToDate, MOW,
-  CHAPTERS, chapterById, nextChapterId,
+  CHAPTERS, chapterById, nextChapterId, POINTS, pointById,
   BUILDINGS, BUILD_LIMITS, XP_FOR_LEVEL, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, BOT_COMPANY_NAMES, randomBotName, randomBotNames, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,

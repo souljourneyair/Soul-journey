@@ -1124,6 +1124,20 @@ body.modal-open { overflow: hidden; }
 /* Здание администрации: в колонке «Действие» — текущая глава */
 .obj-chapter { color: var(--board-amber); font-weight: 600; }
 
+/* ===== Направления (точки) ===== */
+#pointsList { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
+.points-group-title { font-weight: 600; color: var(--board-amber); margin-top: 8px; }
+.point-row {
+  display: flex; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 8px 12px; border: 1px solid var(--text-dim); border-radius: 8px;
+  opacity: 0.55;
+}
+.point-row.point-open { opacity: 1; border-color: var(--board-amber); background: rgba(255, 180, 0, 0.06); }
+.point-name { font-weight: 600; }
+.point-meta { font-size: 0.85em; color: var(--text-dim); }
+.point-check { color: var(--board-amber); font-weight: 600; }
+.point-locked { color: var(--text-dim); font-size: 0.85em; }
+
 /* ===== Покос травы в перроне ===== */
 .mow-row { background: rgba(120, 200, 90, 0.06); }
 .mow-row .obj-name { color: var(--board-amber); }
