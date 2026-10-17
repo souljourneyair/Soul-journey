@@ -2557,8 +2557,14 @@ app.post('/api/schedule/place', auth, (req, res) => {
   if (!(d >= 0 && d < SCHEDULE_DAYS && s >= 0 && s < SCHEDULE_SLOTS)) {
     return res.status(400).json({ error: 'bad_slot', message: 'Неверная ячейка' });
   }
+  // Блок рейса — 12 ч (2 слота): занимает выбранный и следующий. В конец суток
+  // (последний слот) блок не помещается.
+  if (s > SCHEDULE_SLOTS - 2) {
+    return res.status(400).json({ error: 'bad_slot', message: 'Рейс занимает 12 ч и не помещается в конец суток' });
+  }
   const schedule = (airport.schedule || []).slice();
-  if (schedule.some(e => e.day === d && e.slot === s)) {
+  const occupied = (dd, ss) => schedule.some(e => e.day === dd && (e.slot === ss || e.slot + 1 === ss));
+  if (occupied(d, s) || occupied(d, s + 1)) {
     return res.status(400).json({ error: 'cell_taken', message: 'Ячейка уже занята' });
   }
   const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;

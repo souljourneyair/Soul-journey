@@ -1163,6 +1163,11 @@ body.modal-open { overflow: hidden; }
   background: rgba(255, 180, 0, 0.12); border-color: var(--board-amber);
   color: var(--text); font-weight: 600;
 }
+.schedule-slot.block-start { border-right: none; }
+.schedule-slot.block-cont {
+  border-left: none; border-color: var(--board-amber);
+  background: rgba(255, 180, 0, 0.12);
+}
 
 /* ===== Направления (точки) ===== */
 #pointsList { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
