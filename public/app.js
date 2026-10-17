@@ -207,6 +207,7 @@ $('#restartBtn') && $('#restartBtn').addEventListener('click', async () => {
     openGroups.clear();
     openBuildingCells.clear();
     _objectsTableFingerprint = null;
+    introActive = false;   // после «Начать сначала» вступление снова доступно
     // мгновенно обновляем ВСЕ счётчики и весь интерфейс
     updateTopboard();
     renderAll();
@@ -495,9 +496,11 @@ function renderAll() {
   renderQuests();
   renderPoints();
   updatePauseButton();
+  // Порядок сюжетных окон: событие главы 1 (письмо Нины) → награда мэра
+  // (завершает главу 1) → знакомство с Ниной (старт главы 2).
+  checkNinaLetter();
   checkQuestReward();
   checkNinaIntro();
-  checkNinaLetter();
   applyCharterAvailability();
 }
 
@@ -2933,7 +2936,9 @@ function closeModal(modal) {
 // уровнем и происшествие. Игрок должен их прочитать и нажать кнопку — иначе
 // случайный клик по полю закрывает окно вместе с наградой, и человек даже не
 // успевает понять, что ему что-то дали.
-const REQUIRED_MODALS = ['welcomeModal', 'dedLetterModal', 'eventModal'];
+// Сюжетные окна закрываются только кнопкой — иначе клик по фону «съедал» бы
+// окно без подтверждения, флаг не сохранялся и окно всплывало позже не вовремя.
+const REQUIRED_MODALS = ['welcomeModal', 'dedLetterModal', 'eventModal', 'charDialogModal'];
 function isRequiredModal(modal) {
   return modal && REQUIRED_MODALS.includes(modal.id);
 }
@@ -3388,6 +3393,9 @@ $('#closeSchedule')?.addEventListener('click', () => $('#scheduleModal').classLi
 // Вступление для нового игрока: два экрана подряд, второй начисляет опыт.
 // Показывается один раз на аэропорт и заново после «Начать сначала».
 let welcomeStep = 0;
+// Вступление уже запущено (идёт цепочка окон). Пока флаг поднят, тик не должен
+// перезапускать вступление, иначе письмо деда/награда покажутся повторно.
+let introActive = false;
 function showWelcome() {
   // Во вступлении показываем само наследство — здание администрации первого
   // уровня, ту самую «рухлядь». Если картинка не загружена, остаётся эмодзи.
@@ -3540,6 +3548,7 @@ async function claimWelcomeReward() {
   try {
     const res = await api('/api/welcome/claim', 'POST', {});
     STATE = res;
+    introActive = false;   // вступление завершено — тик больше его не запустит
     if (res._welcomeXp) toast(`+${res._welcomeXp} XP за вход в игру`);
     renderAll();
     updateTopboard();
@@ -3657,8 +3666,9 @@ $('#hubRestart')?.addEventListener('click', () => {
 });
 
 function checkWelcome() {
-  if (STATE.welcomeSeen) return;
+  if (STATE.welcomeSeen || introActive) return;
   if (!$('#welcomeModal').classList.contains('hidden')) return;
+  introActive = true;
   welcomeStep = 0;
   showWelcome();
 }
