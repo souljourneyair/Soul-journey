@@ -348,6 +348,7 @@
     </div>
     <div class="lb-tabs">
       <button class="lb-tab lb-tab-active" data-env="offers">Договоры</button>
+      <button class="lb-tab" data-env="schedule">Расписание</button>
       <button class="lb-tab" data-env="charter">Чартеры</button>
     </div>
     <!-- Внутри каждой вкладки — свой борт, чтобы окно не превращалось
@@ -378,6 +379,12 @@
           <div id="envelopeContracts" class="envelope-list"></div>
         </div>
       </div>
+    </div>
+
+    <div id="envSchedule" class="hidden">
+      <div class="build-menu-hint" id="scheduleEditorHint">Выберите договор и кликните по ячейке, чтобы поставить рейс. Повторный клик убирает рейс.</div>
+      <div id="schedulePalette" class="schedule-palette"></div>
+      <div id="scheduleGrid" class="schedule-grid"></div>
     </div>
 
     <div id="envCharter" class="hidden">

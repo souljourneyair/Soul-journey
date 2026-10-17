@@ -2481,10 +2481,15 @@ function applyCharterAvailability() {
   const available = !STATE || STATE.chartersAvailable !== false;
   const tabBtn = document.querySelector('.lb-tab[data-env="charter"]');
   if (tabBtn) tabBtn.classList.toggle('hidden', !available);
+  // Расписание (реальные рейсы по договорам) — со 2-й главы, как и чартеры.
+  const schedBtn = document.querySelector('.lb-tab[data-env="schedule"]');
+  if (schedBtn) schedBtn.classList.toggle('hidden', !available);
   if (!available) {
     document.querySelectorAll('.lb-tab[data-env]').forEach(b =>
       b.classList.toggle('lb-tab-active', b.dataset.env === 'offers'));
     $('#envCharter')?.classList.add('hidden');
+    $('#envSchedule')?.classList.add('hidden');
+    $('#envCraftTabs')?.classList.remove('hidden');
     document.querySelector('.envelope-body')?.classList.remove('hidden');
   }
 }
@@ -3264,14 +3269,86 @@ async function orderCharter(craft, seats, size) {
   }
 }
 
+// ---------- Расписание (редактор рейсов) ----------
+let scheduleSelectedContract = null;
+
+function renderScheduleEditor() {
+  const palette = $('#schedulePalette');
+  const grid = $('#scheduleGrid');
+  if (!palette || !grid) return;
+  const contracts = (envelopeData.contracts || []);
+  if (!contracts.length) {
+    palette.innerHTML = '<div class="build-menu-hint">Нет активных договоров — заключите договор на открытую точку.</div>';
+    grid.innerHTML = '';
+    return;
+  }
+  if (!contracts.some(c => c.id === scheduleSelectedContract)) scheduleSelectedContract = contracts[0].id;
+  const schedule = envelopeData.schedule || [];
+  palette.innerHTML = contracts.map(c => {
+    const placed = schedule.filter(e => e.contractId === c.id).length;
+    const limit = c.flightsPerWeek || 7;
+    const sel = c.id === scheduleSelectedContract ? ' active' : '';
+    const full = placed >= limit ? ' full' : '';
+    return `<button class="schedule-tab${sel}${full}" data-cid="${c.id}">
+      ${escapeHtml(c.airline)}${c.pointName ? ' · ' + escapeHtml(c.pointName) : ''}
+      <span class="schedule-count">${placed}/${limit}</span>
+    </button>`;
+  }).join('');
+  palette.querySelectorAll('.schedule-tab').forEach(b => b.addEventListener('click', () => {
+    scheduleSelectedContract = Number(b.dataset.cid);
+    renderScheduleEditor();
+  }));
+
+  const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  const slots = ['00–06', '06–12', '12–18', '18–24'];
+  let html = '<div class="schedule-grid-inner">';
+  html += '<div class="schedule-row schedule-head"><div class="schedule-cell schedule-day"></div>' +
+    slots.map(s => `<div class="schedule-cell schedule-slot-head">${s}</div>`).join('') + '</div>';
+  for (let d = 0; d < 7; d++) {
+    html += `<div class="schedule-row"><div class="schedule-cell schedule-day">${days[d]}</div>`;
+    for (let s = 0; s < 4; s++) {
+      const e = schedule.find(x => x.day === d && x.slot === s);
+      const c = e ? contracts.find(x => x.id === e.contractId) : null;
+      html += `<div class="schedule-cell schedule-slot${e ? ' filled' : ''}" data-day="${d}" data-slot="${s}">` +
+        (e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '') + '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  grid.innerHTML = html;
+  grid.querySelectorAll('.schedule-slot').forEach(cell => {
+    cell.addEventListener('click', () => onScheduleCell(Number(cell.dataset.day), Number(cell.dataset.slot)));
+  });
+}
+
+async function onScheduleCell(day, slot) {
+  const e = (envelopeData.schedule || []).find(x => x.day === day && x.slot === slot);
+  try {
+    let res;
+    if (e) {
+      res = await api('/api/schedule/remove', 'POST', { id: e.id });
+    } else {
+      if (!scheduleSelectedContract) return;
+      res = await api('/api/schedule/place', 'POST', { contractId: scheduleSelectedContract, day, slot });
+    }
+    envelopeData = res;
+    renderScheduleEditor();
+    renderEnvelope();
+  } catch (err) { toast(err.message, true); }
+}
+
 document.querySelectorAll('.lb-tab[data-env]').forEach(btn => {
   btn.addEventListener('click', () => {
     const tab = btn.dataset.env;
     document.querySelectorAll('.lb-tab[data-env]').forEach(b =>
       b.classList.toggle('lb-tab-active', b.dataset.env === tab));
     $('#envCharter').classList.toggle('hidden', tab !== 'charter');
+    $('#envSchedule')?.classList.toggle('hidden', tab !== 'schedule');
     document.querySelector('.envelope-body').classList.toggle('hidden', tab !== 'offers');
+    // Тип борта (вертолёты/самолёты) относится к договорам, не к расписанию.
+    $('#envCraftTabs')?.classList.toggle('hidden', tab === 'schedule');
     if (tab === 'charter') renderCharter();
+    if (tab === 'schedule') renderScheduleEditor();
   });
 });
 

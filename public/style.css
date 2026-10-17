@@ -1132,6 +1132,36 @@ body.modal-open { overflow: hidden; }
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
+/* ===== Расписание (редактор) ===== */
+.schedule-palette { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.schedule-tab {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border: 1px solid var(--text-dim); border-radius: 8px;
+  background: transparent; color: var(--text); cursor: pointer; font-size: 12px;
+}
+.schedule-tab.active { border-color: var(--board-amber); background: rgba(255, 180, 0, 0.1); }
+.schedule-tab.full { opacity: 0.6; }
+.schedule-count { font-size: 11px; color: var(--board-amber); }
+.schedule-grid { overflow-x: auto; margin-bottom: 10px; }
+.schedule-grid-inner { display: inline-block; }
+.schedule-row { display: flex; }
+.schedule-cell {
+  min-width: 86px; border: 1px solid var(--text-dim);
+  padding: 4px 6px; font-size: 11px;
+}
+.schedule-day { min-width: 46px; font-weight: 600; display: flex; align-items: center; }
+.schedule-slot-head { font-weight: 600; text-align: center; color: var(--board-amber); }
+.schedule-head .schedule-cell { border-top: none; }
+.schedule-slot {
+  height: 46px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  text-align: center; color: var(--text-dim);
+}
+.schedule-slot:hover { background: rgba(255, 255, 255, 0.06); }
+.schedule-slot.filled {
+  background: rgba(255, 180, 0, 0.12); border-color: var(--board-amber);
+  color: var(--text); font-weight: 600;
+}
+
 /* ===== Направления (точки) ===== */
 #pointsList { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
 .points-group-title { font-weight: 600; color: var(--board-amber); margin-top: 8px; }

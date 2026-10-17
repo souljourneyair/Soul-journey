@@ -2040,7 +2040,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     ...initChapterQuests(1), profitStreak: 0,
     mowCount: 0, mowCredits: 0, mowEndsTick: null,
     ch1ContractAccepted: false, chapterRewarded: null, goshaIntroSeen: false, ninaIntroSeen: false, ninaLetterSeen: false,
-    openPoints: [], flownPoints: [], unlockedBuildings: [], hasMedicalHeli: false, paused: false,
+    openPoints: [], flownPoints: [], schedule: [], unlockedBuildings: [], hasMedicalHeli: false, paused: false,
     // «Начать сначала» — рейтинг и счётчики оценок с чистого листа.
     ratingScores: [], chapterRatingSamples: 0, ratingChapter: 1,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
@@ -2304,6 +2304,8 @@ app.post('/api/airport/dismiss-airline-offer', auth, (req, res) => {
 // ==================== КОНВЕРТ (договоры с авиакомпаниями) ====================
 function serializeEnvelope(airportId) {
   const nowTick = store.getTickCounter();
+  const ap = store.getAirportById(airportId);
+  const schedule = (ap && ap.schedule) || [];
   const offers = store.getContractOffers(airportId).map(o => ({
     id: o.id, airline: o.airline,
     payPerArrival: o.payPerArrival || o.payPerTick,
@@ -2322,12 +2324,13 @@ function serializeEnvelope(airportId) {
     craft: c.craft || 'heli', size: c.size || null,
     flightType: c.flightType || 'vvl',
     pointId: c.pointId || null, pointName: c.pointName || null,
+    flightsPerWeek: c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK,
+    scheduled: schedule.filter(e => e.contractId === c.id).length,
     minutesLeft: Math.max(0, c.endsTick - nowTick),
     daysLeft: Math.max(0, Math.round((c.endsTick - nowTick) / CALENDAR.TICKS_PER_DAY)),
   }));
-  const ap = store.getAirportById(airportId);
   return {
-    offers, contracts,
+    offers, contracts, schedule,
     canAccept: canAcceptContracts(airportId),
     chartersAvailable: !!(ap && (ap.chapter || 1) >= 2),
   };
@@ -2515,6 +2518,7 @@ app.post('/api/envelope/accept', auth, (req, res) => {
     flightType: offer.flightType || 'vvl',
     pointId: offer.pointId || null,     // направление (точка)
     pointName: offer.pointName || null,
+    flightsPerWeek: CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK,
     single,
 
     endsTick: nowTick + offer.durationTicks,
@@ -2535,6 +2539,43 @@ app.post('/api/envelope/decline', auth, (req, res) => {
   const offer = store.getContractOfferById(offerId);
   if (!offer || offer.airportId !== airport.id) return res.status(404).json({ error: 'no_offer' });
   store.removeContractOffer(offer.id);
+  res.json(serializeEnvelope(airport.id));
+});
+
+// ---- Расписание: игрок ставит рейсы договора в ячейки недельной сетки ----
+const SCHEDULE_DAYS = 7;
+const SCHEDULE_SLOTS = 4;
+app.post('/api/schedule/place', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const { contractId, day, slot } = req.body || {};
+  const c = store.getContractById(Number(contractId));
+  if (!c || c.airportId !== airport.id) {
+    return res.status(404).json({ error: 'no_contract', message: 'Договор не найден' });
+  }
+  const d = Number(day), s = Number(slot);
+  if (!(d >= 0 && d < SCHEDULE_DAYS && s >= 0 && s < SCHEDULE_SLOTS)) {
+    return res.status(400).json({ error: 'bad_slot', message: 'Неверная ячейка' });
+  }
+  const schedule = (airport.schedule || []).slice();
+  if (schedule.some(e => e.day === d && e.slot === s)) {
+    return res.status(400).json({ error: 'cell_taken', message: 'Ячейка уже занята' });
+  }
+  const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
+  if (schedule.filter(e => e.contractId === c.id).length >= limit) {
+    return res.status(400).json({ error: 'flights_limit', message: `По договору уже поставлено ${limit} рейсов` });
+  }
+  schedule.push({ id: `s${Date.now()}${Math.floor(Math.random() * 1000)}`, contractId: c.id, day: d, slot: s });
+  store.updateAirport(airport.id, { schedule });
+  res.json(serializeEnvelope(airport.id));
+});
+
+app.post('/api/schedule/remove', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const { id } = req.body || {};
+  const schedule = (airport.schedule || []).filter(e => e.id !== id);
+  store.updateAirport(airport.id, { schedule });
   res.json(serializeEnvelope(airport.id));
 });
 
@@ -5223,41 +5264,54 @@ function processContractsTick(airport, currentTick, notifications) {
     }
   }
 
-  // 2) Доход от активных договоров: планируем прилёты + удаляем истёкшие
+  // 2) Договоры: удаляем истёкшие; разовые (обучение) — по старому интервалу;
+  //    остальные рейсы идут строго по сетке расписания.
   const contracts = store.getContracts(airport.id);
+  const contractById = new Map(contracts.map(c => [c.id, c]));
+  const queueFlight = (c) => {
+    waiting.push({
+      contractId: c.id, airline: c.airline,
+      waitingSinceTick: currentTick,
+      payPerArrival: c.payPerArrival || 40,
+      craft: c.craft || 'heli',
+      size: c.size || null,
+      flightType: c.flightType || 'vvl',
+      pointId: c.pointId || null,
+    });
+    // Отмечаем, что по направлению пришёл борт (задача «принять борта»).
+    if (c.pointId) {
+      const cur = store.getAirportById(airport.id) || airport;
+      const fp = new Set(cur.flownPoints || []);
+      if (!fp.has(c.pointId)) {
+        fp.add(c.pointId);
+        store.updateAirport(airport.id, { flownPoints: [...fp] });
+      }
+    }
+  };
+
   for (const c of contracts) {
     if (currentTick >= c.endsTick) {
       notifications.push(`📄 Договор с «${c.airline}» истёк.`);
       store.removeContract(c.id);
       continue;
     }
-    // пора ли этому договору прислать борт?
-    if (c.nextArrivalTick != null && currentTick >= c.nextArrivalTick) {
-      waiting.push({
-        contractId: c.id, airline: c.airline,
-        waitingSinceTick: currentTick,
-        payPerArrival: c.payPerArrival || 40,
-        craft: c.craft || 'heli',
-        size: c.size || null,
-        flightType: c.flightType || 'vvl',
-      });
-      // Отмечаем, что по направлению пришёл борт (задача «принять борта»).
-      if (c.pointId) {
-        const cur = store.getAirportById(airport.id) || airport;
-        const fp = new Set(cur.flownPoints || []);
-        if (!fp.has(c.pointId)) {
-          fp.add(c.pointId);
-          store.updateAirport(airport.id, { flownPoints: [...fp] });
-        }
-      }
-      if (c.single) {
-        // Разовый договор (глава 1): борт уже в пути, повторных рейсов нет.
-        store.removeContract(c.id);
-      } else {
-        const iv = arrivalIntervalFor(fresh.level, c.craft);
-        const variance = 1 + (Math.random() * 2 - 1) * APRON_ECONOMY.ARRIVAL_INTERVAL_VARIANCE;
-        store.updateContract(c.id, { nextArrivalTick: currentTick + Math.round(iv * variance) });
-      }
+    // Разовый договор (глава 1): борт по интервалу, чтобы обучение работало
+    // без сетки; после прилёта договор закрывается.
+    if (c.single && c.nextArrivalTick != null && currentTick >= c.nextArrivalTick) {
+      queueFlight(c);
+      store.removeContract(c.id);
+    }
+  }
+
+  // Рейсы по расписанию: в начале каждого слота (6 ч = 3 тика).
+  const TICKS_PER_SLOT = CALENDAR.TICKS_PER_DAY / SCHEDULE_SLOTS;
+  if (currentTick % TICKS_PER_SLOT === 0) {
+    const dow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY) % SCHEDULE_DAYS;
+    const slot = Math.floor((currentTick % CALENDAR.TICKS_PER_DAY) / TICKS_PER_SLOT);
+    const due = (fresh.schedule || []).filter(e => e.day === dow && e.slot === slot);
+    for (const e of due) {
+      const c = contractById.get(e.contractId);
+      if (c && currentTick < c.endsTick) queueFlight(c);
     }
   }
 

@@ -374,6 +374,7 @@ function createAirport(userId, startType, money) {
     ratingChapter: 1,         // для какой главы сейчас копится рейтинг
     openPoints: [],           // открытые направления (id из POINTS)
     flownPoints: [],          // точки, по которым уже прилетал борт
+    schedule: [],             // сетка рейсов: { id, contractId, day 0-6, slot 0-3 }
     unlockedBuildings: [],    // открытые наградой «скрытые» здания (напр. mchs)
     hasMedicalHeli: false,    // подарен ли медицинский вертолёт (городские службы)
     paused: false,            // пауза (временная механика): аэропорт заморожен
