@@ -1141,6 +1141,8 @@ body.modal-open { overflow: hidden; }
 }
 .schedule-tab.active { border-color: var(--board-amber); background: rgba(255, 180, 0, 0.1); }
 .schedule-tab.full { opacity: 0.6; }
+.schedule-tab.short { border-color: rgba(220, 90, 90, 0.55); }
+.schedule-tab.short .schedule-count { color: #ff8a8a; }
 .schedule-count { font-size: 11px; color: var(--board-amber); }
 .schedule-grid { overflow-x: auto; margin-bottom: 10px; }
 .schedule-grid-inner { display: inline-block; }

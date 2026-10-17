@@ -3282,6 +3282,8 @@ function renderScheduleEditor() {
     grid.innerHTML = '';
     return;
   }
+  const hintEl = $('#scheduleEditorHint');
+  if (hintEl) hintEl.textContent = 'Выберите договор и кликните по ячейке, чтобы поставить рейс; повторный клик убирает. За недопоставленные рейсы — штраф 3× оплата за прилёт.';
   if (!contracts.some(c => c.id === scheduleSelectedContract)) scheduleSelectedContract = contracts[0].id;
   const schedule = envelopeData.schedule || [];
   palette.innerHTML = contracts.map(c => {
@@ -3289,7 +3291,8 @@ function renderScheduleEditor() {
     const limit = c.flightsPerWeek || 7;
     const sel = c.id === scheduleSelectedContract ? ' active' : '';
     const full = placed >= limit ? ' full' : '';
-    return `<button class="schedule-tab${sel}${full}" data-cid="${c.id}">
+    const short = placed < limit ? ' short' : '';
+    return `<button class="schedule-tab${sel}${full}${short}" data-cid="${c.id}">
       ${escapeHtml(c.airline)}${c.pointName ? ' · ' + escapeHtml(c.pointName) : ''}
       <span class="schedule-count">${placed}/${limit}</span>
     </button>`;

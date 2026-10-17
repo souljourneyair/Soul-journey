@@ -5315,6 +5315,25 @@ function processContractsTick(airport, currentTick, notifications) {
     }
   }
 
+  // Недельный расчёт: за недопоставленные рейсы — штраф 3× оплата за прилёт.
+  // Сетка повторяется каждую неделю, поэтому считаем число поставленных рейсов
+  // договора. Договор, работающий меньше недели, не штрафуем.
+  if (currentTick % CALENDAR.TICKS_PER_WEEK === 0) {
+    for (const c of contracts) {
+      if (c.single) continue;
+      if (currentTick >= c.endsTick) continue;
+      if (currentTick - (c.signedTick || 0) < CALENDAR.TICKS_PER_WEEK) continue;
+      const planned = (fresh.schedule || []).filter(e => e.contractId === c.id).length;
+      const expected = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
+      const missing = Math.max(0, expected - planned);
+      if (missing > 0) {
+        const fine = Math.round(3 * (c.payPerArrival || 0) * missing);
+        income -= fine;
+        notifications.push(`⚠️ «${c.airline}»: поставлено ${planned} из ${expected} рейсов — штраф ${fine.toLocaleString('ru-RU')} у.е.`);
+      }
+    }
+  }
+
   // 3) Обрабатываем очередь: сажаем борты по типу площадки.
   // Вертолёты → вертолётные места (helipad). Самолёты → стоянки нужного размера
   // (с учётом своих самолётов и уже стоящих договорных бортов).
