@@ -2586,7 +2586,7 @@ function renderOfferCard(o) {
       <span class="envelope-airline">${escapeHtml(o.airline)}</span>
       ${thinkingNote}
     </div>
-    <div class="envelope-craft">${craftLabel(o)}</div>
+    <div class="envelope-craft">${craftLabel(o)}${o.pointName ? ` · 🧭 ${escapeHtml(o.pointName)}` : ''}</div>
     <div class="envelope-card-meta">
       <span class="envelope-pay">${o.payPerArrival} у.е. за прилёт</span>      <span>Срок: ${o.durationDays} сут.</span>
       <span>Истекает через ${formatMinutes(o.minutesLeft)}</span>
@@ -2639,7 +2639,7 @@ function renderContractCard(c) {
       <span class="envelope-airline">${escapeHtml(c.airline)}</span>
       <span class="envelope-active-badge">ДЕЙСТВУЕТ</span>
     </div>
-    <div class="envelope-craft">${craftLabel(c)}</div>
+    <div class="envelope-craft">${craftLabel(c)}${c.pointName ? ` · 🧭 ${escapeHtml(c.pointName)}` : ''}</div>
     <div class="envelope-card-meta">
       <span class="envelope-pay">+${c.payPerArrival} у.е. за прилёт</span>      <span>Осталось: ${c.daysLeft} сут.</span>
     </div>

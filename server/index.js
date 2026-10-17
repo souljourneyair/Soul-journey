@@ -500,9 +500,27 @@ function canAcceptContracts(airportId) {
   return hasHelipad || (hasTower && hasRunway && hasTerminal);
 }
 
+// Точки, занятые договором или предложением (направление уникально: один
+// активный договор/предложение на точку, без повторов).
+function busyPointIds(airportId) {
+  const set = new Set();
+  for (const c of store.getContracts(airportId)) if (c.pointId) set.add(c.pointId);
+  for (const o of store.getContractOffers(airportId)) if (o.pointId) set.add(o.pointId);
+  return set;
+}
+
+// Свободная открытая точка нужного доступа (heli/vvl), иначе null.
+function pickFreePoint(airport, access) {
+  const busy = busyPointIds(airport.id);
+  const free = (airport.openPoints || [])
+    .map(id => pointById(id))
+    .filter(p => p && p.access === access && !busy.has(p.id));
+  return free.length ? free[Math.floor(Math.random() * free.length)] : null;
+}
+
 // Генерация одного предложения авиакомпании для аэропорта.
 // Генерация одного предложения авиакомпании. Тип борта (вертолёт/самолёт)
-// зависит от инфраструктуры аэропорта.
+// зависит от инфраструктуры аэропорта. Договор привязан к точке (направлению).
 function makeContractOffer(airport, currentTick) {
   const base = {
     airline: randomAirlineName(),
@@ -532,21 +550,31 @@ function makeContractOffer(airport, currentTick) {
     const arrivalBase = contractPayPerArrival(airportRating(airport), airport.level);
     const sizeMult = APRON_ECONOMY.PLANE_PAY_MULT[size] || 1;
     const mvlMult = isMvl ? APRON_ECONOMY.MVL_CONTRACT_MULT : 1;
+    const planePoint = pickFreePoint(airport, 'vvl');
     return {
       ...base,
       craft: 'plane',
       size,
       flightType: isMvl ? 'mvl' : 'vvl',
+      pointId: planePoint ? planePoint.id : null,
+      pointName: planePoint ? planePoint.name : null,
       payPerArrival: Math.round(arrivalBase * sizeMult * mvlMult * priceMarketMult()),
     };
   }
 
-  // иначе — вертолётный договор
+  // иначе — вертолётный договор. Точка обязательна; исключение — обучение в
+  // главе 1, где точки ещё не открыты, а первый рейс нужен для задания.
+  let point = pickFreePoint(airport, 'heli');
+  if (!point && (airport.chapter || 1) === 1) point = pointById('tihaya');
+  if (!point) return null;   // свободных открытых вертолётных точек нет
+
   return {
     ...base,
     craft: 'heli',
     size: null,
     flightType: 'vvl',
+    pointId: point.id,
+    pointName: point.name,
     payPerArrival: Math.round(contractPayPerArrival(airportRating(airport), airport.level) * priceMarketMult()),
   };
 }
@@ -1578,6 +1606,16 @@ function questAutoDone(airport, task) {
       return (airport.profitStreak || 0) >= auto.target;
     case 'counter':
       return (airport[auto.key] || 0) >= auto.target;
+    case 'contracts_on_points': {
+      const open = new Set(airport.openPoints || []);
+      const pts = new Set(store.getContracts(airport.id)
+        .map(c => c.pointId).filter(id => id && open.has(id)));
+      return pts.size >= auto.target;
+    }
+    case 'points_flown': {
+      const open = new Set(airport.openPoints || []);
+      return (airport.flownPoints || []).filter(id => open.has(id)).length >= auto.target;
+    }
     default:
       return false;
   }
@@ -2002,7 +2040,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     ...initChapterQuests(1), profitStreak: 0,
     mowCount: 0, mowCredits: 0, mowEndsTick: null,
     ch1ContractAccepted: false, chapterRewarded: null, goshaIntroSeen: false, ninaIntroSeen: false, ninaLetterSeen: false,
-    openPoints: [], unlockedBuildings: [], hasMedicalHeli: false, paused: false,
+    openPoints: [], flownPoints: [], unlockedBuildings: [], hasMedicalHeli: false, paused: false,
     // «Начать сначала» — рейтинг и счётчики оценок с чистого листа.
     ratingScores: [], chapterRatingSamples: 0, ratingChapter: 1,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
@@ -2271,6 +2309,7 @@ function serializeEnvelope(airportId) {
     payPerArrival: o.payPerArrival || o.payPerTick,
     craft: o.craft || 'heli', size: o.size || null,
     flightType: o.flightType || 'vvl',
+    pointId: o.pointId || null, pointName: o.pointName || null,
     durationDays: Math.round(o.durationTicks / CALENDAR.TICKS_PER_DAY),
     minutesLeft: Math.max(0, o.expiresTick - nowTick),
     thinking: !!o.thinking,
@@ -2282,6 +2321,7 @@ function serializeEnvelope(airportId) {
     payPerArrival: c.payPerArrival || c.payPerTick,
     craft: c.craft || 'heli', size: c.size || null,
     flightType: c.flightType || 'vvl',
+    pointId: c.pointId || null, pointName: c.pointName || null,
     minutesLeft: Math.max(0, c.endsTick - nowTick),
     daysLeft: Math.max(0, Math.round((c.endsTick - nowTick) / CALENDAR.TICKS_PER_DAY)),
   }));
@@ -2473,6 +2513,8 @@ app.post('/api/envelope/accept', auth, (req, res) => {
     craft: offer.craft || 'heli',       // 'heli' | 'plane'
     size: offer.size || null,           // размер самолёта (для plane)
     flightType: offer.flightType || 'vvl',
+    pointId: offer.pointId || null,     // направление (точка)
+    pointName: offer.pointName || null,
     single,
 
     endsTick: nowTick + offer.durationTicks,
@@ -5199,6 +5241,15 @@ function processContractsTick(airport, currentTick, notifications) {
         size: c.size || null,
         flightType: c.flightType || 'vvl',
       });
+      // Отмечаем, что по направлению пришёл борт (задача «принять борта»).
+      if (c.pointId) {
+        const cur = store.getAirportById(airport.id) || airport;
+        const fp = new Set(cur.flownPoints || []);
+        if (!fp.has(c.pointId)) {
+          fp.add(c.pointId);
+          store.updateAirport(airport.id, { flownPoints: [...fp] });
+        }
+      }
       if (c.single) {
         // Разовый договор (глава 1): борт уже в пути, повторных рейсов нет.
         store.removeContract(c.id);
@@ -5431,8 +5482,11 @@ function processContractsTick(airport, currentTick, notifications) {
 
     if (Math.random() < chance) {
       const offer = makeContractOffer(fresh, currentTick);
-      store.addContractOffer(airport.id, offer);
-      notifications.push(`✉️ Новое предложение от «${offer.airline}»: ${offer.payPerArrival} у.е. за прилёт`);
+      // null — нет свободных открытых точек под направление.
+      if (offer) {
+        store.addContractOffer(airport.id, offer);
+        notifications.push(`✉️ Новое предложение от «${offer.airline}»${offer.pointName ? ` на ${offer.pointName}` : ''}: ${offer.payPerArrival} у.е. за прилёт`);
+      }
     }
   }
 
