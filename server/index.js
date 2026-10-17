@@ -1879,7 +1879,7 @@ function serializeAirport(airport) {
       hours: airport.ninaHours || 0,               // отработано игровых часов (зарплата)
     },
     quests: serializeQuests(airport),          // глава, задачи, награда
-    chartersAvailable: (airport.chapter || 1) >= 2,  // чартеры открываются в главе 2
+    chartersAvailable: isChartersAvailable(airport),  // чартеры/расписание — со 2-й главы (и после прохождения)
     mow: {
       cost: MOW.COST,
       durationTicks: MOW.DURATION_TICKS,
@@ -2309,6 +2309,13 @@ app.post('/api/airport/dismiss-airline-offer', auth, (req, res) => {
 });
 
 // ==================== КОНВЕРТ (договоры с авиакомпаниями) ====================
+// Чартеры и расписание открываются со 2-й главы. chapter = -1 — «сюжет
+// пройден», всё остаётся доступным.
+function isChartersAvailable(airport) {
+  const ch = airport && airport.chapter != null ? airport.chapter : 1;
+  return ch >= 2 || ch === -1;
+}
+
 function serializeEnvelope(airportId) {
   const nowTick = store.getTickCounter();
   const ap = store.getAirportById(airportId);
@@ -2339,7 +2346,7 @@ function serializeEnvelope(airportId) {
   return {
     offers, contracts, schedule,
     canAccept: canAcceptContracts(airportId),
-    chartersAvailable: !!(ap && (ap.chapter || 1) >= 2),
+    chartersAvailable: isChartersAvailable(ap),
   };
 }
 
