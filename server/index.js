@@ -4353,8 +4353,10 @@ function runTick() {
     // Смена главы: рейтинг начинаем заново. Иначе задача «Рейтинг N» закрывается
     // сразу за счёт рейтинга, принесённого из прошлой главы.
     const chNow = airport.chapter || 1;
-    const chSeen = airport.ratingChapter == null ? 1 : airport.ratingChapter;
-    if (chNow >= 1 && chSeen !== chNow) {
+    // ratingChapter == null — старое сохранение (до этой логики): чистим рейтинг
+    // разово. Иначе сбрасываем при смене главы.
+    const needsRatingReset = airport.ratingChapter == null || airport.ratingChapter !== chNow;
+    if (chNow >= 1 && needsRatingReset) {
       store.updateAirport(airport.id, {
         ratingScores: [], chapterRatingSamples: 0, ratingChapter: chNow,
       });
