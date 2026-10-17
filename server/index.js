@@ -242,7 +242,11 @@ function addPassengerScores(airportId, count, opts) {
     if (i < toWindow) scores.push(sc);
     rep += sc;
   }
-  store.updateAirport(airportId, { ratingScores: scores.slice(-RATING.WINDOW) });
+  store.updateAirport(airportId, {
+    ratingScores: scores.slice(-RATING.WINDOW),
+    // сколько свежих оценок собрано в текущей главе (для задачи «Рейтинг N»)
+    chapterRatingSamples: (fresh.chapterRatingSamples || 0) + toWindow,
+  });
   return { reputation: rep, scores };
 }
 
@@ -1565,7 +1569,11 @@ function questAutoDone(airport, task) {
     case 'level':
       return (airport.level || 0) >= auto.target;
     case 'rating':
-      return airportRating(airport) >= auto.target;
+      // Мало иметь рейтинг 3.0 — он и так стартовый. Нужно, чтобы в этой главе
+      // набралось достаточно свежих оценок: иначе задача закрывалась бы сразу
+      // на старте главы 2 из-за рейтинга, пришедшего из главы 1.
+      return airportRating(airport) >= auto.target
+        && (airport.chapterRatingSamples || 0) >= RATING.MIN_SAMPLES;
     case 'profit_days':
       return (airport.profitStreak || 0) >= auto.target;
     case 'counter':
@@ -1585,6 +1593,12 @@ function refreshQuests(airport, currentTick, notifications) {
   let changed = false;
   for (const t of ch.tasks) {
     const q = quests[t.id] || (quests[t.id] = { status: t.acceptRequired ? 'offered' : 'active' });
+    // Старый баг: задача «Рейтинг N» могла закрыться на старте главы за счёт
+    // перенесённого рейтинга. Если свежих оценок в главе ещё мало — возвращаем.
+    if (q.status === 'done' && t.auto && t.auto.type === 'rating'
+        && (airport.chapterRatingSamples || 0) < RATING.MIN_SAMPLES) {
+      q.status = 'active'; changed = true;
+    }
     if (q.status === 'done') continue;
     if (t.acceptRequired) {
       if (q.status === 'offered') continue;              // ещё не приняли
@@ -1989,6 +2003,8 @@ app.post('/api/airport/restart', auth, (req, res) => {
     mowCount: 0, mowCredits: 0, mowEndsTick: null,
     ch1ContractAccepted: false, chapterRewarded: null, goshaIntroSeen: false, ninaIntroSeen: false, ninaLetterSeen: false,
     openPoints: [], unlockedBuildings: [], hasMedicalHeli: false, paused: false,
+    // «Начать сначала» — рейтинг и счётчики оценок с чистого листа.
+    ratingScores: [], chapterRatingSamples: 0, ratingChapter: 1,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
     eventLog: [], newsLog: [],
     // счётчики приветствия — чтобы новый заход снова показал вступление
@@ -2198,6 +2214,8 @@ app.post('/api/quests/reward/ack', auth, (req, res) => {
     const next = initChapterQuests(nextId);
     patch.chapter = next.chapter;
     patch.quests = next.quests;
+    // Новая глава — заново считаем свежие оценки для задачи «Рейтинг N».
+    patch.chapterRatingSamples = 0;
   } else {
     // Последняя глава: целей больше нет. chapter = -1 — это «сюжет пройден»,
     // иначе пустой список задач снова считался бы выполненным и окно награды
@@ -4332,6 +4350,15 @@ function runTick() {
     // Пауза (временное решение): пока включена — аэропорт заморожен, ничего не
     // начисляется и не списывается. Полезно, чтобы не разориться в оффлайне.
     if (airport.paused) continue;
+    // Смена главы: рейтинг начинаем заново. Иначе задача «Рейтинг N» закрывается
+    // сразу за счёт рейтинга, принесённого из прошлой главы.
+    const chNow = airport.chapter || 1;
+    const chSeen = airport.ratingChapter == null ? 1 : airport.ratingChapter;
+    if (chNow >= 1 && chSeen !== chNow) {
+      store.updateAirport(airport.id, {
+        ratingScores: [], chapterRatingSamples: 0, ratingChapter: chNow,
+      });
+    }
     const buildings = store.getBuildingsByAirport(airport.id);
     let incomePerTick = 0;
 

@@ -1107,7 +1107,7 @@ function openMowDialog() {
 
 // Универсальное диалоговое окно персонажа: аватар + картинка/текст сцены + кнопки.
 function showCharDialog(opts) {
-  const { characterId, scene, title, emoji, fallbackText, actions } = opts || {};
+  const { characterId, scene, title, emoji, fallbackText, actions, ackPath } = opts || {};
   const ch = ((STATE && STATE.characters) || {})[characterId] || {};
   const sc = (ch.scenes || {})[scene] || {};
   $('#charDialogTitle').textContent = title || 'ДИАЛОГ';
@@ -1141,6 +1141,10 @@ function showCharDialog(opts) {
     box.appendChild(b);
   }
   $('#charDialogModal').classList.remove('hidden');
+  // Информационные окна (знакомства/письма) помечаем показанными сразу, ещё до
+  // нажатия кнопки: иначе при обновлении страницы с открытым окном оно
+  // всплывало бы повторно. Награда главы сюда не входит (ackPath не задаётся).
+  if (ackPath) api(ackPath, 'POST', {}).catch(() => {});
 }
 
 function closeCharDialog() {
@@ -3688,6 +3692,7 @@ function checkGoshaIntro() {
   goshaIntroShown = true;
   showCharDialog({
     characterId: 'gosha', scene: 'acquaintance', title: 'ДЯДЯ ГОША', emoji: '🧑‍🔧',
+    ackPath: '/api/gosha-intro/ack',
     fallbackText: 'Привет, племяш! Сколько лет, сколько зим! Ты решил восстановить дело '
       + 'своего старика? Это похвально! Я и тётя Нина готовы помочь тебе в этом. Слышал, '
       + 'ты хочешь построить вертолётную площадку? Для этого надо скосить траву в поле. '
@@ -3896,6 +3901,7 @@ function checkNinaIntro() {
   ninaIntroShown = true;
   showCharDialog({
     characterId: 'nina', scene: 'acquaintance', title: 'ТЁТЯ НИНА', emoji: '👩‍🍳',
+    ackPath: '/api/nina-intro/ack',
     fallbackText: 'Как я рада тебя видеть! Совсем большой стал! Я рада, что ты решил '
       + 'продолжить дело своего деда. Говорят, что в современных предприятиях есть кафе, '
       + 'где люди могут отдохнуть. Подумай, может и тебе стоит построить кафе? А я тебе '
@@ -3928,6 +3934,7 @@ function checkNinaLetter() {
   ninaLetterShown = true;
   showCharDialog({
     characterId: 'nina', scene: 'letter', title: 'ПИСЬМО ОТ ТЁТИ НИНЫ', emoji: '✉️',
+    ackPath: '/api/nina-letter/ack',
     fallbackText: 'Здравствуй, дорогой! Пишу тебе про важное: чем лучше ты кормишь и '
       + 'вывозишь пассажиров, тем выше рейтинг аэропорта. А от рейтинга зависит, как '
       + 'часто к тебе полетят борта и сколько людей они привезут. Так что встречай '

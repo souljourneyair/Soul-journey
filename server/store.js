@@ -370,6 +370,8 @@ function createAirport(userId, startType, money) {
     goshaIntroSeen: false,    // показали ли знакомство с дядей Гошей
     ninaIntroSeen: false,     // показали ли знакомство с тётей Ниной (глава 2)
     ninaLetterSeen: false,    // показали ли письмо Нины про рейтинг (глава 1)
+    chapterRatingSamples: 0,  // свежих оценок рейтинга набрано в текущей главе
+    ratingChapter: 1,         // для какой главы сейчас копится рейтинг
     openPoints: [],           // открытые направления (id из POINTS)
     unlockedBuildings: [],    // открытые наградой «скрытые» здания (напр. mchs)
     hasMedicalHeli: false,    // подарен ли медицинский вертолёт (городские службы)
