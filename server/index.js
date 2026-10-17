@@ -2736,6 +2736,8 @@ app.post('/api/envelope/terminate', auth, (req, res) => {
     money: airport.money - penalty,
     reputation: Math.max(0, (airport.reputation || 0) - repHit),
     waitingBorts: waiting,
+    // Договор расторгнут — убираем его рейсы из сетки расписания.
+    schedule: (airport.schedule || []).filter(e => e.contractId !== contract.id),
   });
   logEvent(airport.id, 'lost',
     `Договор с «${contract.airline}» расторгнут: неустойка ${penalty.toLocaleString('ru-RU')} у.е., репутация −${repHit}`);
@@ -5286,6 +5288,13 @@ function processContractsTick(airport, currentTick, notifications) {
   let income = 0;
   let reputation = 0;
   const fresh = store.getAirportByUserId(airport.userId) || airport;
+  // Чистим «сиротские» рейсы: в сетке не должно быть договоров, которых уже нет.
+  const activeContractIds = new Set(store.getContracts(airport.id).map(c => c.id));
+  const cleanSchedule = (fresh.schedule || []).filter(e => activeContractIds.has(e.contractId));
+  if (cleanSchedule.length !== (fresh.schedule || []).length) {
+    store.updateAirport(airport.id, { schedule: cleanSchedule });
+    fresh.schedule = cleanSchedule;
+  }
   let apron = (fresh.apronBorts || []).slice();     // борты на стоянке
   let waiting = (fresh.waitingBorts || []).slice();  // в очереди
   const totalSlots = totalApronSlots(airport.id);
@@ -5389,6 +5398,13 @@ function processContractsTick(airport, currentTick, notifications) {
     if (currentTick >= c.endsTick) {
       notifications.push(`📄 Договор с «${c.airline}» истёк.`);
       store.removeContract(c.id);
+      // Истёкший договор больше не летает — убираем его рейсы из сетки,
+      // иначе остаются «пустые» жёлтые ячейки-сироты.
+      const sched = (fresh.schedule || []).filter(e => e.contractId !== c.id);
+      if (sched.length !== (fresh.schedule || []).length) {
+        store.updateAirport(airport.id, { schedule: sched });
+        fresh.schedule = sched;
+      }
       continue;
     }
     // Разовый договор (глава 1): борт по интервалу, чтобы обучение работало
