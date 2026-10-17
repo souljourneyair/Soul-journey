@@ -375,6 +375,10 @@ function createAirport(userId, startType, money) {
     openPoints: [],           // открытые направления (id из POINTS)
     flownPoints: [],          // точки, по которым уже прилетал борт
     schedule: [],             // сетка рейсов: { id, contractId, day 0-6, slot 0-3 }
+    ninaService: false,       // услуга «Нина на хозяйстве» включена
+    ninaOfferPending: false,  // предложить услугу (после 3 ручных рейсов)
+    ninaBaseMoney: null,      // бюджет на момент включения (потолок +70%)
+    ninaHours: 0,             // отработано игровых часов (для зарплаты)
     unlockedBuildings: [],    // открытые наградой «скрытые» здания (напр. mchs)
     hasMedicalHeli: false,    // подарен ли медицинский вертолёт (городские службы)
     paused: false,            // пауза (временная механика): аэропорт заморожен

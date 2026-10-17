@@ -501,6 +501,7 @@ function renderAll() {
   checkNinaLetter();
   checkQuestReward();
   checkNinaIntro();
+  checkNinaServiceOffer();
   applyCharterAvailability();
 }
 
@@ -4017,6 +4018,43 @@ function checkNinaIntro() {
         catch (e) { /* не критично */ }
       },
     }],
+  });
+}
+
+// Нина предлагает услугу «на хозяйстве» после трёх рейсов, расставленных
+// вручную. Включённая услуга дозаполняет расписание, пока игрок оффлайн.
+let ninaServiceShown = false;
+function checkNinaServiceOffer() {
+  const n = STATE && STATE.nina;
+  if (!n || !n.offerPending || ninaServiceShown) return;
+  const blockers = ['welcomeModal', 'airportNameModal', 'dedLetterModal', 'charDialogModal', 'bankruptModal'];
+  if (blockers.some(id => {
+    const el = document.getElementById(id);
+    return el && !el.classList.contains('hidden');
+  })) return;
+  ninaServiceShown = true;
+  showCharDialog({
+    characterId: 'nina', scene: 'service', title: 'ТЁТЯ НИНА', emoji: '👩‍🍳',
+    fallbackText: 'Вижу, ты уже сам расставляешь рейсы. Хочешь, я присмотрю за договорами, '
+      + 'пока тебя нет? Буду поддерживать расписание, чтобы аэропорт не разорился. '
+      + 'За работу — зарплата.',
+    actions: [
+      {
+        label: 'Включить услугу', primary: true,
+        onClick: async () => {
+          closeCharDialog();
+          try { STATE = await api('/api/nina-service/enable', 'POST', {}); renderAll(); }
+          catch (e) { /* не критично */ }
+        },
+      },
+      {
+        label: 'Позже',
+        onClick: async () => {
+          closeCharDialog();
+          try { STATE = await api('/api/nina-service/dismiss', 'POST', {}); } catch (e) { /* ок */ }
+        },
+      },
+    ],
   });
 }
 

@@ -1872,6 +1872,12 @@ function serializeAirport(airport) {
     paused: !!airport.paused,                    // пауза аэропорта (временная механика)
     unlockedBuildings: airport.unlockedBuildings || [],   // открытые наградой здания
     hasMedicalHeli: !!airport.hasMedicalHeli,    // подарен медвертолёт (городские службы)
+    nina: {
+      service: !!airport.ninaService,              // услуга «на хозяйстве» включена
+      offerPending: !!airport.ninaOfferPending,    // показать предложение услуги
+      baseMoney: airport.ninaBaseMoney != null ? airport.ninaBaseMoney : null,
+      hours: airport.ninaHours || 0,               // отработано игровых часов (зарплата)
+    },
     quests: serializeQuests(airport),          // глава, задачи, награда
     chartersAvailable: (airport.chapter || 1) >= 2,  // чартеры открываются в главе 2
     mow: {
@@ -2041,6 +2047,7 @@ app.post('/api/airport/restart', auth, (req, res) => {
     mowCount: 0, mowCredits: 0, mowEndsTick: null,
     ch1ContractAccepted: false, chapterRewarded: null, goshaIntroSeen: false, ninaIntroSeen: false, ninaLetterSeen: false,
     openPoints: [], flownPoints: [], schedule: [], unlockedBuildings: [], hasMedicalHeli: false, paused: false,
+    ninaService: false, ninaOfferPending: false, ninaBaseMoney: null, ninaHours: 0,
     // «Начать сначала» — рейтинг и счётчики оценок с чистого листа.
     ratingScores: [], chapterRatingSamples: 0, ratingChapter: 1,
     // ленты «События» и «Новости» — с чистого листа, прошлая игра не тянется
@@ -2572,8 +2579,30 @@ app.post('/api/schedule/place', auth, (req, res) => {
     return res.status(400).json({ error: 'flights_limit', message: `По договору уже поставлено ${limit} рейсов` });
   }
   schedule.push({ id: `s${Date.now()}${Math.floor(Math.random() * 1000)}`, contractId: c.id, day: d, slot: s });
-  store.updateAirport(airport.id, { schedule });
+  const patch = { schedule };
+  // После трёх рейсов, расставленных вручную, Нина предлагает услугу
+  // «на хозяйстве» (дозаполнять расписание, пока игрок оффлайн).
+  if (!airport.ninaService && !airport.ninaOfferPending && schedule.length === 3) {
+    patch.ninaOfferPending = true;
+  }
+  store.updateAirport(airport.id, patch);
   res.json(serializeEnvelope(airport.id));
+});
+
+// Включить услугу Нины «на хозяйстве».
+app.post('/api/nina-service/enable', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const updated = store.updateAirport(airport.id, { ninaService: true, ninaOfferPending: false });
+  res.json(serializeAirport(updated));
+});
+
+// Отложить предложение услуги (не включать).
+app.post('/api/nina-service/dismiss', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const updated = store.updateAirport(airport.id, { ninaOfferPending: false });
+  res.json(serializeAirport(updated));
 });
 
 app.post('/api/schedule/remove', auth, (req, res) => {
@@ -4450,6 +4479,8 @@ function runTick() {
         ratingScores: [], chapterRatingSamples: 0, ratingChapter: chNow,
       });
     }
+    // Нина «на хозяйстве»: пока игрок оффлайн — дозаполняет расписание.
+    ninaMaintain(airport, currentTick);
     const buildings = store.getBuildingsByAirport(airport.id);
     let incomePerTick = 0;
 
@@ -5192,6 +5223,58 @@ function processAircraftTick(airport, currentTick, notifications) {
 // Модель (Слой 1): договор периодически шлёт борт → борт садится, если есть
 // свободное место (иначе ждёт очереди до MAX_WAIT, потом разворот со штрафом) →
 // стоит STAND_MINUTES → улетает, освобождая место. Оплата — за каждый прилёт.
+// Нина «на хозяйстве»: работает, пока игрок оффлайн. Дозаполняет расписание
+// по активным договорам (не трогая рейсы игрока), пока бюджет не вырастет на
+// 70% от суммы на момент включения. Копит отработанные часы (для зарплаты).
+function ninaMaintain(airport, currentTick) {
+  if (!airport.ninaService) return;
+  const user = store.findUserById(airport.userId);
+  const online = !!(user && socketsByToken.get(user.token)
+    && socketsByToken.get(user.token).size > 0);
+  if (online) {
+    // Игрок вернулся — смена окончена, потолок следующей смены пересчитается.
+    if (airport.ninaBaseMoney != null) {
+      store.updateAirport(airport.id, { ninaBaseMoney: null });
+      airport.ninaBaseMoney = null;
+    }
+    return;
+  }
+
+  const patch = {};
+  if (airport.ninaBaseMoney == null) {
+    airport.ninaBaseMoney = airport.money;
+    patch.ninaBaseMoney = airport.money;
+  }
+  patch.ninaHours = (airport.ninaHours || 0) + 2;  // 1 тик = 2 игровых часа
+  airport.ninaHours = patch.ninaHours;
+
+  // Потолок: выше +70% от бюджета на момент включения Нина не копит — только
+  // поддерживает уже составленное расписание.
+  const cap = airport.ninaBaseMoney * 1.7;
+  if (airport.money < cap) {
+    const schedule = (airport.schedule || []).slice();
+    let changed = false;
+    for (const c of store.getContracts(airport.id)) {
+      if (c.single || currentTick >= c.endsTick) continue;
+      const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
+      let placed = schedule.filter(e => e.contractId === c.id).length;
+      const occupied = (dd, ss) => schedule.some(e => e.day === dd && (e.slot === ss || e.slot + 1 === ss));
+      for (let d = 0; d < SCHEDULE_DAYS && placed < limit; d++) {
+        for (let s = 0; s <= SCHEDULE_SLOTS - 2 && placed < limit; s++) {
+          if (occupied(d, s) || occupied(d, s + 1)) continue;
+          schedule.push({
+            id: `n${Date.now()}${Math.floor(Math.random() * 1000)}`,
+            contractId: c.id, day: d, slot: s, byNina: true,
+          });
+          placed++; changed = true;
+        }
+      }
+    }
+    if (changed) patch.schedule = schedule;
+  }
+  store.updateAirport(airport.id, patch);
+}
+
 function processContractsTick(airport, currentTick, notifications) {
   let income = 0;
   let reputation = 0;
