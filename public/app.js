@@ -3312,7 +3312,10 @@ function renderScheduleEditor() {
   });
 
   const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-  const slots = ['00–06', '06–12', '12–18', '18–24'];
+  const slots = Array.from({ length: 12 }, (_, i) => {
+    const h = i * 2;
+    return `${String(h).padStart(2, '0')}–${String(h + 2).padStart(2, '0')}`;
+  });
   // Один рейс — одна клетка (слот 6 ч).
   const byCell = new Map();
   for (const e of schedule) byCell.set(`${e.day}:${e.slot}`, e);
@@ -3321,7 +3324,7 @@ function renderScheduleEditor() {
     slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') + '</div>';
   for (let d = 0; d < 7; d++) {
     html += `<div class="schedule-row"><div class="schedule-cell schedule-day">${days[d]}</div>`;
-    for (let s = 0; s < 4; s++) {
+    for (let s = 0; s < slots.length; s++) {
       const e = byCell.get(`${d}:${s}`);
       const c = e ? contracts.find(x => x.id === e.contractId) : null;
       const cls = e ? ' filled' : '';

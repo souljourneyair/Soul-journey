@@ -2558,7 +2558,7 @@ app.post('/api/envelope/decline', auth, (req, res) => {
 
 // ---- Расписание: игрок ставит рейсы договора в ячейки недельной сетки ----
 const SCHEDULE_DAYS = 7;
-const SCHEDULE_SLOTS = 4;
+const SCHEDULE_SLOTS = 12;   // 12 слотов по 2 игровых часа (1 тик = слот)
 app.post('/api/schedule/place', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
