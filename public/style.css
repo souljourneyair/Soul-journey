@@ -1132,6 +1132,16 @@ body.modal-open { overflow: hidden; }
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
+/* Выбор срока договора в карточке предложения */
+.envelope-term { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
+.envelope-term label { color: var(--text-dim); }
+.envelope-term select, .envelope-term input {
+  background: transparent; border: 1px solid var(--text-dim);
+  border-radius: 6px; color: var(--text); padding: 4px 6px;
+}
+.envelope-term input { width: 64px; }
+.envelope-term-hint { color: var(--text-dim); font-size: 11px; }
+
 /* ===== Расписание (редактор) ===== */
 .schedule-cal { margin: 8px 0 12px; max-width: 460px; }
 .schedule-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-weight: 600; }
@@ -1140,7 +1150,8 @@ body.modal-open { overflow: hidden; }
   color: var(--text); cursor: pointer; width: 28px; height: 28px; line-height: 1;
 }
 .schedule-cal-head button:hover { border-color: var(--board-amber); }
-.schedule-cal-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.schedule-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.schedule-cal-wd { font-size: 10px; color: var(--text-dim); text-align: center; font-weight: 600; }
 .schedule-cal-day {
   padding: 4px 0; border: 1px solid var(--text-dim); border-radius: 6px;
   background: transparent; color: var(--text); cursor: pointer; font-size: 11px;

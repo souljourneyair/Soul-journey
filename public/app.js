@@ -2594,8 +2594,19 @@ function renderOfferCard(o) {
     </div>
     <div class="envelope-craft">${craftLabel(o)}${o.pointName ? ` · 🧭 ${escapeHtml(o.pointName)}` : ''}</div>
     <div class="envelope-card-meta">
-      <span class="envelope-pay">${o.payPerArrival} у.е. за прилёт</span>      <span>Срок: ${o.durationDays} сут.</span>
+      <span class="envelope-pay">${o.payPerArrival} у.е. за прилёт</span>
       <span>Истекает через ${formatMinutes(o.minutesLeft)}</span>
+    </div>
+    <div class="envelope-term">
+      <label>Срок:</label>
+      <select class="envelope-term-unit" data-term-unit data-offer-id="${o.id}">
+        <option value="day" selected>Дни</option>
+        <option value="month">Месяцы</option>
+        <option value="year" disabled>Год (скоро)</option>
+      </select>
+      <input type="number" class="envelope-term-value" data-term-value data-offer-id="${o.id}"
+             min="1" max="30" value="${o.durationDays || 7}" />
+      <span class="envelope-term-hint" data-term-hint data-offer-id="${o.id}">дней</span>
     </div>
     <div class="envelope-card-actions">
       <button class="btn-secondary" data-act="accept" data-id="${o.id}">Принимаю</button>
@@ -2607,6 +2618,21 @@ function renderOfferCard(o) {
       <button class="btn-secondary" data-act="haggle" data-id="${o.id}">Торговаться</button>
     </div>
   `;
+  // Срок договора: единица (дни/месяцы) и число.
+  const unitEl = card.querySelector('[data-term-unit]');
+  const valEl = card.querySelector('[data-term-value]');
+  const hintEl = card.querySelector('[data-term-hint]');
+  const updateTerm = () => {
+    if (!unitEl || !valEl || !hintEl) return;
+    const month = unitEl.value === 'month';
+    valEl.min = 1;
+    valEl.max = month ? 12 : 30;
+    if (Number(valEl.value) > valEl.max) valEl.value = valEl.max;
+    hintEl.textContent = month ? 'месяцев' : 'дней';
+  };
+  unitEl?.addEventListener('change', updateTerm);
+  updateTerm();
+
   card.querySelectorAll('button[data-act]').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.dataset.act === 'haggle') {
@@ -2675,6 +2701,12 @@ async function envelopeAction(act, id) {
       haggleAccept: '/api/envelope/haggle/accept',
     }[act];
     const body = act === 'terminate' ? { contractId: id } : { offerId: id };
+    if (act === 'accept') {
+      const unitEl = document.querySelector(`[data-term-unit][data-offer-id="${id}"]`);
+      const valEl = document.querySelector(`[data-term-value][data-offer-id="${id}"]`);
+      if (unitEl) body.durationUnit = unitEl.value;
+      if (valEl) body.durationValue = Number(valEl.value);
+    }
     envelopeData = await api(endpoint, 'POST', body);
     renderEnvelope();
     // обновим состояние игры (индикатор в шапке, доход)
@@ -3339,7 +3371,10 @@ function renderScheduleEditor() {
   const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
     'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
   const mStart = scheduleDayIndex(scheduleCal.year, scheduleCal.month, 1);
-  let calDays = '';
+  const weekdays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  const offset = ((mStart % 7) + 7) % 7;   // день недели 1-го числа (0 = Пн)
+  let calDays = weekdays.map(w => `<div class="schedule-cal-wd">${w}</div>`).join('');
+  for (let i = 0; i < offset; i++) calDays += '<div class="schedule-cal-empty"></div>';
   for (let d = 1; d <= 30; d++) {
     const di = mStart + d - 1;
     const cls = di === scheduleSelectedDay ? ' active' : (di === today ? ' today' : '');

@@ -2496,9 +2496,27 @@ app.get('/api/envelope', auth, (req, res) => {
 app.post('/api/envelope/accept', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  const { offerId } = req.body || {};
+  const { offerId, durationUnit, durationValue } = req.body || {};
   const offer = store.getContractOfferById(offerId);
   if (!offer || offer.airportId !== airport.id) return res.status(404).json({ error: 'no_offer' });
+
+  // Срок договора выбирает игрок: дни (1–30) или месяцы (1–12). Год пока
+  // заблокирован. По умолчанию — срок из предложения (3–7 дней).
+  let durationTicks = offer.durationTicks;
+  if (durationUnit === 'year') {
+    return res.status(400).json({ error: 'year_locked', message: 'Годовой договор пока недоступен' });
+  }
+  if (durationUnit === 'day' || durationUnit === 'month') {
+    const v = Number(durationValue);
+    const max = durationUnit === 'day' ? 30 : 12;
+    if (!Number.isInteger(v) || v < 1 || v > max) {
+      return res.status(400).json({
+        error: 'bad_duration',
+        message: durationUnit === 'day' ? 'Дней: от 1 до 30' : 'Месяцев: от 1 до 12',
+      });
+    }
+    durationTicks = v * (durationUnit === 'day' ? CALENDAR.TICKS_PER_DAY : CALENDAR.TICKS_PER_MONTH);
+  }
 
   // Потолок по типу борта: площадки и стоянки — разные ресурсы.
   {
@@ -2537,7 +2555,7 @@ app.post('/api/envelope/accept', auth, (req, res) => {
     flightsPerWeek: CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK,
     single,
 
-    endsTick: nowTick + offer.durationTicks,
+    endsTick: nowTick + durationTicks,
     signedTick: nowTick,
     nextArrivalTick: nowTick + Math.round(arrivalInterval * (0.5 + Math.random())),
   });
