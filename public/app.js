@@ -441,8 +441,13 @@ function connectWs() {
         renderFleet();
       }
       if (!$('#envelopeModal').classList.contains('hidden')) {
-        // подтягиваем свежие предложения/договоры
-        api('/api/envelope').then(d => { envelopeData = d; renderEnvelope(); }).catch(() => {});
+        // Не перерисовываем, пока игрок вводит срок (иначе сбивается ввод/фокус).
+        const ae = document.activeElement;
+        const editing = ae && $('#envelopeModal').contains(ae)
+          && ['INPUT', 'SELECT', 'TEXTAREA'].includes(ae.tagName);
+        if (!editing) {
+          api('/api/envelope').then(d => { envelopeData = d; renderEnvelope(); }).catch(() => {});
+        }
       }
     }
   };
@@ -480,6 +485,19 @@ function bumpStat(el) {
   el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
 }
 
+// Игровые дата и время: «3 января 20:00». Время идёт шагом 2 часа (1 тик).
+const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function gameNowLabel() {
+  const tpd = (STATE && STATE.calendar && STATE.calendar.ticksPerDay) || 12;
+  const t = (STATE && STATE.tick) || 0;
+  const dayOfYear = Math.floor(t / tpd);
+  const month = Math.floor((dayOfYear % 360) / 30) + 1;
+  const day = (dayOfYear % 30) + 1;
+  const hour = (t % tpd) * 2;
+  return `${day} ${MONTHS_RU[month - 1]} ${String(hour).padStart(2, '0')}:00`;
+}
+
 function renderAll() {
   checkWelcome();
   checkGoshaIntro();
@@ -506,6 +524,11 @@ function renderAll() {
 }
 
 function renderStats() {
+  // Игровые дата/время: в строке администрации и на вкладке «Расписание».
+  const nowLabel = gameNowLabel();
+  document.querySelectorAll('.admin-clock').forEach(el => { el.textContent = nowLabel; });
+  const scheduleNow = $('#scheduleNow');
+  if (scheduleNow) scheduleNow.textContent = `Сейчас: ${nowLabel}`;
   const moneyEl = $('#statMoney');
   moneyEl.textContent = Math.floor(STATE.money).toLocaleString('ru-RU');
   moneyEl.classList.toggle('stat-negative', STATE.money < 0); // долг — красным
@@ -833,9 +856,10 @@ function renderBuildingRow(building, tbody, indent) {
   // больше (по просьбе заказчика).
   if (building.buildingId === 'admin') {
     const ch = STATE.quests && STATE.quests.chapter;
-    actionText = ch
+    actionText = (ch
       ? `<span class="obj-chapter">📖 Глава ${ch.id}: ${escapeHtml(ch.name)}</span>`
-      : '<span class="obj-chapter">📖 Сюжет пройден</span>';
+      : '<span class="obj-chapter">📖 Сюжет пройден</span>')
+      + `<span class="obj-action-line admin-clock">${gameNowLabel()}</span>`;
   } else if (building.constructionType === 'build') {
     actionText = `<span class="obj-working">${progressRing(constructionProgress(building), 28, building.constructionTicksLeft)}<span>Строится<br><span class="obj-action-line">осталось ${building.constructionTicksLeft} мин</span></span></span>`;
   } else if (building.constructionType === 'upgrade') {
@@ -2464,6 +2488,9 @@ $('#envelopeBtn').addEventListener('click', openEnvelope);
 $('#closeEnvelope').addEventListener('click', () => $('#envelopeModal').classList.add('hidden'));
 
 let envelopeData = { offers: [], contracts: [], canAccept: false };
+// Выбранный срок по предложению: тик перерисовывает карточки, и без черновика
+// выбор «Месяцы» сбрасывался на «Дни».
+const offerTermDraft = new Map();
 
 async function openEnvelope() {
   try {
@@ -2587,6 +2614,7 @@ function renderOfferCard(o) {
     return card;
   }
 
+  const draft = offerTermDraft.get(o.id) || { unit: 'day', value: o.durationDays || 7 };
   card.innerHTML = `
     <div class="envelope-card-top">
       <span class="envelope-airline">${escapeHtml(o.airline)}</span>
@@ -2600,12 +2628,12 @@ function renderOfferCard(o) {
     <div class="envelope-term">
       <label>Срок:</label>
       <select class="envelope-term-unit" data-term-unit data-offer-id="${o.id}">
-        <option value="day" selected>Дни</option>
-        <option value="month">Месяцы</option>
+        <option value="day"${draft.unit === 'day' ? ' selected' : ''}>Дни</option>
+        <option value="month"${draft.unit === 'month' ? ' selected' : ''}>Месяцы</option>
         <option value="year" disabled>Год (скоро)</option>
       </select>
       <input type="number" class="envelope-term-value" data-term-value data-offer-id="${o.id}"
-             min="1" max="30" value="${o.durationDays || 7}" />
+             min="1" max="30" value="${draft.value}" />
       <span class="envelope-term-hint" data-term-hint data-offer-id="${o.id}">дней</span>
     </div>
     <div class="envelope-card-actions">
@@ -2629,8 +2657,10 @@ function renderOfferCard(o) {
     valEl.max = month ? 12 : 30;
     if (Number(valEl.value) > valEl.max) valEl.value = valEl.max;
     hintEl.textContent = month ? 'месяцев' : 'дней';
+    offerTermDraft.set(o.id, { unit: unitEl.value, value: Number(valEl.value) });
   };
   unitEl?.addEventListener('change', updateTerm);
+  valEl?.addEventListener('input', updateTerm);
   updateTerm();
 
   card.querySelectorAll('button[data-act]').forEach(btn => {
@@ -3324,6 +3354,8 @@ function renderScheduleEditor() {
   const palette = $('#schedulePalette');
   const grid = $('#scheduleGrid');
   if (!palette || !grid) return;
+  const nowEl = $('#scheduleNow');
+  if (nowEl) nowEl.textContent = `Сейчас: ${gameNowLabel()}`;
   const contracts = (envelopeData.contracts || []);
   const hintEl = $('#scheduleEditorHint');
   if (!contracts.length) {
@@ -3563,7 +3595,7 @@ async function renderSchedule() {
     const body = $('#scheduleBody');
     const rows = data.rows || [];
     $('#scheduleEmpty').classList.toggle('hidden', rows.length > 0);
-    $('#scheduleSub').textContent = rows.length ? `БОРТОВ: ${rows.length}` : 'ПУСТО';
+    $('#scheduleSub').textContent = `${gameNowLabel()} · ${rows.length ? `БОРТОВ: ${rows.length}` : 'ПУСТО'}`;
     body.innerHTML = rows.map(r => {
       const st = SCHEDULE_STATUS[r.status] || SCHEDULE_STATUS.scheduled;
       const left = r.status === 'scheduled'
