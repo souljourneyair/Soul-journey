@@ -1145,13 +1145,20 @@ body.modal-open { overflow: hidden; }
 .schedule-tab.short .schedule-count { color: #ff8a8a; }
 .schedule-count { font-size: 11px; color: var(--board-amber); }
 .schedule-grid { overflow-x: auto; margin-bottom: 10px; }
-.schedule-grid-inner { display: inline-block; }
-.schedule-row { display: flex; }
+.schedule-grid-inner { display: block; width: 100%; min-width: 820px; }
+.schedule-row { display: flex; width: 100%; }
 .schedule-cell {
-  min-width: 86px; border: 1px solid var(--text-dim);
+  flex: 1 1 0; min-width: 58px; border: 1px solid var(--text-dim);
   padding: 4px 6px; font-size: 11px;
 }
-.schedule-day { min-width: 46px; font-weight: 600; display: flex; align-items: center; }
+.schedule-day {
+  flex: 0 0 86px; min-width: 86px; font-weight: 600;
+  display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+  line-height: 1.15;
+}
+.schedule-date { font-size: 9px; font-weight: 400; color: var(--text-dim); }
+/* На вкладке «Расписание» окно договоров раскрывается почти на всю ширину. */
+.envelope-modal.schedule-wide { width: 96vw; max-width: 1500px; }
 .schedule-slot-head { font-weight: 600; text-align: center; color: var(--board-amber); }
 .schedule-head .schedule-cell { border-top: none; }
 .schedule-slot {

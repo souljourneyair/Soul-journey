@@ -3316,6 +3316,16 @@ function renderScheduleEditor() {
     const h = i * 2;
     return `${String(h).padStart(2, '0')}–${String(h + 2).padStart(2, '0')}`;
   });
+  // Даты текущей игровой недели для строк-дней (месяц 30 суток).
+  const tpd = (STATE.calendar && STATE.calendar.ticksPerDay) || 12;
+  const tpw = (STATE.calendar && STATE.calendar.ticksPerWeek) || 84;
+  const weekStart = Math.floor((STATE.tick || 0) / tpw) * tpw;
+  const dateLabel = (d) => {
+    const dayOfYear = Math.floor((weekStart + d * tpd) / tpd);
+    const day = (dayOfYear % 30) + 1;
+    const month = Math.floor((dayOfYear % 360) / 30) + 1;
+    return `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}`;
+  };
   // Один рейс — одна клетка (слот 6 ч).
   const byCell = new Map();
   for (const e of schedule) byCell.set(`${e.day}:${e.slot}`, e);
@@ -3323,7 +3333,7 @@ function renderScheduleEditor() {
   html += '<div class="schedule-row schedule-head"><div class="schedule-cell schedule-day"></div>' +
     slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') + '</div>';
   for (let d = 0; d < 7; d++) {
-    html += `<div class="schedule-row"><div class="schedule-cell schedule-day">${days[d]}</div>`;
+    html += `<div class="schedule-row"><div class="schedule-cell schedule-day"><span>${days[d]}</span><span class="schedule-date">${dateLabel(d)}</span></div>`;
     for (let s = 0; s < slots.length; s++) {
       const e = byCell.get(`${d}:${s}`);
       const c = e ? contracts.find(x => x.id === e.contractId) : null;
@@ -3373,6 +3383,8 @@ document.querySelectorAll('.lb-tab[data-env]').forEach(btn => {
     document.querySelector('.envelope-body').classList.toggle('hidden', tab !== 'offers');
     // Тип борта (вертолёты/самолёты) относится к договорам, не к расписанию.
     $('#envCraftTabs')?.classList.toggle('hidden', tab === 'schedule');
+    // На расписании окно раскрываем почти на всю ширину, чтобы сетка влезла.
+    document.querySelector('.envelope-modal')?.classList.toggle('schedule-wide', tab === 'schedule');
     if (tab === 'charter') renderCharter();
     if (tab === 'schedule') renderScheduleEditor();
   });
