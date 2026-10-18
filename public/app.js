@@ -3272,28 +3272,52 @@ async function orderCharter(craft, seats, size) {
 
 // ---------- Расписание (редактор рейсов) ----------
 let scheduleSelectedContract = null;
+let scheduleSelectedDay = null;   // абсолютный номер игровых суток
+let scheduleCal = null;           // { year, month } открытый месяц календаря
+
+// Игровая дата по абсолютному номеру суток (месяц = 30 суток, год = 360).
+function scheduleDateOf(dayIndex) {
+  const doy = Math.max(0, dayIndex);
+  return {
+    year: Math.floor(doy / 360) + 1,
+    month: Math.floor((doy % 360) / 30) + 1,
+    day: (doy % 30) + 1,
+  };
+}
+function scheduleDayIndex(year, month, day) {
+  return (year - 1) * 360 + (month - 1) * 30 + (day - 1);
+}
 
 function renderScheduleEditor() {
   const palette = $('#schedulePalette');
   const grid = $('#scheduleGrid');
   if (!palette || !grid) return;
   const contracts = (envelopeData.contracts || []);
+  const hintEl = $('#scheduleEditorHint');
   if (!contracts.length) {
     palette.innerHTML = '<div class="build-menu-hint">Нет активных договоров — заключите договор на открытую точку.</div>';
     grid.innerHTML = '';
     return;
   }
-  const hintEl = $('#scheduleEditorHint');
-  if (hintEl) hintEl.textContent = 'Выберите договор и кликните по ячейке, чтобы поставить рейс; повторный клик убирает. За недопоставленные рейсы — штраф 3× оплата за прилёт.';
+  if (hintEl) hintEl.textContent = 'Выберите дату в календаре, затем договор и кликните по слоту. Повторный клик убирает рейс.';
   if (!contracts.some(c => c.id === scheduleSelectedContract)) scheduleSelectedContract = contracts[0].id;
+
+  const tpd = (STATE.calendar && STATE.calendar.ticksPerDay) || 12;
+  const today = Math.floor((STATE.tick || 0) / tpd);
+  if (scheduleSelectedDay == null) scheduleSelectedDay = today;
+  const sel = scheduleDateOf(scheduleSelectedDay);
+  if (!scheduleCal) scheduleCal = { year: sel.year, month: sel.month };
+
   const schedule = envelopeData.schedule || [];
+  const day = scheduleSelectedDay;
+  const wkStart = Math.floor(day / 7) * 7;
   palette.innerHTML = contracts.map(c => {
-    const placed = schedule.filter(e => e.contractId === c.id).length;
+    const placed = schedule.filter(e => e.contractId === c.id
+      && e.dayIndex >= wkStart && e.dayIndex < wkStart + 7).length;
     const limit = c.flightsPerWeek || 7;
-    const sel = c.id === scheduleSelectedContract ? ' active' : '';
+    const selC = c.id === scheduleSelectedContract ? ' active' : '';
     const full = placed >= limit ? ' full' : '';
-    const short = placed < limit ? ' short' : '';
-    return `<button class="schedule-tab${sel}${full}${short}" data-cid="${c.id}">
+    return `<button class="schedule-tab${selC}${full}" data-cid="${c.id}">
       ${escapeHtml(c.airline)}${c.pointName ? ' · ' + escapeHtml(c.pointName) : ''}
       <span class="schedule-count">${placed}/${limit}</span>
     </button>`;
@@ -3311,44 +3335,72 @@ function renderScheduleEditor() {
     });
   });
 
-  const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  // --- календарь месяца ---
+  const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+  const mStart = scheduleDayIndex(scheduleCal.year, scheduleCal.month, 1);
+  let calDays = '';
+  for (let d = 1; d <= 30; d++) {
+    const di = mStart + d - 1;
+    const cls = di === scheduleSelectedDay ? ' active' : (di === today ? ' today' : '');
+    calDays += `<button class="schedule-cal-day${cls}" data-dayindex="${di}">${d}</button>`;
+  }
+  const calHtml = `<div class="schedule-cal">
+    <div class="schedule-cal-head">
+      <button data-cal="prev">‹</button>
+      <span>${months[scheduleCal.month - 1]} ${scheduleCal.year}</span>
+      <button data-cal="next">›</button>
+    </div>
+    <div class="schedule-cal-grid">${calDays}</div>
+  </div>`;
+
+  // --- сетка слотов выбранного дня ---
   const slots = Array.from({ length: 12 }, (_, i) => {
     const h = i * 2;
     return `${String(h).padStart(2, '0')}–${String(h + 2).padStart(2, '0')}`;
   });
-
-  // Один рейс — одна клетка (слот 6 ч).
   const byCell = new Map();
-  for (const e of schedule) byCell.set(`${e.day}:${e.slot}`, e);
-  let html = '<div class="schedule-grid-inner">';
-  html += '<div class="schedule-row schedule-head"><div class="schedule-cell schedule-day"></div>' +
+  for (const e of schedule) if (e.dayIndex === scheduleSelectedDay) byCell.set(e.slot, e);
+  let gridHtml = `<div class="schedule-day-label">${String(sel.day).padStart(2, '0')}.${String(sel.month).padStart(2, '0')}.${sel.year}</div>`;
+  gridHtml += '<div class="schedule-grid-inner"><div class="schedule-row schedule-head">' +
     slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') + '</div>';
-  for (let d = 0; d < 7; d++) {
-    html += `<div class="schedule-row"><div class="schedule-cell schedule-day">${days[d]}</div>`;
-    for (let s = 0; s < slots.length; s++) {
-      const e = byCell.get(`${d}:${s}`);
-      const c = e ? contracts.find(x => x.id === e.contractId) : null;
-      const cls = e ? ' filled' : '';
-      const label = e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
-      html += `<div class="schedule-cell schedule-slot${cls}" data-day="${d}" data-slot="${s}">${label}</div>`;
-    }
-    html += '</div>';
+  gridHtml += '<div class="schedule-row">';
+  for (let s = 0; s < slots.length; s++) {
+    const e = byCell.get(s);
+    const c = e ? contracts.find(x => x.id === e.contractId) : null;
+    const cls = e ? ' filled' : '';
+    const label = e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
+    gridHtml += `<div class="schedule-cell schedule-slot${cls}" data-slot="${s}">${label}</div>`;
   }
-  html += '</div>';
-  grid.innerHTML = html;
+  gridHtml += '</div></div>';
+
+  grid.innerHTML = calHtml + gridHtml;
+
+  grid.querySelectorAll('[data-cal]').forEach(b => b.addEventListener('click', () => {
+    let { year, month } = scheduleCal;
+    if (b.dataset.cal === 'prev') { month--; if (month < 1) { month = 12; year--; } }
+    else { month++; if (month > 12) { month = 1; year++; } }
+    scheduleCal = { year, month };
+    renderScheduleEditor();
+  }));
+  grid.querySelectorAll('.schedule-cal-day').forEach(b => b.addEventListener('click', () => {
+    scheduleSelectedDay = Number(b.dataset.dayindex);
+    renderScheduleEditor();
+  }));
   grid.querySelectorAll('.schedule-slot').forEach(cell => {
-    cell.addEventListener('click', () => onScheduleCell(Number(cell.dataset.day), Number(cell.dataset.slot)));
+    cell.addEventListener('click', () => onScheduleCell(Number(cell.dataset.slot)));
     cell.addEventListener('dragover', (ev) => ev.preventDefault());
     cell.addEventListener('drop', (ev) => {
       ev.preventDefault();
       const cid = Number(ev.dataTransfer.getData('text/plain'));
-      if (cid) onScheduleCell(Number(cell.dataset.day), Number(cell.dataset.slot), cid);
+      if (cid) onScheduleCell(Number(cell.dataset.slot), cid);
     });
   });
 }
 
-async function onScheduleCell(day, slot, cidOverride) {
-  const e = (envelopeData.schedule || []).find(x => x.day === day && x.slot === slot);
+async function onScheduleCell(slot, cidOverride) {
+  if (scheduleSelectedDay == null) return;
+  const e = (envelopeData.schedule || []).find(x => x.dayIndex === scheduleSelectedDay && x.slot === slot);
   try {
     let res;
     if (e) {
@@ -3356,7 +3408,7 @@ async function onScheduleCell(day, slot, cidOverride) {
     } else {
       const cid = cidOverride || scheduleSelectedContract;
       if (!cid) return;
-      res = await api('/api/schedule/place', 'POST', { contractId: cid, day, slot });
+      res = await api('/api/schedule/place', 'POST', { contractId: cid, dayIndex: scheduleSelectedDay, slot });
     }
     envelopeData = res;
     renderScheduleEditor();

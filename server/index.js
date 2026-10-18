@@ -1902,6 +1902,8 @@ function serializeAirport(airport) {
     level: airport.level,
     xpForNextLevel: xpRequiredForLevel(Math.min(airport.level + 1, CONFIG.MAX_LEVEL)),
     startedAt: airport.startedAt,
+    tick: store.getTickCounter(),                 // текущий игровой тик (для календаря)
+    calendar: { ticksPerDay: CALENDAR.TICKS_PER_DAY, ticksPerWeek: CALENDAR.TICKS_PER_WEEK },
     reachedLevel10At: airport.reachedLevel10At,
     reachedMaxLevelAt: airport.reachedMaxLevelAt || null,
     maxLevel: CONFIG.MAX_LEVEL,   // потолок игры — клиент не должен зашивать 10
@@ -2562,24 +2564,32 @@ const SCHEDULE_SLOTS = 12;   // 12 слотов по 2 игровых часа (
 app.post('/api/schedule/place', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  const { contractId, day, slot } = req.body || {};
+  const { contractId, dayIndex, slot } = req.body || {};
   const c = store.getContractById(Number(contractId));
   if (!c || c.airportId !== airport.id) {
     return res.status(404).json({ error: 'no_contract', message: 'Договор не найден' });
   }
-  const d = Number(day), s = Number(slot);
-  if (!(d >= 0 && d < SCHEDULE_DAYS && s >= 0 && s < SCHEDULE_SLOTS)) {
+  const d = Number(dayIndex), s = Number(slot);
+  if (!(Number.isInteger(d) && d >= 0 && Number.isInteger(s) && s >= 0 && s < SCHEDULE_SLOTS)) {
     return res.status(400).json({ error: 'bad_slot', message: 'Неверная ячейка' });
   }
+  // Рейс должен попадать в срок действия договора.
+  const flightTick = d * CALENDAR.TICKS_PER_DAY + s;
+  if (flightTick < (c.signedTick || 0) || flightTick >= c.endsTick) {
+    return res.status(400).json({ error: 'out_of_contract', message: 'Этот день вне срока действия договора' });
+  }
   const schedule = (airport.schedule || []).slice();
-  if (schedule.some(e => e.day === d && e.slot === s)) {
+  if (schedule.some(e => e.dayIndex === d && e.slot === s)) {
     return res.status(400).json({ error: 'cell_taken', message: 'Ячейка уже занята' });
   }
   const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
-  if (schedule.filter(e => e.contractId === c.id).length >= limit) {
-    return res.status(400).json({ error: 'flights_limit', message: `По договору уже поставлено ${limit} рейсов` });
+  const weekStartDay = Math.floor(d / 7) * 7;
+  const inWeek = schedule.filter(e => e.contractId === c.id
+    && e.dayIndex >= weekStartDay && e.dayIndex < weekStartDay + 7).length;
+  if (inWeek >= limit) {
+    return res.status(400).json({ error: 'flights_limit', message: `На эту неделю уже поставлено ${limit} рейсов` });
   }
-  schedule.push({ id: `s${Date.now()}${Math.floor(Math.random() * 1000)}`, contractId: c.id, day: d, slot: s });
+  schedule.push({ id: `s${Date.now()}${Math.floor(Math.random() * 1000)}`, contractId: c.id, dayIndex: d, slot: s });
   const patch = { schedule };
   // После трёх рейсов, расставленных вручную, Нина предлагает услугу
   // «на хозяйстве» (дозаполнять расписание, пока игрок оффлайн).
@@ -5257,16 +5267,22 @@ function ninaMaintain(airport, currentTick) {
   if (airport.money < cap) {
     const schedule = (airport.schedule || []).slice();
     let changed = false;
+    const dayIndexNow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY);
+    const wkStart = Math.floor(dayIndexNow / 7) * 7;
     for (const c of store.getContracts(airport.id)) {
       if (c.single || currentTick >= c.endsTick) continue;
       const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
-      let placed = schedule.filter(e => e.contractId === c.id).length;
-      for (let d = 0; d < SCHEDULE_DAYS && placed < limit; d++) {
+      let placed = schedule.filter(e => e.contractId === c.id
+        && e.dayIndex >= wkStart && e.dayIndex < wkStart + 7).length;
+      const lastDay = Math.floor((c.endsTick - 1) / CALENDAR.TICKS_PER_DAY);
+      for (let d = Math.max(dayIndexNow, wkStart); d < wkStart + 7 && d <= lastDay && placed < limit; d++) {
         for (let s = 0; s < SCHEDULE_SLOTS && placed < limit; s++) {
-          if (schedule.some(e => e.day === d && e.slot === s)) continue;
+          const tickAt = d * CALENDAR.TICKS_PER_DAY + s;
+          if (tickAt < (c.signedTick || 0) || tickAt >= c.endsTick) continue;
+          if (schedule.some(e => e.dayIndex === d && e.slot === s)) continue;
           schedule.push({
             id: `n${Date.now()}${Math.floor(Math.random() * 1000)}`,
-            contractId: c.id, day: d, slot: s, byNina: true,
+            contractId: c.id, dayIndex: d, slot: s, byNina: true,
           });
           placed++; changed = true;
         }
@@ -5283,7 +5299,8 @@ function processContractsTick(airport, currentTick, notifications) {
   const fresh = store.getAirportByUserId(airport.userId) || airport;
   // Чистим «сиротские» рейсы: в сетке не должно быть договоров, которых уже нет.
   const activeContractIds = new Set(store.getContracts(airport.id).map(c => c.id));
-  const cleanSchedule = (fresh.schedule || []).filter(e => activeContractIds.has(e.contractId));
+  const cleanSchedule = (fresh.schedule || [])
+    .filter(e => activeContractIds.has(e.contractId) && Number.isInteger(e.dayIndex));
   if (cleanSchedule.length !== (fresh.schedule || []).length) {
     store.updateAirport(airport.id, { schedule: cleanSchedule });
     fresh.schedule = cleanSchedule;
@@ -5408,12 +5425,12 @@ function processContractsTick(airport, currentTick, notifications) {
     }
   }
 
-  // Рейсы по расписанию: в начале каждого слота (6 ч = 3 тика).
+  // Рейсы по расписанию: на конкретную дату (dayIndex) и слот (2 ч).
   const TICKS_PER_SLOT = CALENDAR.TICKS_PER_DAY / SCHEDULE_SLOTS;
   if (currentTick % TICKS_PER_SLOT === 0) {
-    const dow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY) % SCHEDULE_DAYS;
+    const dayIndex = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY);
     const slot = Math.floor((currentTick % CALENDAR.TICKS_PER_DAY) / TICKS_PER_SLOT);
-    const due = (fresh.schedule || []).filter(e => e.day === dow && e.slot === slot);
+    const due = (fresh.schedule || []).filter(e => e.dayIndex === dayIndex && e.slot === slot);
     for (const e of due) {
       const c = contractById.get(e.contractId);
       if (c && currentTick < c.endsTick) queueFlight(c);
@@ -5421,14 +5438,17 @@ function processContractsTick(airport, currentTick, notifications) {
   }
 
   // Недельный расчёт: за недопоставленные рейсы — штраф 3× оплата за прилёт.
-  // Сетка повторяется каждую неделю, поэтому считаем число поставленных рейсов
-  // договора. Договор, работающий меньше недели, не штрафуем.
+  // Считаем рейсы, поставленные в только что завершившуюся неделю. Договор,
+  // работающий меньше недели, не штрафуем.
   if (currentTick % CALENDAR.TICKS_PER_WEEK === 0) {
+    const dayIndexNow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY);
+    const wkStart = dayIndexNow - 7;
     for (const c of contracts) {
       if (c.single) continue;
       if (currentTick >= c.endsTick) continue;
       if (currentTick - (c.signedTick || 0) < CALENDAR.TICKS_PER_WEEK) continue;
-      const planned = (fresh.schedule || []).filter(e => e.contractId === c.id).length;
+      const planned = (fresh.schedule || []).filter(e => e.contractId === c.id
+        && e.dayIndex >= wkStart && e.dayIndex < dayIndexNow).length;
       const expected = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
       const missing = Math.max(0, expected - planned);
       if (missing > 0) {
