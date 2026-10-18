@@ -3313,22 +3313,19 @@ function renderScheduleEditor() {
 
   const days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
   const slots = ['00–06', '06–12', '12–18', '18–24'];
-  // Карта занятости: блок рейса занимает 2 слота (12 ч) — старт и продолжение.
-  const occ = new Map();
-  for (const e of schedule) {
-    occ.set(`${e.day}:${e.slot}`, { entry: e, isStart: true });
-    occ.set(`${e.day}:${e.slot + 1}`, { entry: e, isStart: false });
-  }
+  // Один рейс — одна клетка (слот 6 ч).
+  const byCell = new Map();
+  for (const e of schedule) byCell.set(`${e.day}:${e.slot}`, e);
   let html = '<div class="schedule-grid-inner">';
   html += '<div class="schedule-row schedule-head"><div class="schedule-cell schedule-day"></div>' +
     slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') + '</div>';
   for (let d = 0; d < 7; d++) {
     html += `<div class="schedule-row"><div class="schedule-cell schedule-day">${days[d]}</div>`;
     for (let s = 0; s < 4; s++) {
-      const o = occ.get(`${d}:${s}`);
-      const c = o ? contracts.find(x => x.id === o.entry.contractId) : null;
-      const cls = o ? (o.isStart ? ' filled block-start' : ' block-cont') : '';
-      const label = o && c && o.isStart ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
+      const e = byCell.get(`${d}:${s}`);
+      const c = e ? contracts.find(x => x.id === e.contractId) : null;
+      const cls = e ? ' filled' : '';
+      const label = e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
       html += `<div class="schedule-cell schedule-slot${cls}" data-day="${d}" data-slot="${s}">${label}</div>`;
     }
     html += '</div>';
@@ -3347,12 +3344,11 @@ function renderScheduleEditor() {
 }
 
 async function onScheduleCell(day, slot, cidOverride) {
-  // Клик по старту или продолжению блока убирает рейс.
-  const occ = (envelopeData.schedule || []).find(x => x.day === day && (x.slot === slot || x.slot + 1 === slot));
+  const e = (envelopeData.schedule || []).find(x => x.day === day && x.slot === slot);
   try {
     let res;
-    if (occ) {
-      res = await api('/api/schedule/remove', 'POST', { id: occ.id });
+    if (e) {
+      res = await api('/api/schedule/remove', 'POST', { id: e.id });
     } else {
       const cid = cidOverride || scheduleSelectedContract;
       if (!cid) return;

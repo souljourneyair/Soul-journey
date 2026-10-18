@@ -2571,14 +2571,8 @@ app.post('/api/schedule/place', auth, (req, res) => {
   if (!(d >= 0 && d < SCHEDULE_DAYS && s >= 0 && s < SCHEDULE_SLOTS)) {
     return res.status(400).json({ error: 'bad_slot', message: 'Неверная ячейка' });
   }
-  // Блок рейса — 12 ч (2 слота): занимает выбранный и следующий. В конец суток
-  // (последний слот) блок не помещается.
-  if (s > SCHEDULE_SLOTS - 2) {
-    return res.status(400).json({ error: 'bad_slot', message: 'Рейс занимает 12 ч и не помещается в конец суток' });
-  }
   const schedule = (airport.schedule || []).slice();
-  const occupied = (dd, ss) => schedule.some(e => e.day === dd && (e.slot === ss || e.slot + 1 === ss));
-  if (occupied(d, s) || occupied(d, s + 1)) {
+  if (schedule.some(e => e.day === d && e.slot === s)) {
     return res.status(400).json({ error: 'cell_taken', message: 'Ячейка уже занята' });
   }
   const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
@@ -5267,10 +5261,9 @@ function ninaMaintain(airport, currentTick) {
       if (c.single || currentTick >= c.endsTick) continue;
       const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
       let placed = schedule.filter(e => e.contractId === c.id).length;
-      const occupied = (dd, ss) => schedule.some(e => e.day === dd && (e.slot === ss || e.slot + 1 === ss));
       for (let d = 0; d < SCHEDULE_DAYS && placed < limit; d++) {
-        for (let s = 0; s <= SCHEDULE_SLOTS - 2 && placed < limit; s++) {
-          if (occupied(d, s) || occupied(d, s + 1)) continue;
+        for (let s = 0; s < SCHEDULE_SLOTS && placed < limit; s++) {
+          if (schedule.some(e => e.day === d && e.slot === s)) continue;
           schedule.push({
             id: `n${Date.now()}${Math.floor(Math.random() * 1000)}`,
             contractId: c.id, day: d, slot: s, byNina: true,
