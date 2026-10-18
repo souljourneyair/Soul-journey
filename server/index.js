@@ -1902,8 +1902,6 @@ function serializeAirport(airport) {
     level: airport.level,
     xpForNextLevel: xpRequiredForLevel(Math.min(airport.level + 1, CONFIG.MAX_LEVEL)),
     startedAt: airport.startedAt,
-    tick: store.getTickCounter(),                 // текущий игровой тик (для дат)
-    calendar: { ticksPerDay: CALENDAR.TICKS_PER_DAY, ticksPerWeek: CALENDAR.TICKS_PER_WEEK },
     reachedLevel10At: airport.reachedLevel10At,
     reachedMaxLevelAt: airport.reachedMaxLevelAt || null,
     maxLevel: CONFIG.MAX_LEVEL,   // потолок игры — клиент не должен зашивать 10
