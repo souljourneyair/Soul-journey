@@ -2600,13 +2600,8 @@ app.post('/api/schedule/place', auth, (req, res) => {
   if (schedule.some(e => e.dayIndex === d && e.slot === s)) {
     return res.status(400).json({ error: 'cell_taken', message: 'Ячейка уже занята' });
   }
-  const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
-  const weekStartDay = Math.floor(d / 7) * 7;
-  const inWeek = schedule.filter(e => e.contractId === c.id
-    && e.dayIndex >= weekStartDay && e.dayIndex < weekStartDay + 7).length;
-  if (inWeek >= limit) {
-    return res.status(400).json({ error: 'flights_limit', message: `На эту неделю уже поставлено ${limit} рейсов` });
-  }
+  // Количество рейсов задаёт САМ игрок: сколько поставил в сетку — столько
+  // договор и выполняет. Ограничение — только свободные слоты и срок договора.
   schedule.push({ id: `s${Date.now()}${Math.floor(Math.random() * 1000)}`, contractId: c.id, dayIndex: d, slot: s });
   const patch = { schedule };
   // После трёх рейсов, расставленных вручную, Нина предлагает услугу
@@ -5455,9 +5450,8 @@ function processContractsTick(airport, currentTick, notifications) {
     }
   }
 
-  // Недельный расчёт: за недопоставленные рейсы — штраф 3× оплата за прилёт.
-  // Считаем рейсы, поставленные в только что завершившуюся неделю. Договор,
-  // работающий меньше недели, не штрафуем.
+  // Штраф только за полный простой: если по договору за прошедшую неделю не
+  // поставлено НИ ОДНОГО рейса. Сколько именно рейсов ставить — решает игрок.
   if (currentTick % CALENDAR.TICKS_PER_WEEK === 0) {
     const dayIndexNow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY);
     const wkStart = dayIndexNow - 7;
@@ -5467,12 +5461,10 @@ function processContractsTick(airport, currentTick, notifications) {
       if (currentTick - (c.signedTick || 0) < CALENDAR.TICKS_PER_WEEK) continue;
       const planned = (fresh.schedule || []).filter(e => e.contractId === c.id
         && e.dayIndex >= wkStart && e.dayIndex < dayIndexNow).length;
-      const expected = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
-      const missing = Math.max(0, expected - planned);
-      if (missing > 0) {
-        const fine = Math.round(3 * (c.payPerArrival || 0) * missing);
+      if (planned === 0) {
+        const fine = Math.round(3 * (c.payPerArrival || 0));
         income -= fine;
-        notifications.push(`⚠️ «${c.airline}»: поставлено ${planned} из ${expected} рейсов — штраф ${fine.toLocaleString('ru-RU')} у.е.`);
+        notifications.push(`⚠️ «${c.airline}»: за неделю ни одного рейса — штраф ${fine.toLocaleString('ru-RU')} у.е.`);
       }
     }
   }
