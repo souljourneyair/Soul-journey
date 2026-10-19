@@ -732,7 +732,9 @@ function objectsTableFingerprint() {
   const groups = [...openGroups].sort().join(',');
   const cells = [...openBuildingCells].sort((a,b)=>a-b).join(',');
   const mow = STATE.mow && STATE.mow.mowing ? `mow:${STATE.mow.ticksLeft}` : '';
-  return `${rows}#grp:${groups}#cells:${cells}#view:${accRentView}#occ:${occ}#fuel:${fuel}#${mow}`;
+  // Глава влияет на строку администрации — иначе она не обновляется до F5.
+  const chapter = STATE.quests && STATE.quests.chapter ? STATE.quests.chapter.id : 'done';
+  return `${rows}#grp:${groups}#cells:${cells}#view:${accRentView}#occ:${occ}#fuel:${fuel}#${mow}#ch:${chapter}`;
 }
 
 function renderObjectsTable(force) {

@@ -2403,13 +2403,31 @@ app.get('/api/schedule', auth, (req, res) => {
 
   // 3) ближайшие прилёты по договорам
   for (const c of store.getContracts(airport.id)) {
-    if (c.nextArrivalTick == null) continue;
-    const left = c.nextArrivalTick - now;
-    if (left < 0) continue;
+    if (c.single) {
+      if (c.nextArrivalTick == null) continue;
+      const left = c.nextArrivalTick - now;
+      if (left < 0) continue;
+      rows.push({
+        airline: c.airline, craft: craftName(c.craft || 'heli', c.size),
+        arrivalTick: c.nextArrivalTick, pax: contractCraftCapacity(c.craft || 'heli', c.size, airport),
+        minutesLeft: left, status: 'scheduled', note: '',
+      });
+      continue;
+    }
+    // Обычные договоры летают по сетке расписания. Раньше здесь показывался
+    // устаревший nextArrivalTick — из-за него в табло висели «фантомные» борта,
+    // которые никуда не садились. Теперь — ближайший реальный рейс из сетки.
+    let nextTick = null;
+    for (const e of (airport.schedule || [])) {
+      if (e.contractId !== c.id) continue;
+      const t = e.dayIndex * CALENDAR.TICKS_PER_DAY + e.slot;
+      if (t >= now && (nextTick == null || t < nextTick)) nextTick = t;
+    }
+    if (nextTick == null) continue;
     rows.push({
       airline: c.airline, craft: craftName(c.craft || 'heli', c.size),
-      arrivalTick: c.nextArrivalTick, pax: contractCraftCapacity(c.craft || 'heli', c.size, airport),
-      minutesLeft: left, status: 'scheduled', note: '',
+      arrivalTick: nextTick, pax: contractCraftCapacity(c.craft || 'heli', c.size, airport),
+      minutesLeft: nextTick - now, status: 'scheduled', note: 'по расписанию',
     });
   }
 
