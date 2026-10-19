@@ -21,8 +21,9 @@ in Russian.
 - `public/app.js` (client logic), `public/index.html` + `style.css` (game UI), `public/admin.*` (admin panel).
 
 ## Game loop & config
-- One tick = 10s real time (`CONFIG.TICK_MS = 10 * 1000`), driven by `setInterval(runTick, …)`. In the **current code** a tick is treated as 1 game minute; the **decided** calendar (not yet implemented) is 1 tick = **2 game hours** — see `docs/SCENARIO.md` §9.1.
-- `CONFIG.BUILD_TIME_SCALE` is currently `0.05` (builds/upgrades 20x faster, for debugging) — catalog `buildTicks` are not what players see.
+- **1 tick = 2 game hours** (`CALENDAR` in `server/gameData.js`): day = 12 ticks (2 real min), week = 84 (14 min), month = 360 (1 real hour), year = 4320. Time display steps by 2 hours. See `docs/SCENARIO.md` §9.1.
+- `CONFIG.TICK_MS` is normally `10 * 1000` (10s), but the repo currently has a **temporary ×3 test speed** (`Math.round(10 000 / 3)` ≈ 3.3s). Return it to `10 * 1000` for production.
+- `CONFIG.BUILD_TIME_SCALE` is `1.0` (honest build times).
 - Note: README's "60 000 ms" claim for `TICK_MS` is stale; the code is the source of truth (10s).
 
 ## Persistence (important)
