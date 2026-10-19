@@ -5415,6 +5415,62 @@ function processAircraftTick(airport, currentTick, notifications) {
 // Модель (Слой 1): договор периодически шлёт борт → борт садится, если есть
 // свободное место (иначе ждёт очереди до MAX_WAIT, потом разворот со штрафом) →
 // стоит STAND_MINUTES → улетает, освобождая место. Оплата — за каждый прилёт.
+// Нина подписывает договоры, пока оффлайн, если доход не покрывает расходы.
+// Берёт минимально достаточное число предложений (сначала самые выгодные),
+// цель — расходы за неделю + маржа ~3%.
+function ninaSignContracts(airport, currentTick) {
+  const ch = airport.chapter == null ? 1 : airport.chapter;
+  if (ch === 1) return;   // в главе 1 обучение, без автодоговоров
+  const offers = store.getContractOffers(airport.id);
+  if (!offers.length) return;
+  const caps = maxActiveContracts(airport.id);
+  const active = activeContractsByCraft(airport.id);
+
+  const dayIndexNow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY);
+  const wkStart = Math.floor(dayIndexNow / 7) * 7;
+  const schedule = airport.schedule || [];
+  // Доход уже поставленных рейсов за текущую неделю.
+  let incomeWeek = 0;
+  for (const e of schedule) {
+    if (e.dayIndex < wkStart || e.dayIndex >= wkStart + 7) continue;
+    const c = store.getContractById(e.contractId);
+    if (c) incomeWeek += c.payPerArrival || 0;
+  }
+  const expensesWeek = totalExpensesPerTick(airport.id) * CALENDAR.TICKS_PER_WEEK;
+  const target = Math.round(expensesWeek * 1.03);   // +3%
+  let gap = target - incomeWeek;
+  if (gap <= 0) return;
+
+  // Сначала самые выгодные по оплате за прилёт.
+  const sorted = offers.slice().sort((a, b) => (b.payPerArrival || 0) - (a.payPerArrival || 0));
+  for (const o of sorted) {
+    if (gap <= 0) break;
+    const craft = (o.craft || 'heli') === 'plane' ? 'plane' : 'heli';
+    if ((active[craft] || 0) >= (caps[craft] || 0)) continue;
+    const durationTicks = o.durationTicks || contractDurationTicks();
+    store.addContract(airport.id, {
+      airline: o.airline,
+      payPerTick: o.payPerTick,
+      payPerArrival: o.payPerArrival || 0,
+      craft: o.craft || 'heli',
+      size: o.size || null,
+      flightType: o.flightType || 'vvl',
+      pointId: o.pointId || null,
+      pointName: o.pointName || null,
+      flightsPerWeek: CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK,
+      single: false,
+      endsTick: currentTick + durationTicks,
+      signedTick: currentTick,
+      nextArrivalTick: null,
+      signedByNina: true,
+    });
+    store.removeContractOffer(o.id);
+    active[craft] = (active[craft] || 0) + 1;
+    // Консервативная оценка: 7 рейсов в неделю (по одному в день).
+    gap -= (o.payPerArrival || 0) * 7;
+  }
+}
+
 // Нина «на хозяйстве»: работает, пока игрок оффлайн. Дозаполняет расписание
 // по активным договорам (не трогая рейсы игрока), пока бюджет не вырастет на
 // 70% от суммы на момент включения. Копит отработанные часы (для зарплаты).
@@ -5444,6 +5500,8 @@ function ninaMaintain(airport, currentTick) {
   // поддерживает уже составленное расписание.
   const cap = airport.ninaBaseMoney * 1.7;
   if (airport.money < cap) {
+    // Сначала — подписать недостающие договоры под расходы, потом расписание.
+    ninaSignContracts(airport, currentTick);
     const schedule = (airport.schedule || []).slice();
     let changed = false;
     const dayIndexNow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY);
