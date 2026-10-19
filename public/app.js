@@ -3358,7 +3358,6 @@ async function orderCharter(craft, seats, size) {
 }
 
 // ---------- Расписание (редактор рейсов) ----------
-let scheduleSelectedContract = null;
 let scheduleSelectedDay = null;   // абсолютный номер игровых суток
 let scheduleCal = null;           // { year, month } открытый месяц календаря
 
@@ -3388,8 +3387,7 @@ function renderScheduleEditor() {
     grid.innerHTML = '';
     return;
   }
-  if (hintEl) hintEl.textContent = 'Выберите дату в календаре, затем договор и кликните по слоту. Повторный клик убирает рейс.';
-  if (!contracts.some(c => c.id === scheduleSelectedContract)) scheduleSelectedContract = contracts[0].id;
+  if (hintEl) hintEl.textContent = 'Перетащите АК в строку сетки, затем ставьте рейсы в её слоты. Повторный клик убирает рейс.';
 
   const tpd = (STATE.calendar && STATE.calendar.ticksPerDay) || 12;
   const today = Math.floor((STATE.tick || 0) / tpd);
@@ -3398,13 +3396,16 @@ function renderScheduleEditor() {
   if (!scheduleCal) scheduleCal = { year: sel.year, month: sel.month };
 
   const schedule = envelopeData.schedule || [];
-  // Сколько рейсов игрок уже поставил по договору — это и есть его частота.
+  const rowsAssign = envelopeData.scheduleRows || [];
+  const rowCount = Math.max(contracts.length, rowsAssign.length);
+  // Палитра: договоры. Уже назначенные в строку — приглушены.
   palette.innerHTML = contracts.map(c => {
+    const inRow = rowsAssign.includes(c.id);
     const placed = schedule.filter(e => e.contractId === c.id).length;
-    const selC = c.id === scheduleSelectedContract ? ' active' : '';
-    return `<button class="schedule-tab${selC}" data-cid="${c.id}">
+    const cap = (c.craft || 'heli') === 'heli' ? 3 : null;
+    return `<button class="schedule-tab${inRow ? ' in-row' : ''}" data-cid="${c.id}" draggable="true">
       ${escapeHtml(c.airline)}${c.pointName ? ' · ' + escapeHtml(c.pointName) : ''}
-      <span class="schedule-count">${placed} рейс.</span>
+      <span class="schedule-count">${placed}${cap ? `/${cap} в нед.` : ''}</span>
     </button>`;
   }).join('');
   palette.querySelectorAll('.schedule-tab').forEach(b => {
@@ -3412,11 +3413,6 @@ function renderScheduleEditor() {
     b.addEventListener('dragstart', (ev) => {
       ev.dataTransfer.setData('text/plain', b.dataset.cid);
       ev.dataTransfer.effectAllowed = 'copy';
-      scheduleSelectedContract = Number(b.dataset.cid);
-    });
-    b.addEventListener('click', () => {
-      scheduleSelectedContract = Number(b.dataset.cid);
-      renderScheduleEditor();
     });
   });
 
@@ -3444,27 +3440,37 @@ function renderScheduleEditor() {
     <div class="schedule-cal-grid">${calDays}</div>
   </div>`;
 
-  // --- сетка слотов выбранного дня ---
+  // --- сетка: столбец АК + слоты выбранного дня ---
   const slots = Array.from({ length: 12 }, (_, i) => {
     const h = i * 2;
     return `${String(h).padStart(2, '0')}–${String(h + 2).padStart(2, '0')}`;
   });
-  const byCell = new Map();
-  for (const e of schedule) if (e.dayIndex === scheduleSelectedDay) byCell.set(e.slot, e);
+  const nowTick = STATE.tick || 0;
   let gridHtml = `<div class="schedule-day-label">${String(sel.day).padStart(2, '0')}.${String(sel.month).padStart(2, '0')}.${sel.year}</div>`;
   gridHtml += '<div class="schedule-grid-inner"><div class="schedule-row schedule-head">' +
+    '<div class="schedule-cell schedule-ak-head">АК</div>' +
     slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') + '</div>';
-  gridHtml += '<div class="schedule-row">';
-  const nowTick = STATE.tick || 0;
-  for (let s = 0; s < slots.length; s++) {
-    const e = byCell.get(s);
-    const c = e ? contracts.find(x => x.id === e.contractId) : null;
-    const slotPast = (scheduleSelectedDay * tpd + s) < nowTick;
-    const cls = (e ? ' filled' : '') + (slotPast ? ' past' : '');
-    const label = e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
-    gridHtml += `<div class="schedule-cell schedule-slot${cls}" data-slot="${s}">${label}</div>`;
+  for (let r = 0; r < rowCount; r++) {
+    const cid = rowsAssign[r];
+    const c = cid ? contracts.find(x => x.id === cid) : null;
+    gridHtml += '<div class="schedule-row">';
+    gridHtml += `<div class="schedule-cell schedule-ak${c ? ' filled' : ''}" data-row="${r}">` +
+      (c
+        ? `<span class="schedule-ak-name">${escapeHtml(c.airline)}</span>` +
+          (c.pointName ? `<span class="schedule-ak-point">${escapeHtml(c.pointName)}</span>` : '')
+        : '<span class="schedule-ak-empty">Перетащите АК</span>') +
+      '</div>';
+    for (let s = 0; s < slots.length; s++) {
+      const e = c ? schedule.find(x => x.contractId === c.id
+        && x.dayIndex === scheduleSelectedDay && x.slot === s) : null;
+      const slotPast = (scheduleSelectedDay * tpd + s) < nowTick;
+      const cls = (e ? ' filled' : '') + (slotPast ? ' past' : '') + (!c ? ' no-ak' : '');
+      const label = e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
+      gridHtml += `<div class="schedule-cell schedule-slot${cls}" data-row="${r}" data-slot="${s}" data-cid="${c ? c.id : ''}">${label}</div>`;
+    }
+    gridHtml += '</div>';
   }
-  gridHtml += '</div></div>';
+  gridHtml += '</div>';
 
   grid.innerHTML = calHtml + gridHtml;
 
@@ -3479,33 +3485,47 @@ function renderScheduleEditor() {
     scheduleSelectedDay = Number(b.dataset.dayindex);
     renderScheduleEditor();
   }));
-  grid.querySelectorAll('.schedule-slot').forEach(cell => {
-    cell.addEventListener('click', () => onScheduleCell(Number(cell.dataset.slot)));
+  // Перетаскивание АК в первый столбец.
+  grid.querySelectorAll('.schedule-ak').forEach(cell => {
     cell.addEventListener('dragover', (ev) => ev.preventDefault());
     cell.addEventListener('drop', (ev) => {
       ev.preventDefault();
       const cid = Number(ev.dataTransfer.getData('text/plain'));
-      if (cid) onScheduleCell(Number(cell.dataset.slot), cid);
+      if (cid) assignScheduleRow(cid, Number(cell.dataset.row));
+    });
+  });
+  grid.querySelectorAll('.schedule-slot').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const cid = Number(cell.dataset.cid);
+      if (!cid) { toast('Сначала перетащите АК в строку', true); return; }
+      onScheduleCell(cid, Number(cell.dataset.slot));
     });
   });
 }
 
-async function onScheduleCell(slot, cidOverride) {
-  if (scheduleSelectedDay == null) return;
+async function assignScheduleRow(contractId, row) {
+  try {
+    envelopeData = await api('/api/schedule/row', 'POST', { contractId, row });
+    renderScheduleEditor();
+    renderEnvelope();
+  } catch (err) { toast(err.message, true); }
+}
+
+async function onScheduleCell(contractId, slot) {
+  if (scheduleSelectedDay == null || !contractId) return;
   const tpd = (STATE.calendar && STATE.calendar.ticksPerDay) || 12;
   if (scheduleSelectedDay * tpd + slot < (STATE.tick || 0)) {
     toast('Это время уже прошло', true);
     return;
   }
-  const e = (envelopeData.schedule || []).find(x => x.dayIndex === scheduleSelectedDay && x.slot === slot);
+  const e = (envelopeData.schedule || []).find(x => x.contractId === contractId
+    && x.dayIndex === scheduleSelectedDay && x.slot === slot);
   try {
     let res;
     if (e) {
       res = await api('/api/schedule/remove', 'POST', { id: e.id });
     } else {
-      const cid = cidOverride || scheduleSelectedContract;
-      if (!cid) return;
-      res = await api('/api/schedule/place', 'POST', { contractId: cid, dayIndex: scheduleSelectedDay, slot });
+      res = await api('/api/schedule/place', 'POST', { contractId, dayIndex: scheduleSelectedDay, slot });
     }
     envelopeData = res;
     renderScheduleEditor();

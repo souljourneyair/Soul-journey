@@ -789,6 +789,8 @@ const CONTRACT_ECONOMY = {
   ARRIVAL_PAY_PER_LEVEL: 12,       // +12 за уровень аэропорта
   // Частота договора: сколько рейсов в неделю игрок распределяет по сетке.
   DEFAULT_FLIGHTS_PER_WEEK: 7,
+  // Вертолётные договоры: не более 3 рейсов в неделю (на один договор).
+  HELI_MAX_FLIGHTS_PER_WEEK: 3,
   // Срок договора — случайно в этом диапазоне (в игровых сутках)
   MIN_DURATION_DAYS: 3,
   MAX_DURATION_DAYS: 7,

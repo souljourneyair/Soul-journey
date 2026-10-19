@@ -2326,6 +2326,23 @@ function chapterUpgradeCap(airport) {
   return Math.min(Math.max(ch, 1), 3);
 }
 
+// Раскладка строк расписания: ровно по одной строке на активный договор.
+// Сохраняем назначенные строки, вычищаем истёкшие/дубли, добиваем пустыми.
+function reconcileScheduleRows(airport) {
+  const active = new Set(store.getContracts(airport.id).map(c => c.id));
+  const seen = new Set();
+  let rows = (airport.scheduleRows || []).map(id => {
+    if (id == null) return null;
+    if (!active.has(id) || seen.has(id)) return null;
+    seen.add(id);
+    return id;
+  });
+  while (rows.length < active.size) rows.push(null);
+  while (rows.length > active.size && rows[rows.length - 1] == null) rows.pop();
+  if (rows.length > active.size) rows = rows.slice(0, active.size);
+  return rows;
+}
+
 function serializeEnvelope(airportId) {
   const nowTick = store.getTickCounter();
   const ap = store.getAirportById(airportId);
@@ -2355,6 +2372,7 @@ function serializeEnvelope(airportId) {
   }));
   return {
     offers, contracts, schedule,
+    scheduleRows: ap ? reconcileScheduleRows(ap) : [],
     canAccept: canAcceptContracts(airportId),
     chartersAvailable: isChartersAvailable(ap),
   };
@@ -2613,6 +2631,10 @@ app.post('/api/schedule/place', auth, (req, res) => {
   if (!c || c.airportId !== airport.id) {
     return res.status(404).json({ error: 'no_contract', message: 'Договор не найден' });
   }
+  // Сначала АК должна быть перетащена в строку сетки.
+  if (!reconcileScheduleRows(airport).includes(c.id)) {
+    return res.status(400).json({ error: 'row_required', message: 'Сначала перетащите АК в строку расписания' });
+  }
   const d = Number(dayIndex), s = Number(slot);
   if (!(Number.isInteger(d) && d >= 0 && Number.isInteger(s) && s >= 0 && s < SCHEDULE_SLOTS)) {
     return res.status(400).json({ error: 'bad_slot', message: 'Неверная ячейка' });
@@ -2626,11 +2648,23 @@ app.post('/api/schedule/place', auth, (req, res) => {
     return res.status(400).json({ error: 'out_of_contract', message: 'Этот день вне срока действия договора' });
   }
   const schedule = (airport.schedule || []).slice();
-  if (schedule.some(e => e.dayIndex === d && e.slot === s)) {
+  // В строке договора одна клетка — один рейс.
+  if (schedule.some(e => e.contractId === c.id && e.dayIndex === d && e.slot === s)) {
     return res.status(400).json({ error: 'cell_taken', message: 'Ячейка уже занята' });
   }
-  // Количество рейсов задаёт САМ игрок: сколько поставил в сетку — столько
-  // договор и выполняет. Ограничение — только свободные слоты и срок договора.
+  // Вертолётный договор: не более 3 рейсов в неделю.
+  if ((c.craft || 'heli') === 'heli') {
+    const wkStart = Math.floor(d / 7) * 7;
+    const inWeek = schedule.filter(e => e.contractId === c.id
+      && e.dayIndex >= wkStart && e.dayIndex < wkStart + 7).length;
+    if (inWeek >= CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK) {
+      return res.status(400).json({
+        error: 'flights_limit',
+        message: `Для вертолётного договора — не более ${CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK} рейсов в неделю`,
+      });
+    }
+  }
+  // Сколько рейсов ставить — решает игрок (в пределах срока и лимита недели).
   schedule.push({ id: `s${Date.now()}${Math.floor(Math.random() * 1000)}`, contractId: c.id, dayIndex: d, slot: s });
   const patch = { schedule };
   // После трёх рейсов, расставленных вручную, Нина предлагает услугу
@@ -2664,6 +2698,30 @@ app.post('/api/schedule/remove', auth, (req, res) => {
   const { id } = req.body || {};
   const schedule = (airport.schedule || []).filter(e => e.id !== id);
   store.updateAirport(airport.id, { schedule });
+  res.json(serializeEnvelope(airport.id));
+});
+
+// Перетаскивание АК в строку сетки: { contractId, row }.
+app.post('/api/schedule/row', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const { contractId, row } = req.body || {};
+  const c = store.getContractById(Number(contractId));
+  if (!c || c.airportId !== airport.id) {
+    return res.status(404).json({ error: 'no_contract', message: 'Договор не найден' });
+  }
+  const rows = reconcileScheduleRows(airport);
+  const r = Number(row);
+  if (!Number.isInteger(r) || r < 0 || r >= rows.length) {
+    return res.status(400).json({ error: 'bad_row', message: 'Неверная строка' });
+  }
+  if (rows[r] != null && rows[r] !== c.id) {
+    return res.status(400).json({ error: 'row_taken', message: 'Строка уже занята другой АК' });
+  }
+  // Если АК уже стоит в другой строке — переносим.
+  for (let i = 0; i < rows.length; i++) if (rows[i] === c.id) rows[i] = null;
+  rows[r] = c.id;
+  store.updateAirport(airport.id, { scheduleRows: rows });
   res.json(serializeEnvelope(airport.id));
 });
 
@@ -5314,9 +5372,22 @@ function ninaMaintain(airport, currentTick) {
     let changed = false;
     const dayIndexNow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY);
     const wkStart = Math.floor(dayIndexNow / 7) * 7;
+    // Нина сама раскладывает новые договоры по свободным строкам.
+    const rows = reconcileScheduleRows(airport);
+    let rowsChanged = false;
     for (const c of store.getContracts(airport.id)) {
       if (c.single || currentTick >= c.endsTick) continue;
-      const limit = c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK;
+      if (!rows.includes(c.id)) {
+        const free = rows.indexOf(null);
+        if (free >= 0) { rows[free] = c.id; rowsChanged = true; }
+      }
+    }
+    if (rowsChanged) patch.scheduleRows = rows;
+    for (const c of store.getContracts(airport.id)) {
+      if (c.single || currentTick >= c.endsTick) continue;
+      const limit = (c.craft || 'heli') === 'heli'
+        ? CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK
+        : (c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK);
       let placed = schedule.filter(e => e.contractId === c.id
         && e.dayIndex >= wkStart && e.dayIndex < wkStart + 7).length;
       const lastDay = Math.floor((c.endsTick - 1) / CALENDAR.TICKS_PER_DAY);
@@ -5349,6 +5420,12 @@ function processContractsTick(airport, currentTick, notifications) {
   if (cleanSchedule.length !== (fresh.schedule || []).length) {
     store.updateAirport(airport.id, { schedule: cleanSchedule });
     fresh.schedule = cleanSchedule;
+  }
+  // Держим раскладку строк в соответствии с активными договорами.
+  const rowsNow = reconcileScheduleRows(fresh);
+  if (JSON.stringify(rowsNow) !== JSON.stringify(fresh.scheduleRows || [])) {
+    store.updateAirport(airport.id, { scheduleRows: rowsNow });
+    fresh.scheduleRows = rowsNow;
   }
   let apron = (fresh.apronBorts || []).slice();     // борты на стоянке
   let waiting = (fresh.waitingBorts || []).slice();  // в очереди

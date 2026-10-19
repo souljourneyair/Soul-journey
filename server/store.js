@@ -374,7 +374,8 @@ function createAirport(userId, startType, money) {
     ratingChapter: 1,         // для какой главы сейчас копится рейтинг
     openPoints: [],           // открытые направления (id из POINTS)
     flownPoints: [],          // точки, по которым уже прилетал борт
-    schedule: [],             // сетка рейсов: { id, contractId, day 0-6, slot 0-3 }
+    schedule: [],             // сетка рейсов: { id, contractId, dayIndex, slot 0-11 }
+    scheduleRows: [],         // раскладка: какие АК в каких строках (contractId|null)
     ninaService: false,       // услуга «Нина на хозяйстве» включена
     ninaOfferPending: false,  // предложить услугу (после 3 ручных рейсов)
     ninaBaseMoney: null,      // бюджет на момент включения (потолок +70%)

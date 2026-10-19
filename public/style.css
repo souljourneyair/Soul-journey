@@ -1205,6 +1205,15 @@ body.modal-open { overflow: hidden; }
 }
 .schedule-slot.past { cursor: not-allowed; color: var(--text-dim); }
 .schedule-slot.past.filled { opacity: 0.4; }
+/* Столбец АК в расписании */
+.schedule-ak-head, .schedule-ak { flex: 0 0 130px; min-width: 130px; }
+.schedule-ak { display: flex; flex-direction: column; justify-content: center; font-size: 11px; }
+.schedule-ak.filled { border-color: var(--board-amber); background: rgba(255, 180, 0, 0.08); }
+.schedule-ak-empty { color: var(--text-dim); font-size: 10px; }
+.schedule-ak-name { font-weight: 600; }
+.schedule-ak-point { color: var(--text-dim); font-size: 10px; }
+.schedule-slot.no-ak { opacity: 0.35; cursor: not-allowed; }
+.schedule-tab.in-row { opacity: 0.5; }
 
 /* ===== Направления (точки) ===== */
 #pointsList { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }
