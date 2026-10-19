@@ -2529,6 +2529,7 @@ $('#envelopeBtn').addEventListener('click', openEnvelope);
 $('#closeEnvelope').addEventListener('click', () => $('#envelopeModal').classList.add('hidden'));
 // Копирование дня — кнопка рядом с «Закрыть», видна только на вкладке расписания.
 $('#scheduleCopyBtn')?.addEventListener('click', () => copyDaySchedule());
+$('#scheduleClearBtn')?.addEventListener('click', clearSchedule);
 
 let envelopeData = { offers: [], contracts: [], canAccept: false };
 // Выбранный срок по предложению: тик перерисовывает карточки, и без черновика
@@ -2561,6 +2562,7 @@ function applyCharterAvailability() {
     $('#envCharter')?.classList.add('hidden');
     $('#envSchedule')?.classList.add('hidden');
     $('#scheduleCopyBtn')?.classList.add('hidden');
+    $('#scheduleClearBtn')?.classList.add('hidden');
     $('#envCraftTabs')?.classList.remove('hidden');
     document.querySelector('.envelope-body')?.classList.remove('hidden');
   }
@@ -3485,18 +3487,21 @@ function renderScheduleEditor() {
   });
   const nowTick = STATE.tick || 0;
   let gridHtml = `<div class="schedule-day-label">${String(sel.day).padStart(2, '0')}.${String(sel.month).padStart(2, '0')}.${sel.year}</div>`;
-  gridHtml += '<div class="schedule-grid-inner"><div class="schedule-row schedule-head">' +
+  // Строки сетки (без колонки кнопок).
+  let rowsHtml = '<div class="schedule-grid-inner"><div class="schedule-row schedule-head">' +
     '<div class="schedule-cell schedule-ak-head">АК</div>' +
-    slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') +
-    '<div class="schedule-cell schedule-copy-head"></div></div>';
+    slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') + '</div>';
+  // Колонка кнопок — рядом с сеткой, по одной на строку.
+  let actionsHtml = '<div class="schedule-actions"><div class="schedule-action-row schedule-action-head"></div>';
   for (let r = 0; r < rowCount; r++) {
     const cid = rowsAssign[r];
     const c = cid ? contracts.find(x => x.id === cid) : null;
-    gridHtml += '<div class="schedule-row">';
-    gridHtml += `<div class="schedule-cell schedule-ak${c ? ' filled' : ''}" data-row="${r}">` +
+    rowsHtml += '<div class="schedule-row">';
+    rowsHtml += `<div class="schedule-cell schedule-ak${c ? ' filled' : ''}" data-row="${r}">` +
       (c
         ? `<span class="schedule-ak-name">${escapeHtml(c.airline)}</span>` +
-          (c.pointName ? `<span class="schedule-ak-point">${escapeHtml(c.pointName)}</span>` : '')
+          (c.pointName ? `<span class="schedule-ak-point">${escapeHtml(c.pointName)}</span>` : '') +
+          `<button class="schedule-ak-x" data-unassign="${c.id}" title="Убрать АК из таблицы">✕</button>`
         : '<span class="schedule-ak-empty">Перетащите АК</span>') +
       '</div>';
     for (let s = 0; s < slots.length; s++) {
@@ -3505,18 +3510,19 @@ function renderScheduleEditor() {
       const slotPast = (scheduleSelectedDay * tpd + s) < nowTick;
       const cls = (e ? ' filled' : '') + (slotPast ? ' past' : '') + (!c ? ' no-ak' : '');
       const label = e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
-      gridHtml += `<div class="schedule-cell schedule-slot${cls}" data-row="${r}" data-slot="${s}" data-cid="${c ? c.id : ''}">${label}</div>`;
+      rowsHtml += `<div class="schedule-cell schedule-slot${cls}" data-row="${r}" data-slot="${s}" data-cid="${c ? c.id : ''}">${label}</div>`;
     }
-    // Кнопка копирования именно этой строки.
+    rowsHtml += '</div>';
     const dayFlights = c ? schedule.some(e => e.contractId === c.id && e.dayIndex === scheduleSelectedDay) : false;
-    gridHtml += '<div class="schedule-cell schedule-copy">' +
+    actionsHtml += '<div class="schedule-action-row">' +
       (c
         ? `<button class="btn-secondary schedule-copy-btn" data-copy-cid="${c.id}"${dayFlights ? '' : ' disabled'}>Копировать</button>`
         : '') +
       '</div>';
-    gridHtml += '</div>';
   }
-  gridHtml += '</div>';
+  rowsHtml += '</div>';
+  actionsHtml += '</div>';
+  gridHtml += '<div class="schedule-grid-wrap">' + rowsHtml + actionsHtml + '</div>';
 
   grid.innerHTML = topHtml + gridHtml;
 
@@ -3533,6 +3539,10 @@ function renderScheduleEditor() {
   }));
   grid.querySelectorAll('[data-nina]').forEach(b => b.addEventListener('click', () => setNina(b.dataset.nina === 'hire')));
   grid.querySelectorAll('[data-copy-cid]').forEach(b => b.addEventListener('click', () => copyDaySchedule(Number(b.dataset.copyCid))));
+  grid.querySelectorAll('[data-unassign]').forEach(b => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    unassignScheduleRow(Number(b.dataset.unassign));
+  }));
   // Перетаскивание АК в первый столбец.
   grid.querySelectorAll('.schedule-ak').forEach(cell => {
     cell.addEventListener('dragover', (ev) => ev.preventDefault());
@@ -3574,6 +3584,24 @@ async function copyDaySchedule(contractId) {
     toast(res._copied
       ? `Расписание дня скопировано на весь срок: +${res._copied} рейсов`
       : 'Копировать нечего — сперва поставьте рейсы на этом дне');
+  } catch (e) { toast(e.message, true); }
+}
+
+async function unassignScheduleRow(contractId) {
+  try {
+    envelopeData = await api('/api/schedule/unassign', 'POST', { contractId });
+    renderScheduleEditor();
+    renderEnvelope();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function clearSchedule() {
+  try {
+    if (!confirm('Очистить всё расписание? Все рейсы будут удалены, договоры останутся.')) return;
+    envelopeData = await api('/api/schedule/clear', 'POST', {});
+    renderScheduleEditor();
+    renderEnvelope();
+    toast('Расписание очищено');
   } catch (e) { toast(e.message, true); }
 }
 
@@ -3620,6 +3648,7 @@ document.querySelectorAll('.lb-tab[data-env]').forEach(btn => {
     // На расписании окно раскрываем почти на всю ширину, чтобы сетка влезла.
     document.querySelector('.envelope-modal')?.classList.toggle('schedule-wide', tab === 'schedule');
     $('#scheduleCopyBtn')?.classList.toggle('hidden', tab !== 'schedule');
+    $('#scheduleClearBtn')?.classList.toggle('hidden', tab !== 'schedule');
     if (tab === 'charter') renderCharter();
     if (tab === 'schedule') renderScheduleEditor();
   });

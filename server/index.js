@@ -2726,6 +2726,29 @@ app.post('/api/schedule/row', auth, (req, res) => {
   res.json(serializeEnvelope(airport.id));
 });
 
+// Полностью очистить расписание (рейсы), оставив договоры в строках.
+app.post('/api/schedule/clear', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  store.updateAirport(airport.id, { schedule: [] });
+  res.json(serializeEnvelope(airport.id));
+});
+
+// Убрать АК из строки (и удалить все её рейсы из расписания).
+app.post('/api/schedule/unassign', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const cid = Number((req.body || {}).contractId);
+  const c = store.getContractById(cid);
+  if (!c || c.airportId !== airport.id) {
+    return res.status(404).json({ error: 'no_contract', message: 'Договор не найден' });
+  }
+  const rows = reconcileScheduleRows(airport).map(id => (id === cid ? null : id));
+  const schedule = (airport.schedule || []).filter(e => e.contractId !== cid);
+  store.updateAirport(airport.id, { scheduleRows: rows, schedule });
+  res.json(serializeEnvelope(airport.id));
+});
+
 // Копировать расписание выбранного ДНЯ на все дни срока действия договоров.
 app.post('/api/schedule/copy-day', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);

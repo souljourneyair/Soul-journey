@@ -1211,8 +1211,10 @@ body.modal-open { overflow: hidden; }
 .schedule-tab.short .schedule-count { color: #ff8a8a; }
 .schedule-count { font-size: 11px; color: var(--board-amber); }
 .schedule-grid { overflow-x: auto; margin-bottom: 10px; }
-.schedule-grid-inner { display: block; width: 100%; min-width: 820px; }
-.schedule-row { display: flex; width: 100%; }
+.schedule-grid-wrap { display: flex; gap: 12px; align-items: flex-start; }
+.schedule-grid-inner { flex: 1 1 auto; min-width: 720px; }
+.schedule-row { display: flex; width: 100%; height: 48px; }
+.schedule-head { height: 28px; }
 .schedule-cell {
   flex: 1 1 0; min-width: 58px; border: 1px solid var(--text-dim);
   padding: 4px 6px; font-size: 11px;
@@ -1223,7 +1225,7 @@ body.modal-open { overflow: hidden; }
 .schedule-slot-head { font-weight: 600; text-align: center; color: var(--board-amber); }
 .schedule-head .schedule-cell { border-top: none; }
 .schedule-slot {
-  height: 46px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  height: 100%; cursor: pointer; display: flex; align-items: center; justify-content: center;
   text-align: center; color: var(--text-dim);
 }
 .schedule-slot:hover { background: rgba(255, 255, 255, 0.06); }
@@ -1240,16 +1242,23 @@ body.modal-open { overflow: hidden; }
 .schedule-slot.past.filled { opacity: 0.4; }
 /* Столбец АК в расписании */
 .schedule-ak-head, .schedule-ak { flex: 0 0 130px; min-width: 130px; }
-.schedule-ak { display: flex; flex-direction: column; justify-content: center; font-size: 11px; }
+.schedule-ak { display: flex; flex-direction: column; justify-content: center; font-size: 11px; position: relative; }
 .schedule-ak.filled { border-color: var(--board-amber); background: rgba(255, 180, 0, 0.08); }
 .schedule-ak-empty { color: var(--text-dim); font-size: 10px; }
 .schedule-ak-name { font-weight: 600; }
 .schedule-ak-point { color: var(--text-dim); font-size: 10px; }
+.schedule-ak-x {
+  position: absolute; top: 2px; right: 4px; width: 16px; height: 16px;
+  padding: 0; line-height: 14px; border: none; border-radius: 50%;
+  background: rgba(220, 80, 80, 0.85); color: #fff; font-size: 10px; cursor: pointer;
+}
+.schedule-ak-x:hover { background: #e04a4a; }
 .schedule-slot.no-ak { opacity: 0.35; cursor: not-allowed; }
 .schedule-tab.in-row { opacity: 0.5; }
-/* Кнопка копирования строки */
-.schedule-copy-head, .schedule-copy { flex: 0 0 112px; min-width: 112px; }
-.schedule-copy { display: flex; align-items: center; justify-content: center; }
+/* Колонка кнопок «Копировать» — справа от сетки, по строке на кнопку */
+.schedule-actions { flex: 0 0 120px; display: flex; flex-direction: column; }
+.schedule-action-row { height: 48px; display: flex; align-items: center; justify-content: center; }
+.schedule-action-head { height: 28px; }
 .schedule-copy-btn { font-size: 10px; padding: 4px 6px; }
 
 /* ===== Направления (точки) ===== */
