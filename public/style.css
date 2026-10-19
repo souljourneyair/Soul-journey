@@ -1162,6 +1162,9 @@ body.modal-open { overflow: hidden; }
 .schedule-cal-day:hover { border-color: var(--board-amber); }
 .schedule-cal-day.today { border-color: rgba(255, 180, 0, 0.5); }
 .schedule-cal-day.active { background: var(--board-amber); color: #1a1200; font-weight: 600; border-color: var(--board-amber); }
+.schedule-cal-day.past { opacity: 0.45; }
+.schedule-cal-day.active.past { opacity: 0.75; }
+.schedule-cal-x { color: #ff5a5a; font-size: 9px; margin-left: 2px; }
 .schedule-day-label { font-weight: 600; color: var(--board-amber); margin-bottom: 6px; }
 .schedule-palette { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .schedule-tab {
@@ -1200,6 +1203,8 @@ body.modal-open { overflow: hidden; }
   border-left: none; border-color: var(--board-amber);
   background: rgba(255, 180, 0, 0.12);
 }
+.schedule-slot.past { cursor: not-allowed; color: var(--text-dim); }
+.schedule-slot.past.filled { opacity: 0.4; }
 
 /* ===== Направления (точки) ===== */
 #pointsList { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }

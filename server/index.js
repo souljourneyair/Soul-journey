@@ -2617,8 +2617,11 @@ app.post('/api/schedule/place', auth, (req, res) => {
   if (!(Number.isInteger(d) && d >= 0 && Number.isInteger(s) && s >= 0 && s < SCHEDULE_SLOTS)) {
     return res.status(400).json({ error: 'bad_slot', message: 'Неверная ячейка' });
   }
-  // Рейс должен попадать в срок действия договора.
+  // Рейс должен попадать в срок действия договора и не быть в прошлом.
   const flightTick = d * CALENDAR.TICKS_PER_DAY + s;
+  if (flightTick < store.getTickCounter()) {
+    return res.status(400).json({ error: 'past_slot', message: 'Это время уже прошло — рейс туда не поставить' });
+  }
   if (flightTick < (c.signedTick || 0) || flightTick >= c.endsTick) {
     return res.status(400).json({ error: 'out_of_contract', message: 'Этот день вне срока действия договора' });
   }

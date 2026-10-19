@@ -2635,16 +2635,10 @@ function renderOfferCard(o) {
   }
 
   const draft = offerTermDraft.get(o.id) || { unit: 'day', value: o.durationDays || 7 };
-  card.innerHTML = `
-    <div class="envelope-card-top">
-      <span class="envelope-airline">${escapeHtml(o.airline)}</span>
-      ${thinkingNote}
-    </div>
-    <div class="envelope-craft">${craftLabel(o)}${o.pointName ? ` · 🧭 ${escapeHtml(o.pointName)}` : ''}</div>
-    <div class="envelope-card-meta">
-      <span class="envelope-pay">${o.payPerArrival} у.е. за прилёт</span>
-      <span>Истекает через ${formatMinutes(o.minutesLeft)}</span>
-    </div>
+  // В главе 1 срок договора не выбирается (обучение) — срок берётся из
+  // предложения. Поле срока появляется со 2-й главы.
+  const chapterOne = !!(STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1);
+  const termHtml = chapterOne ? '' : `
     <div class="envelope-term">
       <label>Срок:</label>
       <select class="envelope-term-unit" data-term-unit data-offer-id="${o.id}">
@@ -2655,7 +2649,18 @@ function renderOfferCard(o) {
       <input type="number" class="envelope-term-value" data-term-value data-offer-id="${o.id}"
              min="1" max="30" value="${draft.value}" />
       <span class="envelope-term-hint" data-term-hint data-offer-id="${o.id}">дней</span>
+    </div>`;
+  card.innerHTML = `
+    <div class="envelope-card-top">
+      <span class="envelope-airline">${escapeHtml(o.airline)}</span>
+      ${thinkingNote}
     </div>
+    <div class="envelope-craft">${craftLabel(o)}${o.pointName ? ` · 🧭 ${escapeHtml(o.pointName)}` : ''}</div>
+    <div class="envelope-card-meta">
+      <span class="envelope-pay">${o.payPerArrival} у.е. за прилёт</span>
+      <span>Истекает через ${formatMinutes(o.minutesLeft)}</span>
+    </div>
+    ${termHtml}
     <div class="envelope-card-actions">
       <button class="btn-secondary" data-act="accept" data-id="${o.id}">Принимаю</button>
       <button class="btn-secondary" data-act="think" data-id="${o.id}" ${o.thinking ? 'disabled' : ''}>Подумаю</button>
@@ -3425,8 +3430,10 @@ function renderScheduleEditor() {
   for (let i = 0; i < offset; i++) calDays += '<div class="schedule-cal-empty"></div>';
   for (let d = 1; d <= 30; d++) {
     const di = mStart + d - 1;
-    const cls = di === scheduleSelectedDay ? ' active' : (di === today ? ' today' : '');
-    calDays += `<button class="schedule-cal-day${cls}" data-dayindex="${di}">${d}</button>`;
+    const past = di < today;
+    const cls = (di === scheduleSelectedDay ? ' active' : (di === today ? ' today' : ''))
+      + (past ? ' past' : '');
+    calDays += `<button class="schedule-cal-day${cls}" data-dayindex="${di}">${d}${past ? '<span class="schedule-cal-x">✕</span>' : ''}</button>`;
   }
   const calHtml = `<div class="schedule-cal">
     <div class="schedule-cal-head">
@@ -3448,10 +3455,12 @@ function renderScheduleEditor() {
   gridHtml += '<div class="schedule-grid-inner"><div class="schedule-row schedule-head">' +
     slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') + '</div>';
   gridHtml += '<div class="schedule-row">';
+  const nowTick = STATE.tick || 0;
   for (let s = 0; s < slots.length; s++) {
     const e = byCell.get(s);
     const c = e ? contracts.find(x => x.id === e.contractId) : null;
-    const cls = e ? ' filled' : '';
+    const slotPast = (scheduleSelectedDay * tpd + s) < nowTick;
+    const cls = (e ? ' filled' : '') + (slotPast ? ' past' : '');
     const label = e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
     gridHtml += `<div class="schedule-cell schedule-slot${cls}" data-slot="${s}">${label}</div>`;
   }
@@ -3483,6 +3492,11 @@ function renderScheduleEditor() {
 
 async function onScheduleCell(slot, cidOverride) {
   if (scheduleSelectedDay == null) return;
+  const tpd = (STATE.calendar && STATE.calendar.ticksPerDay) || 12;
+  if (scheduleSelectedDay * tpd + slot < (STATE.tick || 0)) {
+    toast('Это время уже прошло', true);
+    return;
+  }
   const e = (envelopeData.schedule || []).find(x => x.dayIndex === scheduleSelectedDay && x.slot === slot);
   try {
     let res;
