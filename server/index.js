@@ -2652,15 +2652,13 @@ app.post('/api/schedule/place', auth, (req, res) => {
   if (schedule.some(e => e.contractId === c.id && e.dayIndex === d && e.slot === s)) {
     return res.status(400).json({ error: 'cell_taken', message: 'Ячейка уже занята' });
   }
-  // Вертолётный договор: не более 3 рейсов в неделю.
+  // Вертолётный договор: не более 3 рейсов в день.
   if ((c.craft || 'heli') === 'heli') {
-    const wkStart = Math.floor(d / 7) * 7;
-    const inWeek = schedule.filter(e => e.contractId === c.id
-      && e.dayIndex >= wkStart && e.dayIndex < wkStart + 7).length;
-    if (inWeek >= CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK) {
+    const inDay = schedule.filter(e => e.contractId === c.id && e.dayIndex === d).length;
+    if (inDay >= CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_DAY) {
       return res.status(400).json({
         error: 'flights_limit',
-        message: `Для вертолётного договора — не более ${CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK} рейсов в неделю`,
+        message: `Для вертолётного договора — не более ${CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_DAY} рейсов в день`,
       });
     }
   }
@@ -2759,12 +2757,10 @@ app.post('/api/schedule/copy-day', auth, (req, res) => {
         if (tick < nowTick) continue;
         const key = `${c.id}:${day}:${slot}`;
         if (existing.has(key)) continue;
-        // Лимит вертолётного договора — не более 3 рейсов в неделю.
+        // Лимит вертолётного договора — не более 3 рейсов в день.
         if ((c.craft || 'heli') === 'heli') {
-          const wStart = Math.floor(day / 7) * 7;
-          const cnt = schedule.filter(x => x.contractId === c.id
-            && x.dayIndex >= wStart && x.dayIndex < wStart + 7).length;
-          if (cnt >= CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK) continue;
+          const cnt = schedule.filter(x => x.contractId === c.id && x.dayIndex === day).length;
+          if (cnt >= CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_DAY) continue;
         }
         schedule.push({
           id: `c${Date.now()}${Math.floor(Math.random() * 1000)}${added}`,
@@ -5439,22 +5435,21 @@ function ninaMaintain(airport, currentTick) {
     if (rowsChanged) patch.scheduleRows = rows;
     for (const c of store.getContracts(airport.id)) {
       if (c.single || currentTick >= c.endsTick) continue;
-      const limit = (c.craft || 'heli') === 'heli'
-        ? CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK
+      const perDay = (c.craft || 'heli') === 'heli'
+        ? CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_DAY
         : (c.flightsPerWeek || CONTRACT_ECONOMY.DEFAULT_FLIGHTS_PER_WEEK);
-      let placed = schedule.filter(e => e.contractId === c.id
-        && e.dayIndex >= wkStart && e.dayIndex < wkStart + 7).length;
       const lastDay = Math.floor((c.endsTick - 1) / CALENDAR.TICKS_PER_DAY);
-      for (let d = Math.max(dayIndexNow, wkStart); d < wkStart + 7 && d <= lastDay && placed < limit; d++) {
-        for (let s = 0; s < SCHEDULE_SLOTS && placed < limit; s++) {
+      for (let d = Math.max(dayIndexNow, wkStart); d < wkStart + 7 && d <= lastDay; d++) {
+        let dayCount = schedule.filter(e => e.contractId === c.id && e.dayIndex === d).length;
+        for (let s = 0; s < SCHEDULE_SLOTS && dayCount < perDay; s++) {
           const tickAt = d * CALENDAR.TICKS_PER_DAY + s;
           if (tickAt < (c.signedTick || 0) || tickAt >= c.endsTick) continue;
-          if (schedule.some(e => e.dayIndex === d && e.slot === s)) continue;
+          if (schedule.some(e => e.contractId === c.id && e.dayIndex === d && e.slot === s)) continue;
           schedule.push({
             id: `n${Date.now()}${Math.floor(Math.random() * 1000)}`,
             contractId: c.id, dayIndex: d, slot: s, byNina: true,
           });
-          placed++; changed = true;
+          dayCount++; changed = true;
         }
       }
     }

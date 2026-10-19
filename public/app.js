@@ -3409,7 +3409,7 @@ function renderScheduleEditor() {
     grid.innerHTML = '';
     return;
   }
-  if (hintEl) hintEl.textContent = 'Перетащите АК в строку сетки, затем ставьте рейсы в её слоты. Повторный клик убирает рейс.';
+  if (hintEl) hintEl.textContent = 'Перетащите АК в строку сетки, затем ставьте рейсы в её слоты. Повторный клик убирает рейс. Вертолётный договор — до 3 рейсов в день.';
 
   const tpd = (STATE.calendar && STATE.calendar.ticksPerDay) || 12;
   const today = Math.floor((STATE.tick || 0) / tpd);
@@ -3424,10 +3424,9 @@ function renderScheduleEditor() {
   palette.innerHTML = contracts.map(c => {
     const inRow = rowsAssign.includes(c.id);
     const placed = schedule.filter(e => e.contractId === c.id).length;
-    const cap = (c.craft || 'heli') === 'heli' ? 3 : null;
     return `<button class="schedule-tab${inRow ? ' in-row' : ''}" data-cid="${c.id}" draggable="true">
       ${escapeHtml(c.airline)}${c.pointName ? ' · ' + escapeHtml(c.pointName) : ''}
-      <span class="schedule-count">${placed}${cap ? `/${cap} в нед.` : ''}</span>
+      <span class="schedule-count">${placed} рейс.</span>
     </button>`;
   }).join('');
   palette.querySelectorAll('.schedule-tab').forEach(b => {
