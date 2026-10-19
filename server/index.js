@@ -2318,6 +2318,14 @@ function isChartersAvailable(airport) {
   return ch >= 2 || ch === -1;
 }
 
+// Максимальный уровень апгрейда зданий в текущей главе: гл.1 — без апгрейдов,
+// гл.2 — до 2, гл.3 — до 3. После прохождения (chapter = -1) и дальше — 3.
+function chapterUpgradeCap(airport) {
+  const ch = airport && airport.chapter != null ? airport.chapter : 1;
+  if (ch === -1) return 3;
+  return Math.min(Math.max(ch, 1), 3);
+}
+
 function serializeEnvelope(airportId) {
   const nowTick = store.getTickCounter();
   const ap = store.getAirportById(airportId);
@@ -3243,11 +3251,6 @@ app.post('/api/building/upgrade', auth, (req, res) => {
   const ctx = getOwnedBuildingOr404(req, res);
   if (!ctx) return;
   const { airport, building, def } = ctx;
-  // В первой главе апгрейды отключены целиком: пока идёт обучение, игрок не
-  // тратит деньги на улучшения.
-  if ((airport.chapter || 1) === 1) {
-    return res.status(400).json({ error: 'chapter_locked', message: 'Апгрейды откроются в следующей главе' });
-  }
   // Апгрейд доступен для любого здания, включая несносимое админздание —
   // это отдельная механика от продажи/сноса.
   if (building.state !== 'owned') return res.status(400).json({ error: 'wrong_state', message: 'Нельзя улучшать здание, пока оно в аренде или продано' });
@@ -3264,6 +3267,14 @@ app.post('/api/building/upgrade', auth, (req, res) => {
   const currentLevel = building.upgradeLevel || 1;
   if (currentLevel >= def.maxUpgradeLevel) {
     return res.status(400).json({ error: 'max_level_reached', message: 'Достигнут максимальный уровень апгрейда' });
+  }
+  // Предел апгрейда зависит от главы: гл.1 — нельзя, гл.2 — до 2, гл.3 — до 3.
+  const upgradeCap = chapterUpgradeCap(airport);
+  if (currentLevel >= upgradeCap) {
+    return res.status(400).json({
+      error: 'chapter_upgrade_cap',
+      message: `В этой главе здания улучшаются максимум до ${upgradeCap} уровня`,
+    });
   }
   const nextLevel = currentLevel + 1;
   // У некоторых зданий каждый уровень открывается своими условиями —

@@ -485,6 +485,14 @@ function bumpStat(el) {
   el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
 }
 
+// Предел апгрейда зданий в текущей главе: гл.1 — 1 (нельзя), гл.2 — 2,
+// гл.3 — 3. После прохождения (глава null) — 3.
+function chapterUpgradeCap() {
+  const ch = (STATE.quests && STATE.quests.chapter) ? STATE.quests.chapter.id : -1;
+  if (ch === -1) return 3;
+  return Math.min(Math.max(ch, 1), 3);
+}
+
 // Игровые дата и время: «3 января 20:00». Время идёт шагом 2 часа (1 тик).
 const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
@@ -1287,8 +1295,16 @@ function renderBuildingModal() {
     return;
   }
 
-  const chapterOnePanelLock = !!(STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1);
-  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !chapterOnePanelLock) {
+  const panelUpCap = chapterUpgradeCap();
+  const panelChapterCapped = state === 'owned' && building.nextUpgradeCost && !building.ruined
+    && (building.upgradeLevel || 1) >= panelUpCap;
+  if (panelChapterCapped) {
+    const hint = document.createElement('div');
+    hint.className = 'build-menu-hint';
+    hint.textContent = `В этой главе здания улучшаются максимум до ${panelUpCap} уровня.`;
+    actions.appendChild(hint);
+  }
+  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !panelChapterCapped) {
     const canAffordUpgrade = STATE.money >= building.nextUpgradeCost;
     const upgradeBtn = actionBtn(
       canAffordUpgrade ? `Улучшить до ${toRoman(building.upgradeLevel + 1)} (${(building.upgradeWithRepair || building.nextUpgradeCost).toLocaleString('ru-RU')} у.е.)` : 'Недостаточно средств для апгрейда',
@@ -1519,16 +1535,18 @@ function renderBuildingPanel(cellIndex, container) {
     return;
   }
 
-  // В первой главе апгрейды отключены целиком (обучение).
-  const chapterOneLock = !!(STATE.quests && STATE.quests.chapter && STATE.quests.chapter.id === 1);
-  if (chapterOneLock && state === 'owned' && building.nextUpgradeCost && !building.ruined) {
+  // Предел апгрейда по главе: гл.1 — нельзя, гл.2 — до 2, гл.3 — до 3.
+  const upCap = chapterUpgradeCap();
+  const chapterCapped = state === 'owned' && building.nextUpgradeCost && !building.ruined
+    && (building.upgradeLevel || 1) >= upCap;
+  if (chapterCapped) {
     const hint = document.createElement('div');
     hint.className = 'build-menu-hint';
-    hint.textContent = 'Апгрейды откроются в следующей главе.';
+    hint.textContent = `В этой главе здания улучшаются максимум до ${upCap} уровня.`;
     actions.appendChild(hint);
   }
 
-  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !chapterOneLock) {
+  if (state === 'owned' && building.nextUpgradeCost && !building.ruined && !chapterCapped) {
     // У некоторых зданий каждый уровень открывается своими условиями —
     // показываем, чего не хватает, вместо молчаливой блокировки.
     const upRules = (def.upgradeRequires || {})[(building.upgradeLevel || 1) + 1];
@@ -3373,17 +3391,13 @@ function renderScheduleEditor() {
   if (!scheduleCal) scheduleCal = { year: sel.year, month: sel.month };
 
   const schedule = envelopeData.schedule || [];
-  const day = scheduleSelectedDay;
-  const wkStart = Math.floor(day / 7) * 7;
+  // Сколько рейсов игрок уже поставил по договору — это и есть его частота.
   palette.innerHTML = contracts.map(c => {
-    const placed = schedule.filter(e => e.contractId === c.id
-      && e.dayIndex >= wkStart && e.dayIndex < wkStart + 7).length;
-    const limit = c.flightsPerWeek || 7;
+    const placed = schedule.filter(e => e.contractId === c.id).length;
     const selC = c.id === scheduleSelectedContract ? ' active' : '';
-    const full = placed >= limit ? ' full' : '';
-    return `<button class="schedule-tab${selC}${full}" data-cid="${c.id}">
+    return `<button class="schedule-tab${selC}" data-cid="${c.id}">
       ${escapeHtml(c.airline)}${c.pointName ? ' · ' + escapeHtml(c.pointName) : ''}
-      <span class="schedule-count">${placed}/${limit}</span>
+      <span class="schedule-count">${placed} рейс.</span>
     </button>`;
   }).join('');
   palette.querySelectorAll('.schedule-tab').forEach(b => {
