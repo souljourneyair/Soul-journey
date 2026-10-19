@@ -496,14 +496,23 @@ function chapterUpgradeCap() {
 // Игровые дата и время: «3 января 20:00». Время идёт шагом 2 часа (1 тик).
 const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
   'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-function gameNowLabel() {
+function gameNowParts() {
   const tpd = (STATE && STATE.calendar && STATE.calendar.ticksPerDay) || 12;
   const t = (STATE && STATE.tick) || 0;
   const dayOfYear = Math.floor(t / tpd);
   const month = Math.floor((dayOfYear % 360) / 30) + 1;
   const day = (dayOfYear % 30) + 1;
   const hour = (t % tpd) * 2;
-  return `${day} ${MONTHS_RU[month - 1]} ${String(hour).padStart(2, '0')}:00`;
+  return {
+    day,
+    monthName: MONTHS_RU[month - 1],
+    year: Math.floor(dayOfYear / 360) + 1,
+    hourLabel: `${String(hour).padStart(2, '0')}:00`,
+  };
+}
+function gameNowLabel() {
+  const p = gameNowParts();
+  return `${p.day} ${p.monthName} ${p.hourLabel}`;
 }
 
 function renderAll() {
@@ -527,16 +536,18 @@ function renderAll() {
   checkNinaLetter();
   checkQuestReward();
   checkNinaIntro();
-  checkNinaServiceOffer();
   applyCharterAvailability();
 }
 
 function renderStats() {
   // Игровые дата/время: в строке администрации и на вкладке «Расписание».
-  const nowLabel = gameNowLabel();
+  const np = gameNowParts();
+  const nowLabel = `${np.day} ${np.monthName} ${np.hourLabel}`;
   document.querySelectorAll('.admin-clock').forEach(el => { el.textContent = nowLabel; });
-  const scheduleNow = $('#scheduleNow');
-  if (scheduleNow) scheduleNow.textContent = `Сейчас: ${nowLabel}`;
+  const clockTime = $('#scheduleClockTime');
+  if (clockTime) clockTime.textContent = np.hourLabel;
+  const clockDate = $('#scheduleClockDate');
+  if (clockDate) clockDate.textContent = `${np.day} ${np.monthName} ${np.year}`;
   const moneyEl = $('#statMoney');
   moneyEl.textContent = Math.floor(STATE.money).toLocaleString('ru-RU');
   moneyEl.classList.toggle('stat-negative', STATE.money < 0); // долг — красным
@@ -3378,8 +3389,6 @@ function renderScheduleEditor() {
   const palette = $('#schedulePalette');
   const grid = $('#scheduleGrid');
   if (!palette || !grid) return;
-  const nowEl = $('#scheduleNow');
-  if (nowEl) nowEl.textContent = `Сейчас: ${gameNowLabel()}`;
   const contracts = (envelopeData.contracts || []);
   const hintEl = $('#scheduleEditorHint');
   if (!contracts.length) {
@@ -3431,6 +3440,8 @@ function renderScheduleEditor() {
       + (past ? ' past' : '');
     calDays += `<button class="schedule-cal-day${cls}" data-dayindex="${di}">${d}${past ? '<span class="schedule-cal-x">✕</span>' : ''}</button>`;
   }
+  const np = gameNowParts();
+  const ninaHired = !!(STATE && STATE.nina && STATE.nina.service);
   const calHtml = `<div class="schedule-cal">
     <div class="schedule-cal-head">
       <button data-cal="prev">‹</button>
@@ -3439,6 +3450,22 @@ function renderScheduleEditor() {
     </div>
     <div class="schedule-cal-grid">${calDays}</div>
   </div>`;
+  // Часы в стиле старого табло (дата + время крупно).
+  const clockHtml = `<div class="schedule-clock">
+    <div class="schedule-clock-date" id="scheduleClockDate">${np.day} ${np.monthName} ${np.year}</div>
+    <div class="schedule-clock-time" id="scheduleClockTime">${np.hourLabel}</div>
+  </div>`;
+  const hireHtml = `<div class="schedule-hire">
+    <div class="schedule-hire-q">Нанять тётю Нину в планирование?</div>
+    <div class="schedule-hire-actions">
+      ${ninaHired
+        ? '<button class="btn-secondary" data-nina="fire">Уволить</button>'
+        : '<button class="btn-primary" data-nina="hire">Нанять</button>'}
+      <button class="btn-secondary" data-copy="1">Копировать на весь срок</button>
+    </div>
+    <div class="build-menu-hint">Зарплата — 1 000 у.е. за спланированную неделю. Работает, пока вы оффлайн.</div>
+  </div>`;
+  const topHtml = `<div class="schedule-top">${calHtml}<div class="schedule-side">${clockHtml}${hireHtml}</div></div>`;
 
   // --- сетка: столбец АК + слоты выбранного дня ---
   const slots = Array.from({ length: 12 }, (_, i) => {
@@ -3472,7 +3499,7 @@ function renderScheduleEditor() {
   }
   gridHtml += '</div>';
 
-  grid.innerHTML = calHtml + gridHtml;
+  grid.innerHTML = topHtml + gridHtml;
 
   grid.querySelectorAll('[data-cal]').forEach(b => b.addEventListener('click', () => {
     let { year, month } = scheduleCal;
@@ -3485,6 +3512,8 @@ function renderScheduleEditor() {
     scheduleSelectedDay = Number(b.dataset.dayindex);
     renderScheduleEditor();
   }));
+  grid.querySelectorAll('[data-nina]').forEach(b => b.addEventListener('click', () => setNina(b.dataset.nina === 'hire')));
+  grid.querySelector('[data-copy]')?.addEventListener('click', copyWeekSchedule);
   // Перетаскивание АК в первый столбец.
   grid.querySelectorAll('.schedule-ak').forEach(cell => {
     cell.addEventListener('dragover', (ev) => ev.preventDefault());
@@ -3501,6 +3530,29 @@ function renderScheduleEditor() {
       onScheduleCell(cid, Number(cell.dataset.slot));
     });
   });
+}
+
+async function setNina(hired) {
+  try {
+    STATE = await api('/api/nina-service/set', 'POST', { hired });
+    envelopeData = await api('/api/envelope');
+    renderScheduleEditor();
+    renderEnvelope();
+    renderAll();
+    toast(hired ? 'Нина нанята — будет планировать, пока вы оффлайн' : 'Нина уволена');
+  } catch (e) { toast(e.message, true); }
+}
+
+async function copyWeekSchedule() {
+  try {
+    const res = await api('/api/schedule/copy-week', 'POST', { dayIndex: scheduleSelectedDay });
+    envelopeData = res;
+    renderScheduleEditor();
+    renderEnvelope();
+    toast(res._copied
+      ? `Расписание недели скопировано на весь срок: +${res._copied} рейсов`
+      : 'Копировать нечего — сперва поставьте рейсы на этой неделе');
+  } catch (e) { toast(e.message, true); }
 }
 
 async function assignScheduleRow(contractId, row) {
@@ -4189,43 +4241,6 @@ function checkNinaIntro() {
         catch (e) { /* не критично */ }
       },
     }],
-  });
-}
-
-// Нина предлагает услугу «на хозяйстве» после трёх рейсов, расставленных
-// вручную. Включённая услуга дозаполняет расписание, пока игрок оффлайн.
-let ninaServiceShown = false;
-function checkNinaServiceOffer() {
-  const n = STATE && STATE.nina;
-  if (!n || !n.offerPending || ninaServiceShown) return;
-  const blockers = ['welcomeModal', 'airportNameModal', 'dedLetterModal', 'charDialogModal', 'bankruptModal'];
-  if (blockers.some(id => {
-    const el = document.getElementById(id);
-    return el && !el.classList.contains('hidden');
-  })) return;
-  ninaServiceShown = true;
-  showCharDialog({
-    characterId: 'nina', scene: 'service', title: 'ТЁТЯ НИНА', emoji: '👩‍🍳',
-    fallbackText: 'Вижу, ты уже сам расставляешь рейсы. Хочешь, я присмотрю за договорами, '
-      + 'пока тебя нет? Буду поддерживать расписание, чтобы аэропорт не разорился. '
-      + 'За работу — зарплата.',
-    actions: [
-      {
-        label: 'Включить услугу', primary: true,
-        onClick: async () => {
-          closeCharDialog();
-          try { STATE = await api('/api/nina-service/enable', 'POST', {}); renderAll(); }
-          catch (e) { /* не критично */ }
-        },
-      },
-      {
-        label: 'Позже',
-        onClick: async () => {
-          closeCharDialog();
-          try { STATE = await api('/api/nina-service/dismiss', 'POST', {}); } catch (e) { /* ок */ }
-        },
-      },
-    ],
   });
 }
 

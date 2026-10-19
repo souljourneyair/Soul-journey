@@ -2666,13 +2666,7 @@ app.post('/api/schedule/place', auth, (req, res) => {
   }
   // Сколько рейсов ставить — решает игрок (в пределах срока и лимита недели).
   schedule.push({ id: `s${Date.now()}${Math.floor(Math.random() * 1000)}`, contractId: c.id, dayIndex: d, slot: s });
-  const patch = { schedule };
-  // После трёх рейсов, расставленных вручную, Нина предлагает услугу
-  // «на хозяйстве» (дозаполнять расписание, пока игрок оффлайн).
-  if (!airport.ninaService && !airport.ninaOfferPending && schedule.length === 3) {
-    patch.ninaOfferPending = true;
-  }
-  store.updateAirport(airport.id, patch);
+  store.updateAirport(airport.id, { schedule });
   res.json(serializeEnvelope(airport.id));
 });
 
@@ -2681,6 +2675,15 @@ app.post('/api/nina-service/enable', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
   const updated = store.updateAirport(airport.id, { ninaService: true, ninaOfferPending: false });
+  res.json(serializeAirport(updated));
+});
+
+// Нанять/уволить Нину прямо из расписания.
+app.post('/api/nina-service/set', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const hired = !!(req.body || {}).hired;
+  const updated = store.updateAirport(airport.id, { ninaService: hired, ninaOfferPending: false });
   res.json(serializeAirport(updated));
 });
 
@@ -2723,6 +2726,57 @@ app.post('/api/schedule/row', auth, (req, res) => {
   rows[r] = c.id;
   store.updateAirport(airport.id, { scheduleRows: rows });
   res.json(serializeEnvelope(airport.id));
+});
+
+// Копировать расписание выбранной недели на весь срок действия договоров.
+app.post('/api/schedule/copy-week', auth, (req, res) => {
+  const airport = store.getAirportByUserId(req.user.id);
+  if (!airport) return res.status(404).json({ error: 'no_airport' });
+  const d = Number((req.body || {}).dayIndex);
+  if (!Number.isInteger(d) || d < 0) {
+    return res.status(400).json({ error: 'bad_date', message: 'Неверная дата' });
+  }
+  const ws = Math.floor(d / 7) * 7;      // начало выбранной недели
+  const nowTick = store.getTickCounter();
+  const schedule = (airport.schedule || []).slice();
+  const existing = new Set(schedule.map(e => `${e.contractId}:${e.dayIndex}:${e.slot}`));
+  let added = 0;
+
+  for (const c of store.getContracts(airport.id)) {
+    if (c.single) continue;
+    // Шаблон недели: рейсы договора в выбранной неделе.
+    const pattern = schedule
+      .filter(e => e.contractId === c.id && e.dayIndex >= ws && e.dayIndex < ws + 7)
+      .map(e => ({ dayOffset: e.dayIndex - ws, slot: e.slot }));
+    if (!pattern.length) continue;
+    const lastDay = Math.floor((c.endsTick - 1) / CALENDAR.TICKS_PER_DAY);
+    const maxWeekStart = Math.floor(lastDay / 7) * 7;
+    for (let tw = ws; tw <= maxWeekStart; tw += 7) {
+      for (const p of pattern) {
+        const targetDay = tw + p.dayOffset;
+        const tick = targetDay * CALENDAR.TICKS_PER_DAY + p.slot;
+        if (tick < (c.signedTick || 0) || tick >= c.endsTick) continue;
+        if (tick < nowTick) continue;
+        const key = `${c.id}:${targetDay}:${p.slot}`;
+        if (existing.has(key)) continue;
+        // Лимит вертолётного договора — не более 3 рейсов в неделю.
+        if ((c.craft || 'heli') === 'heli') {
+          const wStart = Math.floor(targetDay / 7) * 7;
+          const cnt = schedule.filter(x => x.contractId === c.id
+            && x.dayIndex >= wStart && x.dayIndex < wStart + 7).length;
+          if (cnt >= CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK) continue;
+        }
+        schedule.push({
+          id: `c${Date.now()}${Math.floor(Math.random() * 1000)}${added}`,
+          contractId: c.id, dayIndex: targetDay, slot: p.slot,
+        });
+        existing.add(key);
+        added++;
+      }
+    }
+  }
+  store.updateAirport(airport.id, { schedule });
+  res.json({ ...serializeEnvelope(airport.id), _copied: added });
 });
 
 // Торговаться: игрок предлагает свою цену за прилёт.
@@ -5562,6 +5616,12 @@ function processContractsTick(airport, currentTick, notifications) {
   // Штраф только за полный простой: если по договору за прошедшую неделю не
   // поставлено НИ ОДНОГО рейса. Сколько именно рейсов ставить — решает игрок.
   if (currentTick % CALENDAR.TICKS_PER_WEEK === 0) {
+    // Зарплата тёте Нине за спланированную неделю (пока нанята).
+    if (fresh.ninaService) {
+      const salary = CONTRACT_ECONOMY.NINA_SALARY_PER_WEEK;
+      income -= salary;
+      notifications.push(`💼 Зарплата тёте Нине за неделю: −${salary.toLocaleString('ru-RU')} у.е.`);
+    }
     const dayIndexNow = Math.floor(currentTick / CALENDAR.TICKS_PER_DAY);
     const wkStart = dayIndexNow - 7;
     for (const c of contracts) {
