@@ -1247,6 +1247,10 @@ body.modal-open { overflow: hidden; }
 .schedule-ak-point { color: var(--text-dim); font-size: 10px; }
 .schedule-slot.no-ak { opacity: 0.35; cursor: not-allowed; }
 .schedule-tab.in-row { opacity: 0.5; }
+/* Кнопка копирования строки */
+.schedule-copy-head, .schedule-copy { flex: 0 0 112px; min-width: 112px; }
+.schedule-copy { display: flex; align-items: center; justify-content: center; }
+.schedule-copy-btn { font-size: 10px; padding: 4px 6px; }
 
 /* ===== Направления (точки) ===== */
 #pointsList { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; max-height: 60vh; overflow-y: auto; }

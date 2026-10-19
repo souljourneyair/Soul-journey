@@ -2734,6 +2734,8 @@ app.post('/api/schedule/copy-day', auth, (req, res) => {
   if (!Number.isInteger(srcDay) || srcDay < 0) {
     return res.status(400).json({ error: 'bad_date', message: 'Неверная дата' });
   }
+  // Необязательно: копировать только один договор (кнопка в строке).
+  const onlyId = (req.body || {}).contractId != null ? Number((req.body || {}).contractId) : null;
   const nowTick = store.getTickCounter();
   const dayIndexNow = Math.floor(nowTick / CALENDAR.TICKS_PER_DAY);
   const schedule = (airport.schedule || []).slice();
@@ -2742,6 +2744,7 @@ app.post('/api/schedule/copy-day', auth, (req, res) => {
 
   for (const c of store.getContracts(airport.id)) {
     if (c.single) continue;
+    if (onlyId != null && c.id !== onlyId) continue;
     // Шаблон — слоты рейсов этого договора в ВЫБРАННЫЙ день.
     const pattern = schedule
       .filter(e => e.contractId === c.id && e.dayIndex === srcDay)

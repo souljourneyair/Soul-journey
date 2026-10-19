@@ -2528,7 +2528,7 @@ $('#closeFuel').addEventListener('click', () => $('#fuelModal').classList.add('h
 $('#envelopeBtn').addEventListener('click', openEnvelope);
 $('#closeEnvelope').addEventListener('click', () => $('#envelopeModal').classList.add('hidden'));
 // Копирование дня — кнопка рядом с «Закрыть», видна только на вкладке расписания.
-$('#scheduleCopyBtn')?.addEventListener('click', copyDaySchedule);
+$('#scheduleCopyBtn')?.addEventListener('click', () => copyDaySchedule());
 
 let envelopeData = { offers: [], contracts: [], canAccept: false };
 // Выбранный срок по предложению: тик перерисовывает карточки, и без черновика
@@ -3487,7 +3487,8 @@ function renderScheduleEditor() {
   let gridHtml = `<div class="schedule-day-label">${String(sel.day).padStart(2, '0')}.${String(sel.month).padStart(2, '0')}.${sel.year}</div>`;
   gridHtml += '<div class="schedule-grid-inner"><div class="schedule-row schedule-head">' +
     '<div class="schedule-cell schedule-ak-head">АК</div>' +
-    slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') + '</div>';
+    slots.map(t => `<div class="schedule-cell schedule-slot-head">${t}</div>`).join('') +
+    '<div class="schedule-cell schedule-copy-head"></div></div>';
   for (let r = 0; r < rowCount; r++) {
     const cid = rowsAssign[r];
     const c = cid ? contracts.find(x => x.id === cid) : null;
@@ -3506,6 +3507,13 @@ function renderScheduleEditor() {
       const label = e && c ? `<span>${escapeHtml(c.pointName || c.airline)}</span>` : '';
       gridHtml += `<div class="schedule-cell schedule-slot${cls}" data-row="${r}" data-slot="${s}" data-cid="${c ? c.id : ''}">${label}</div>`;
     }
+    // Кнопка копирования именно этой строки.
+    const dayFlights = c ? schedule.some(e => e.contractId === c.id && e.dayIndex === scheduleSelectedDay) : false;
+    gridHtml += '<div class="schedule-cell schedule-copy">' +
+      (c
+        ? `<button class="btn-secondary schedule-copy-btn" data-copy-cid="${c.id}"${dayFlights ? '' : ' disabled'}>Копировать</button>`
+        : '') +
+      '</div>';
     gridHtml += '</div>';
   }
   gridHtml += '</div>';
@@ -3524,6 +3532,7 @@ function renderScheduleEditor() {
     renderScheduleEditor();
   }));
   grid.querySelectorAll('[data-nina]').forEach(b => b.addEventListener('click', () => setNina(b.dataset.nina === 'hire')));
+  grid.querySelectorAll('[data-copy-cid]').forEach(b => b.addEventListener('click', () => copyDaySchedule(Number(b.dataset.copyCid))));
   // Перетаскивание АК в первый столбец.
   grid.querySelectorAll('.schedule-ak').forEach(cell => {
     cell.addEventListener('dragover', (ev) => ev.preventDefault());
@@ -3553,10 +3562,12 @@ async function setNina(hired) {
   } catch (e) { toast(e.message, true); }
 }
 
-async function copyDaySchedule() {
+async function copyDaySchedule(contractId) {
   try {
     if (scheduleSelectedDay == null) return;
-    const res = await api('/api/schedule/copy-day', 'POST', { dayIndex: scheduleSelectedDay });
+    const body = { dayIndex: scheduleSelectedDay };
+    if (contractId != null) body.contractId = contractId;
+    const res = await api('/api/schedule/copy-day', 'POST', body);
     envelopeData = res;
     renderScheduleEditor();
     renderEnvelope();
