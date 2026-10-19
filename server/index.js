@@ -2728,47 +2728,47 @@ app.post('/api/schedule/row', auth, (req, res) => {
   res.json(serializeEnvelope(airport.id));
 });
 
-// Копировать расписание выбранной недели на весь срок действия договоров.
-app.post('/api/schedule/copy-week', auth, (req, res) => {
+// Копировать расписание выбранного ДНЯ на все дни срока действия договоров.
+app.post('/api/schedule/copy-day', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  const d = Number((req.body || {}).dayIndex);
-  if (!Number.isInteger(d) || d < 0) {
+  const srcDay = Number((req.body || {}).dayIndex);
+  if (!Number.isInteger(srcDay) || srcDay < 0) {
     return res.status(400).json({ error: 'bad_date', message: 'Неверная дата' });
   }
-  const ws = Math.floor(d / 7) * 7;      // начало выбранной недели
   const nowTick = store.getTickCounter();
+  const dayIndexNow = Math.floor(nowTick / CALENDAR.TICKS_PER_DAY);
   const schedule = (airport.schedule || []).slice();
   const existing = new Set(schedule.map(e => `${e.contractId}:${e.dayIndex}:${e.slot}`));
   let added = 0;
 
   for (const c of store.getContracts(airport.id)) {
     if (c.single) continue;
-    // Шаблон недели: рейсы договора в выбранной неделе.
+    // Шаблон — слоты рейсов этого договора в ВЫБРАННЫЙ день.
     const pattern = schedule
-      .filter(e => e.contractId === c.id && e.dayIndex >= ws && e.dayIndex < ws + 7)
-      .map(e => ({ dayOffset: e.dayIndex - ws, slot: e.slot }));
+      .filter(e => e.contractId === c.id && e.dayIndex === srcDay)
+      .map(e => e.slot);
     if (!pattern.length) continue;
+    const firstDay = Math.max(dayIndexNow, Math.floor((c.signedTick || 0) / CALENDAR.TICKS_PER_DAY));
     const lastDay = Math.floor((c.endsTick - 1) / CALENDAR.TICKS_PER_DAY);
-    const maxWeekStart = Math.floor(lastDay / 7) * 7;
-    for (let tw = ws; tw <= maxWeekStart; tw += 7) {
-      for (const p of pattern) {
-        const targetDay = tw + p.dayOffset;
-        const tick = targetDay * CALENDAR.TICKS_PER_DAY + p.slot;
+    for (let day = firstDay; day <= lastDay; day++) {
+      if (day === srcDay) continue;
+      for (const slot of pattern) {
+        const tick = day * CALENDAR.TICKS_PER_DAY + slot;
         if (tick < (c.signedTick || 0) || tick >= c.endsTick) continue;
         if (tick < nowTick) continue;
-        const key = `${c.id}:${targetDay}:${p.slot}`;
+        const key = `${c.id}:${day}:${slot}`;
         if (existing.has(key)) continue;
         // Лимит вертолётного договора — не более 3 рейсов в неделю.
         if ((c.craft || 'heli') === 'heli') {
-          const wStart = Math.floor(targetDay / 7) * 7;
+          const wStart = Math.floor(day / 7) * 7;
           const cnt = schedule.filter(x => x.contractId === c.id
             && x.dayIndex >= wStart && x.dayIndex < wStart + 7).length;
           if (cnt >= CONTRACT_ECONOMY.HELI_MAX_FLIGHTS_PER_WEEK) continue;
         }
         schedule.push({
           id: `c${Date.now()}${Math.floor(Math.random() * 1000)}${added}`,
-          contractId: c.id, dayIndex: targetDay, slot: p.slot,
+          contractId: c.id, dayIndex: day, slot,
         });
         existing.add(key);
         added++;

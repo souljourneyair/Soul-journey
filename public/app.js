@@ -515,6 +515,13 @@ function gameNowLabel() {
   return `${p.day} ${p.monthName} ${p.hourLabel}`;
 }
 
+// Цифры в виде «лепесткового» табло (flip-clock).
+function flipDigits(label) {
+  return String(label).split('').map(ch => ch === ':'
+    ? '<span class="flip-colon">:</span>'
+    : `<span class="flip-digit">${ch}</span>`).join('');
+}
+
 function renderAll() {
   checkWelcome();
   checkGoshaIntro();
@@ -545,7 +552,10 @@ function renderStats() {
   const nowLabel = `${np.day} ${np.monthName} ${np.hourLabel}`;
   document.querySelectorAll('.admin-clock').forEach(el => { el.textContent = nowLabel; });
   const clockTime = $('#scheduleClockTime');
-  if (clockTime) clockTime.textContent = np.hourLabel;
+  if (clockTime && clockTime.dataset.label !== np.hourLabel) {
+    clockTime.innerHTML = flipDigits(np.hourLabel);
+    clockTime.dataset.label = np.hourLabel;
+  }
   const clockDate = $('#scheduleClockDate');
   if (clockDate) clockDate.textContent = `${np.day} ${np.monthName} ${np.year}`;
   const moneyEl = $('#statMoney');
@@ -2517,6 +2527,8 @@ $('#closeFuel').addEventListener('click', () => $('#fuelModal').classList.add('h
 // ===== КОНВЕРТ (договоры) =====
 $('#envelopeBtn').addEventListener('click', openEnvelope);
 $('#closeEnvelope').addEventListener('click', () => $('#envelopeModal').classList.add('hidden'));
+// Копирование дня — кнопка рядом с «Закрыть», видна только на вкладке расписания.
+$('#scheduleCopyBtn')?.addEventListener('click', copyDaySchedule);
 
 let envelopeData = { offers: [], contracts: [], canAccept: false };
 // Выбранный срок по предложению: тик перерисовывает карточки, и без черновика
@@ -2548,6 +2560,7 @@ function applyCharterAvailability() {
       b.classList.toggle('lb-tab-active', b.dataset.env === 'offers'));
     $('#envCharter')?.classList.add('hidden');
     $('#envSchedule')?.classList.add('hidden');
+    $('#scheduleCopyBtn')?.classList.add('hidden');
     $('#envCraftTabs')?.classList.remove('hidden');
     document.querySelector('.envelope-body')?.classList.remove('hidden');
   }
@@ -3453,7 +3466,7 @@ function renderScheduleEditor() {
   // Часы в стиле старого табло (дата + время крупно).
   const clockHtml = `<div class="schedule-clock">
     <div class="schedule-clock-date" id="scheduleClockDate">${np.day} ${np.monthName} ${np.year}</div>
-    <div class="schedule-clock-time" id="scheduleClockTime">${np.hourLabel}</div>
+    <div class="schedule-clock-time" id="scheduleClockTime" data-label="${np.hourLabel}">${flipDigits(np.hourLabel)}</div>
   </div>`;
   const hireHtml = `<div class="schedule-hire">
     <div class="schedule-hire-q">Нанять тётю Нину в планирование?</div>
@@ -3461,7 +3474,6 @@ function renderScheduleEditor() {
       ${ninaHired
         ? '<button class="btn-secondary" data-nina="fire">Уволить</button>'
         : '<button class="btn-primary" data-nina="hire">Нанять</button>'}
-      <button class="btn-secondary" data-copy="1">Копировать на весь срок</button>
     </div>
     <div class="build-menu-hint">Зарплата — 1 000 у.е. за спланированную неделю. Работает, пока вы оффлайн.</div>
   </div>`;
@@ -3513,7 +3525,6 @@ function renderScheduleEditor() {
     renderScheduleEditor();
   }));
   grid.querySelectorAll('[data-nina]').forEach(b => b.addEventListener('click', () => setNina(b.dataset.nina === 'hire')));
-  grid.querySelector('[data-copy]')?.addEventListener('click', copyWeekSchedule);
   // Перетаскивание АК в первый столбец.
   grid.querySelectorAll('.schedule-ak').forEach(cell => {
     cell.addEventListener('dragover', (ev) => ev.preventDefault());
@@ -3543,15 +3554,16 @@ async function setNina(hired) {
   } catch (e) { toast(e.message, true); }
 }
 
-async function copyWeekSchedule() {
+async function copyDaySchedule() {
   try {
-    const res = await api('/api/schedule/copy-week', 'POST', { dayIndex: scheduleSelectedDay });
+    if (scheduleSelectedDay == null) return;
+    const res = await api('/api/schedule/copy-day', 'POST', { dayIndex: scheduleSelectedDay });
     envelopeData = res;
     renderScheduleEditor();
     renderEnvelope();
     toast(res._copied
-      ? `Расписание недели скопировано на весь срок: +${res._copied} рейсов`
-      : 'Копировать нечего — сперва поставьте рейсы на этой неделе');
+      ? `Расписание дня скопировано на весь срок: +${res._copied} рейсов`
+      : 'Копировать нечего — сперва поставьте рейсы на этом дне');
   } catch (e) { toast(e.message, true); }
 }
 
@@ -3597,6 +3609,7 @@ document.querySelectorAll('.lb-tab[data-env]').forEach(btn => {
     $('#envCraftTabs')?.classList.toggle('hidden', tab === 'schedule');
     // На расписании окно раскрываем почти на всю ширину, чтобы сетка влезла.
     document.querySelector('.envelope-modal')?.classList.toggle('schedule-wide', tab === 'schedule');
+    $('#scheduleCopyBtn')?.classList.toggle('hidden', tab !== 'schedule');
     if (tab === 'charter') renderCharter();
     if (tab === 'schedule') renderScheduleEditor();
   });
