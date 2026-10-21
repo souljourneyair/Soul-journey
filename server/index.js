@@ -277,9 +277,7 @@ function checkRequirements(airport, rules) {
   if (rules.requiresAirline && !airport.airline) {
     return { error: 'requires_airline', message: 'Нужна собственная авиакомпания' };
   }
-  if (rules.minLevel && (airport.level || 0) < rules.minLevel) {
-    return { error: 'level_too_low', message: `Нужен уровень аэропорта ${rules.minLevel}` };
-  }
+  // Уровень больше не гейт: контент открывают главы, рейтинг, деньги и цепочки.
   if (rules.minRating) {
     const r = airportRating(airport);
     if (r < rules.minRating) {
@@ -1727,7 +1725,6 @@ function serializeAirport(airport) {
     // не девается. Навязывать окно каждый заход незачем.
     // Авиакомпания открывается достроенным хабом, а не уровнем как таковым.
     airlineOfferAvailable: isHubComplete(airport.id) && !airport.airline && !airport.airlineOfferSeen,
-    airlineMinLevel: CONFIG.AIRLINE_MIN_LEVEL,   // чтобы клиент не зашивал число
     tax: {
       rate: TAX.RATE,
       profit: Math.round(airport.taxProfit || 0),          // накоплено с прошлой уплаты
@@ -1796,7 +1793,6 @@ function serializeAirport(airport) {
     // какие стоянки ВС заняты: раскладка считается по размерам бортов,
     // а не по порядку позиций, поэтому отдаём фактическую привязку
     standLoad: occupiedStands(airport.id),
-    repairAllMinLevel: DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL,
     visitorSpend: PASSENGER_ECONOMY.VISITOR_SPEND,   // сколько оставляет гость кафе
     bank: bankState(airport),
     visitorsPerXp: PASSENGER_ECONOMY.VISITORS_PER_XP, // сколько гостей на очко опыта
@@ -2325,8 +2321,8 @@ app.post('/api/airport/create-airline', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
   if (airport.airline) return res.status(400).json({ error: 'already_created', message: 'Авиакомпания уже создана' });
-  if (airport.level < CONFIG.AIRLINE_MIN_LEVEL) {
-    return res.status(400).json({ error: 'level_too_low', message: `Авиакомпанию можно создать с ${CONFIG.AIRLINE_MIN_LEVEL} уровня` });
+  if (!isHubComplete(airport.id)) {
+    return res.status(400).json({ error: 'hub_incomplete', message: 'Сначала достройте хаб: все терминалы, большую ВПП и большую стоянку' });
   }
   const airline = String((req.body && req.body.name) || '').trim();
   if (airline.length < 2 || airline.length > 40) {
@@ -2987,8 +2983,8 @@ function serializeFuel(airport) {
     contract,
     autoContract: !!airport.fuelAutoContract,
     refillThreshold: airport.fuelRefillThreshold != null ? airport.fuelRefillThreshold : 25,
-    canContract: airport.level >= FUEL_ECONOMY.CONTRACT_MIN_LEVEL,
-    canAuto: airport.level >= FUEL_ECONOMY.CONTRACT_AUTO_MIN_LEVEL,
+    canContract: true,   // уровень не гейт
+    canAuto: true,
     contractDurationDays: FUEL_ECONOMY.CONTRACT_DURATION_DAYS,
   };
 }
@@ -3043,9 +3039,6 @@ app.post('/api/fuel/refill', auth, (req, res) => {
 app.post('/api/fuel/contract', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  if (airport.level < FUEL_ECONOMY.CONTRACT_MIN_LEVEL) {
-    return res.status(400).json({ error: 'low_level', message: `Контракт доступен с уровня ${FUEL_ECONOMY.CONTRACT_MIN_LEVEL}` });
-  }
   const { supplierId } = req.body || {};
   const supplier = getFuelSupplier(supplierId);
   if (!supplier) return res.status(400).json({ error: 'bad_supplier', message: 'Неизвестный поставщик' });
@@ -3084,9 +3077,6 @@ app.post('/api/fuel/threshold', auth, (req, res) => {
 app.post('/api/fuel/contract/auto', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  if (airport.level < FUEL_ECONOMY.CONTRACT_AUTO_MIN_LEVEL) {
-    return res.status(400).json({ error: 'low_level', message: `Авто доступно с уровня ${FUEL_ECONOMY.CONTRACT_AUTO_MIN_LEVEL}` });
-  }
   const { enabled } = req.body || {};
   store.updateAirport(airport.id, { fuelAutoContract: !!enabled });
   res.json(serializeFuel(store.getAirportByUserId(req.user.id)));
@@ -3148,7 +3138,7 @@ app.post('/api/build', auth, (req, res) => {
       });
     }
   }
-  if (airport.level < def.minLevel) return res.status(400).json({ error: 'level_too_low', message: `Нужен уровень ${def.minLevel}` });
+  // Уровень не гейт: смотрим рейтинг, деньги и цепочку построек.
   // Рейтинг как ключ: серьёзные объекты доверяют только аэропорту, который
   // научился хорошо обслуживать людей.
   if (def.minRating) {
@@ -3389,13 +3379,6 @@ app.post('/api/building/repair', auth, (req, res) => {
 app.post('/api/building/repair-all', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  const level = levelFromXp(airport.xp || 0);
-  if (level < DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL) {
-    return res.status(403).json({
-      error: 'level_too_low',
-      message: `Массовый ремонт доступен с ${DAMAGE_ECONOMY.REPAIR_ALL_MIN_LEVEL} уровня аэропорта`,
-    });
-  }
   const currentTick = store.getTickCounter();
   const targets = store.getBuildingsByAirport(airport.id).filter(b => {
     const def = BUILDINGS[b.buildingId];
@@ -4140,7 +4123,7 @@ function bankState(airport) {
   const limit = Math.max(0, Math.floor(value * BANK.MAX_SHARE_OF_VALUE));
   return {
     rate,
-    minLevel: BANK.MIN_LEVEL,          // банк открывается с этого уровня
+    minLevel: 0,                       // уровень не гейт (оставлено для совместимости)
     oilPrice: st.oilPrice != null ? st.oilPrice : BANK.OIL_BASE,
     goldPrice: st.goldPrice != null ? st.goldPrice : BANK.GOLD_BASE,
     limit: loan ? 0 : limit,           // второй кредит не выдаём
@@ -4166,9 +4149,6 @@ app.get('/api/bank', auth, (req, res) => {
 app.post('/api/bank/borrow', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  if (airport.level < BANK.MIN_LEVEL) {
-    return res.status(403).json({ error: 'level_too_low', message: `Банк открывается с ${BANK.MIN_LEVEL} уровня аэропорта` });
-  }
   if (airport.loan) {
     return res.status(400).json({ error: 'has_loan', message: 'Сначала погасите текущий кредит' });
   }
@@ -4476,7 +4456,6 @@ app.post('/api/aircraft/acquire', auth, (req, res) => {
   const type = AIRCRAFT_TYPES[typeId];
   if (!type) return res.status(400).json({ error: 'unknown_type' });
   if (mode !== 'buy' && mode !== 'lease') return res.status(400).json({ error: 'bad_mode' });
-  if (airport.level < type.minLevel) return res.status(400).json({ error: 'level_too_low', message: `Нужен уровень ${type.minLevel}` });
 
   const size = aircraftSize(typeId);
   // нужна полоса, способная принять такой борт (малая ВПП не примет средний)
@@ -4717,7 +4696,7 @@ function runTick() {
 
     // --- Топливный контракт: истечение и автопродление ---
     if (airport.fuelContract && currentTick >= airport.fuelContract.endsTick) {
-      if (airport.fuelAutoContract && airport.level >= FUEL_ECONOMY.CONTRACT_AUTO_MIN_LEVEL) {
+      if (airport.fuelAutoContract) {
         // авто: случайный поставщик, фиксируем его текущую рыночную цену
         const sup = FUEL_SUPPLIERS[Math.floor(Math.random() * FUEL_SUPPLIERS.length)];
         const price = +(sup.pricePerUnit * currentFuelMarketMult()).toFixed(3);

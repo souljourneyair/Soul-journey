@@ -379,10 +379,7 @@ function updateMenuButtons() {
   if (fleet) fleet.classList.toggle('hidden', !STATE.airline);
 
   const bank = $('#bankBtn');
-  if (bank) {
-    const minLevel = (STATE.bank && STATE.bank.minLevel) || 5;
-    bank.classList.toggle('hidden', (STATE.level || 0) < minLevel);
-  }
+  if (bank) bank.classList.remove('hidden'); // уровень не гейт
 }
 
 // Кнопка конверта видна, когда аэропорт может принимать борты (есть договоры/предложения)
@@ -404,7 +401,7 @@ function updateEnvelopeButton() {
 function updateAirlineButton() {
   const btn = $('#createAirlineBtn');
   if (!btn) return;
-  const canCreate = STATE.level >= (STATE.airlineMinLevel || 10) && !STATE.airline;
+  const canCreate = !!STATE.hubComplete && !STATE.airline;
   btn.classList.toggle('hidden', !canCreate);
 }
 
@@ -978,7 +975,6 @@ function missingRequirement(rules) {
   const has = (id) => built.some(b => b.buildingId === id);
   const nameOf = (id) => (STATE.catalog[id] ? displayBuildingName(id) : id);
 
-  if (rules.minLevel && STATE.level < rules.minLevel) return `Ур. ${rules.minLevel}+`;
   if (rules.minRating && (STATE.rating || 0) < rules.minRating) return `Нужен рейтинг ${rules.minRating}`;
   if (rules.minMoney && STATE.money < rules.minMoney) return `Нужен капитал ${rules.minMoney.toLocaleString('ru-RU')}`;
   if (rules.minPaxProcessed && (STATE.paxProcessed || 0) < rules.minPaxProcessed) {
@@ -1009,7 +1005,7 @@ function purchasableBuildings() {
     .filter(b => !b.hidden || (STATE.unlockedBuildings || []).includes(b.id)) // скрытые скрываем, пока не открыты наградой
     .filter(b => !b.unique || !builtIds.has(b.id))
     .filter(b => !b.requiresAirline || STATE.airline) // офис — только после создания АК
-    .sort((a, b) => a.minLevel - b.minLevel || a.cost - b.cost);
+    .sort((a, b) => a.cost - b.cost);
 }
 
 function renderBuildMenu() {
@@ -1079,7 +1075,7 @@ function renderBuildMenu() {
     const needFirstBort = def.id === 'helipad' && secondPadBlocked;
     const needMow = isPad && !hasMowCredit && !needFirstBort;
     const missing = missingRequirement(def);
-    const locked = STATE.level < def.minLevel || needsAdminFirst || !!missing || needMow || needFirstBort;
+    const locked = needsAdminFirst || !!missing || needMow || needFirstBort;
     const tooExpensive = STATE.money < def.cost;
     // лимит количества этого здания
     const limit = (STATE.buildLimits || {})[def.id];
@@ -1100,7 +1096,7 @@ function renderBuildMenu() {
           : needMow ? 'Сначала скосите траву'
           : needsAdminFirst ? 'Ждём администрацию'
           : missing ? missing
-          : (def.minLevel > 0 ? `Ур. ${def.minLevel}+` : 'Стартовое')
+          : 'Доступно'
         }</span>
         ${def.income > 0 ? `<span>Доход: +${def.income}/мин</span>` : ''}
         ${def.reputation ? `<span>Репутация: +${def.reputation} за постройку</span>` : ''}
@@ -1837,8 +1833,7 @@ function renderRepairAllBar() {
   if (!bar) return;
   const damaged = (STATE.buildings || []).filter(b =>
     !b.ruined && !b.repairing && (b.repairCost || 0) > 0 && (b.state || 'owned') === 'owned');
-  const minLevel = STATE.repairAllMinLevel || 7;
-  if ((STATE.level || 1) < minLevel || !damaged.length) {
+  if (!damaged.length) {
     bar.classList.add('hidden');
     return;
   }
@@ -2833,7 +2828,7 @@ $('#bankruptDelete').addEventListener('click', async () => {
 function openFleet() {
   if (!STATE.airline) {
     toast('Сначала создайте авиакомпанию', true);
-    if (STATE.level >= (STATE.airlineMinLevel || 10)) $('#airlineNameModal').classList.remove('hidden');
+    if (STATE.hubComplete) $('#airlineNameModal').classList.remove('hidden');
     return;
   }
   if (!STATE.hasOffice) {
@@ -2967,23 +2962,17 @@ function renderFleetCard(ac) {
 function renderShopCard(t, slots) {
   const card = document.createElement('div');
   card.className = 'fleet-shop-card';
-  const locked = STATE.level < t.minLevel;
   // размер самолёта → есть ли под него свободная стоянка
   const size = t.id; // 'small' | 'medium' | 'large' совпадает с size
   const hasStand = STATE.standSpace ? STATE.standSpace[size] : false;
   const noStand = !hasStand;
 
-  let actions = '';
-  if (locked) {
-    actions = `<span class="fleet-locked">Откроется на уровне ${t.minLevel}</span>`;
-  } else {
-    const canBuy = STATE.money >= t.buyCost && !noStand;
-    const canLease = STATE.money >= t.leaseDeposit && !noStand;
-    actions = `
+  const canBuy = STATE.money >= t.buyCost && !noStand;
+  const canLease = STATE.money >= t.leaseDeposit && !noStand;
+  const actions = `
       <button class="btn-secondary" data-buy="${t.id}" ${canBuy ? '' : 'disabled'}>Купить · ${t.buyCost.toLocaleString('ru-RU')} у.е.</button>
       <button class="btn-secondary" data-lease="${t.id}" ${canLease ? '' : 'disabled'}>Лизинг · ${t.leaseDeposit.toLocaleString('ru-RU')} + ${t.leasePerTick}/мин</button>
     `;
-  }
 
   const standNames = { small: 'малую', medium: 'среднюю', large: 'большую' };
   card.innerHTML = `
@@ -2996,7 +2985,7 @@ function renderShopCard(t, slots) {
       <span>Баки: ${t.fuelTankHours || '?'} ч</span>
     </div>
     <div class="fleet-card-actions">${actions}</div>
-    ${noStand && !locked ? `<div class="fleet-hint-warn">Нужна свободная ${standNames[size]} стоянка ВС (или большая с ур.3)</div>` : ''}
+    ${noStand ? `<div class="fleet-hint-warn">Нужна свободная ${standNames[size]} стоянка ВС (или большая с ур.3)</div>` : ''}
   `;
 
   card.querySelectorAll('button[data-buy]').forEach(b => b.addEventListener('click', () => acquireAircraft(b.dataset.buy, 'buy')));
