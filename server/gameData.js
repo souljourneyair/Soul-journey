@@ -1503,14 +1503,15 @@ function repairCost(wear, buyCost) {
 // направлений и их открытие; привязка договоров к точкам и карта-схема — позже.
 //   access: 'heli' — вертолётная (ближняя), 'vvl' — самолётная ВВЛ,
 //           'mvl' — международная. size — спрос: small/middle/big.
+// angle — угол на схеме в градусах от севера по часовой стрелке.
 const POINTS = [
-  { id: 'tihaya', name: 'Турбаза «Тихая»', access: 'heli', type: 'туризм', distanceKm: 20, size: 'small' },
-  { id: 'ozersk', name: 'Озёрск', access: 'heli', type: 'туризм', distanceKm: 120, size: 'small' },
-  { id: 'kedrovo', name: 'Кедрово', access: 'heli', type: 'промышленный', distanceKm: 180, size: 'small' },
-  { id: 'zarechye', name: 'Заречье', access: 'heli', type: 'деловой', distanceKm: 240, size: 'middle' },
-  { id: 'sosnovka', name: 'Сосновка', access: 'heli', type: 'туризм', distanceKm: 300, size: 'middle' },
-  { id: 'verhniy_mayak', name: 'Верхний Маяк', access: 'vvl', type: 'туризм', distanceKm: 380, size: 'middle' },
-  { id: 'krayniy', name: 'Крайний (конкурент)', access: 'vvl', type: 'деловой', distanceKm: 420, size: 'middle' },
+  { id: 'tihaya', name: 'Турбаза «Тихая»', access: 'heli', type: 'туризм', distanceKm: 20, size: 'small', angle: 210 },
+  { id: 'ozersk', name: 'Озёрск', access: 'heli', type: 'туризм', distanceKm: 120, size: 'small', angle: 300 },
+  { id: 'kedrovo', name: 'Кедрово', access: 'heli', type: 'промышленный', distanceKm: 180, size: 'small', angle: 150 },
+  { id: 'zarechye', name: 'Заречье', access: 'heli', type: 'деловой', distanceKm: 240, size: 'middle', angle: 30 },
+  { id: 'sosnovka', name: 'Сосновка', access: 'heli', type: 'туризм', distanceKm: 300, size: 'middle', angle: 90 },
+  { id: 'verhniy_mayak', name: 'Верхний Маяк', access: 'vvl', type: 'туризм', distanceKm: 380, size: 'middle', angle: 330 },
+  { id: 'krayniy', name: 'Крайний (конкурент)', access: 'vvl', type: 'деловой', distanceKm: 420, size: 'middle', angle: 240 },
 ];
 function pointById(id) { return POINTS.find(p => p.id === id) || null; }
 

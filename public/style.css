@@ -1301,3 +1301,31 @@ body.modal-open { overflow: hidden; }
   padding: 12px; margin-bottom: 8px; border-radius: 8px;
   border: 1px solid var(--board-amber); background: rgba(255, 180, 0, 0.08);
 }
+
+/* ===== Схематичная карта направлений ===== */
+#mapScreen.screen {
+  padding: 0; height: 100vh; flex-direction: column;
+  align-items: stretch; justify-content: flex-start;
+}
+.map-screen-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; z-index: 2; }
+.map-title { font-weight: 700; letter-spacing: 1px; }
+.map-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.map-svg-wrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
+.schematic-map { width: 100%; height: 100%; }
+.map-ring { fill: none; stroke: rgba(255, 180, 0, 0.18); stroke-width: 1; }
+.map-ring-label { fill: var(--text-dim); font-size: 10px; text-anchor: middle; }
+.map-point { cursor: pointer; }
+.map-point-label { fill: var(--text); font-size: 11px; }
+.map-point-locked .map-point-label { fill: var(--text-dim); }
+.map-lock { font-size: 9px; text-anchor: middle; }
+.map-home { fill: rgba(255, 180, 0, 0.18); stroke: var(--board-amber); stroke-width: 2; }
+.map-home-h { fill: var(--board-amber); font-weight: 700; font-size: 16px; text-anchor: middle; }
+.map-home-label { fill: var(--board-amber); font-size: 11px; text-anchor: middle; }
+.map-flight { font-size: 16px; }
+.map-info { width: 280px; border-left: 1px solid var(--text-dim); padding: 12px; overflow-y: auto; }
+.map-info-title { font-weight: 700; margin-bottom: 6px; }
+.map-info-row { font-size: 12px; color: var(--text-dim); margin-bottom: 2px; }
+@media (max-width: 700px) {
+  .map-body { flex-direction: column; }
+  .map-info { width: auto; border-left: none; border-top: 1px solid var(--text-dim); max-height: 150px; }
+}

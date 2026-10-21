@@ -440,6 +440,9 @@ function connectWs() {
       if (!$('#fleetModal').classList.contains('hidden')) {
         renderFleet();
       }
+      if (!$('#mapScreen').classList.contains('hidden')) {
+        renderMapScreen();
+      }
       if (!$('#envelopeModal').classList.contains('hidden')) {
         // Не перерисовываем, пока игрок вводит срок (иначе сбивается ввод/фокус).
         const ae = document.activeElement;
@@ -4417,6 +4420,93 @@ function openPointsModal() {
 
 $('#pointsBtn')?.addEventListener('click', openPointsModal);
 $('#closePoints')?.addEventListener('click', () => $('#pointsModal')?.classList.add('hidden'));
+
+// ===== СХЕМАТИЧНАЯ КАРТА НАПРАВЛЕНИЙ =====
+let mapSelectedPoint = null;
+const MAP_CX = 410, MAP_CY = 340, MAP_RMAX = 280;
+
+function mapColor(p) {
+  if (!p.open) return '#606060';
+  return p.access === 'mvl' ? '#6ab0ff' : p.access === 'vvl' ? '#ffd24a' : '#7ddc7d';
+}
+function mapPointPos(p, R) {
+  const r = R(p.distanceKm);
+  const a = ((p.angle || 0) * Math.PI) / 180;
+  return { x: MAP_CX + r * Math.sin(a), y: MAP_CY - r * Math.cos(a) };
+}
+
+function renderMapScreen() {
+  const wrap = $('#mapSvgWrap');
+  const info = $('#mapInfo');
+  if (!wrap || !STATE || !STATE.points) return;
+  const points = STATE.points;
+  const maxDist = points.reduce((m, p) => Math.max(m, p.distanceKm), 1);
+  const R = (d) => 55 + (d / maxDist) * (MAP_RMAX - 55);
+
+  let svg = '<svg viewBox="0 0 820 690" class="schematic-map" preserveAspectRatio="xMidYMid meet">';
+  for (const d of [100, 250, 420]) {
+    if (d > maxDist + 1) continue;
+    const r = R(d);
+    svg += `<circle cx="${MAP_CX}" cy="${MAP_CY}" r="${r}" class="map-ring"/>`;
+    svg += `<text x="${MAP_CX}" y="${MAP_CY - r + 13}" class="map-ring-label">${d} км</text>`;
+  }
+  for (const p of points) {
+    const pos = mapPointPos(p, R);
+    const col = mapColor(p);
+    if (p.open) {
+      svg += `<line x1="${MAP_CX}" y1="${MAP_CY}" x2="${pos.x}" y2="${pos.y}" stroke="${col}" stroke-width="1.5" opacity="0.4"/>`;
+    }
+    const dim = p.open ? '' : ' map-point-locked';
+    svg += `<g class="map-point${dim}" data-point="${p.id}">`;
+    svg += `<circle cx="${pos.x}" cy="${pos.y}" r="${p.open ? 9 : 7}" fill="${p.open ? col : 'rgba(0,0,0,0)'}" stroke="${col}" stroke-width="2"/>`;
+    if (!p.open) svg += `<text x="${pos.x}" y="${pos.y + 3}" class="map-lock">🔒</text>`;
+    const right = pos.x >= MAP_CX;
+    svg += `<text x="${pos.x + (right ? 13 : -13)}" y="${pos.y + 4}" text-anchor="${right ? 'start' : 'end'}" class="map-point-label">${escapeHtml(p.name)}</text>`;
+    svg += '</g>';
+  }
+  svg += `<circle cx="${MAP_CX}" cy="${MAP_CY}" r="22" class="map-home"/>`;
+  svg += `<text x="${MAP_CX}" y="${MAP_CY + 6}" class="map-home-h">H</text>`;
+  svg += `<text x="${MAP_CX}" y="${MAP_CY + 40}" class="map-home-label">Аэропорт</text>`;
+
+  const now = STATE.tick || 0;
+  for (const f of (STATE.flightsInAir || [])) {
+    const p = points.find(x => x.id === f.toId);
+    if (!p) continue;
+    const pos = mapPointPos(p, R);
+    const span = Math.max(1, f.endTick - f.startTick);
+    const prog = Math.max(0, Math.min(1, (now - f.startTick) / span));
+    const from = f.kind === 'own' ? { x: MAP_CX, y: MAP_CY } : pos;
+    const to = f.kind === 'own' ? pos : { x: MAP_CX, y: MAP_CY };
+    const x = from.x + (to.x - from.x) * prog;
+    const y = from.y + (to.y - from.y) * prog;
+    svg += `<text x="${x}" y="${y + 5}" text-anchor="middle" class="map-flight">${f.craft === 'heli' ? '🚁' : '✈️'}</text>`;
+  }
+  svg += '</svg>';
+  wrap.innerHTML = svg;
+
+  wrap.querySelectorAll('[data-point]').forEach(el => el.addEventListener('click', () => {
+    mapSelectedPoint = el.dataset.point;
+    renderMapScreen();
+  }));
+
+  if (info) {
+    const p = points.find(x => x.id === mapSelectedPoint);
+    info.innerHTML = p
+      ? `<div class="map-info-title">${escapeHtml(p.name)}</div>
+         <div class="map-info-row">Тип: ${escapeHtml(p.type)}</div>
+         <div class="map-info-row">Доступ: ${p.access === 'mvl' ? 'МВЛ' : p.access === 'vvl' ? 'ВВЛ' : 'вертолёт'}</div>
+         <div class="map-info-row">Расстояние: ${p.distanceKm} км</div>
+         <div class="map-info-row">Статус: ${p.open ? '✅ открыто' : '🔒 закрыто'}</div>`
+      : '<div class="build-menu-hint">Выберите точку на схеме.</div>';
+  }
+}
+
+function openMapScreen() {
+  showScreen('mapScreen');
+  renderMapScreen();
+}
+$('#mapBtn')?.addEventListener('click', openMapScreen);
+$('#mapBackBtn')?.addEventListener('click', () => showScreen('gameScreen'));
 
 // ===== INIT =====
 loadBackgrounds(); // фоны экранов (вход виден сразу, до логина)
