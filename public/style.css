@@ -1301,14 +1301,3 @@ body.modal-open { overflow: hidden; }
   padding: 12px; margin-bottom: 8px; border-radius: 8px;
   border: 1px solid var(--board-amber); background: rgba(255, 180, 0, 0.08);
 }
-
-/* ===== Карта направлений (Leaflet) ===== */
-#mapScreen.screen {
-  padding: 0; height: 100vh; flex-direction: column;
-  align-items: stretch; justify-content: flex-start;
-}
-.map-screen-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; z-index: 2; }
-.map-title { font-weight: 700; letter-spacing: 1px; }
-.map-canvas { flex: 1 1 auto; min-height: 0; width: 100%; background: #0b0f14; }
-.map-plane-icon { font-size: 20px; line-height: 22px; text-align: center; filter: drop-shadow(0 1px 2px #000); }
-.map-home-icon { font-size: 22px; line-height: 26px; text-align: center; }
