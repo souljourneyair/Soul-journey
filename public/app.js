@@ -966,6 +966,16 @@ function renderBuildingRow(building, tbody, indent) {
   }
 }
 
+// Глава, до которой доросла история (-1 — сюжет пройден).
+function currentChapterId() {
+  return STATE.quests && STATE.quests.chapter ? STATE.quests.chapter.id : 1;
+}
+function chapterUnlocked(minChapter) {
+  if (!minChapter) return true;
+  const ch = currentChapterId();
+  return ch === -1 || ch >= minChapter;
+}
+
 // Чего не хватает для постройки — короткой строкой для меню. Зеркалит
 // серверную проверку checkRequirements: правила живут в каталоге, поэтому
 // новое условие подхватывается здесь само.
@@ -975,6 +985,7 @@ function missingRequirement(rules) {
   const has = (id) => built.some(b => b.buildingId === id);
   const nameOf = (id) => (STATE.catalog[id] ? displayBuildingName(id) : id);
 
+  if (rules.minChapter && !chapterUnlocked(rules.minChapter)) return 'Откроется по сюжету';
   if (rules.minRating && (STATE.rating || 0) < rules.minRating) return `Нужен рейтинг ${rules.minRating}`;
   if (rules.minMoney && STATE.money < rules.minMoney) return `Нужен капитал ${rules.minMoney.toLocaleString('ru-RU')}`;
   if (rules.minPaxProcessed && (STATE.paxProcessed || 0) < rules.minPaxProcessed) {
@@ -1003,6 +1014,7 @@ function purchasableBuildings() {
   // включая вертолётную стоянку, доступны к постройке всегда.
   return Object.values(STATE.catalog)
     .filter(b => !b.hidden || (STATE.unlockedBuildings || []).includes(b.id)) // скрытые скрываем, пока не открыты наградой
+    .filter(b => chapterUnlocked(b.minChapter)) // «по сюжету»: до нужной главы здания в меню нет
     .filter(b => !b.unique || !builtIds.has(b.id))
     .filter(b => !b.requiresAirline || STATE.airline) // офис — только после создания АК
     .sort((a, b) => a.cost - b.cost);

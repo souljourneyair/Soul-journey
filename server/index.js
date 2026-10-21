@@ -260,7 +260,7 @@ function heliSeatsFor(airport) {
 //   requiresBuilt   — построены все перечисленные (строка или список)
 //   requiresAnyOf   — построено хотя бы одно из перечисленных
 //   requiresBuildingLevel — здание прокачано до уровня { id: уровень }
-//   minMoney, minLevel, minRating, minPaxProcessed
+//   minMoney, minRating, minPaxProcessed, minChapter
 function checkRequirements(airport, rules) {
   if (!rules) return null;
   const built = store.getBuildingsByAirport(airport.id)
@@ -278,6 +278,12 @@ function checkRequirements(airport, rules) {
     return { error: 'requires_airline', message: 'Нужна собственная авиакомпания' };
   }
   // Уровень больше не гейт: контент открывают главы, рейтинг, деньги и цепочки.
+  if (rules.minChapter) {
+    const ch = airport.chapter == null ? 1 : airport.chapter;
+    if (ch !== -1 && ch < rules.minChapter) {
+      return { error: 'chapter_locked', message: 'Откроется по сюжету' };
+    }
+  }
   if (rules.minRating) {
     const r = airportRating(airport);
     if (r < rules.minRating) {
