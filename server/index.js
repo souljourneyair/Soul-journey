@@ -4993,18 +4993,22 @@ function runTick() {
     // --- Ветшание зданий ---
     // Всё ветшает само: покрытие трескается, техника изнашивается. Темп задан
     // по реальному времени: 10% за 2 часа (см. DAMAGE_ECONOMY.AGING_PER_TICK).
+    // В главе 1 износ отключён: новичок учится без штрафов.
     // Не ветшают: сданные в аренду (их содержит бот), строящиеся, на ремонте
     // и уже разрушенные.
-    const ageF = DAMAGE_ECONOMY.AGING_LEVEL_FACTORS;
-    for (const b of store.getBuildingsByAirport(airport.id)) {
-      if (b.ruined) continue;
-      if ((b.state || 'owned') !== 'owned' || isUnderConstruction(b)) continue;
-      if (b.repairEndsTick != null && currentTick < b.repairEndsTick) continue;
-      // Чем выше уровень — тем медленнее ветшает (см. AGING_LEVEL_FACTORS).
-      const lvl = b.upgradeLevel || 1;
-      const factor = ageF[Math.min(Math.max(lvl - 1, 0), ageF.length - 1)];
-      const aged = Math.min(1, (b.wear || 0) + DAMAGE_ECONOMY.AGING_PER_TICK * factor);
-      if (aged !== (b.wear || 0)) store.updateBuildingAtCell(airport.id, b.cellIndex, { wear: aged });
+    const agingChapter = freshAirport.chapter == null ? 1 : freshAirport.chapter;
+    if (agingChapter !== 1) {
+      const ageF = DAMAGE_ECONOMY.AGING_LEVEL_FACTORS;
+      for (const b of store.getBuildingsByAirport(airport.id)) {
+        if (b.ruined) continue;
+        if ((b.state || 'owned') !== 'owned' || isUnderConstruction(b)) continue;
+        if (b.repairEndsTick != null && currentTick < b.repairEndsTick) continue;
+        // Чем выше уровень — тем медленнее ветшает (см. AGING_LEVEL_FACTORS).
+        const lvl = b.upgradeLevel || 1;
+        const factor = ageF[Math.min(Math.max(lvl - 1, 0), ageF.length - 1)];
+        const aged = Math.min(1, (b.wear || 0) + DAMAGE_ECONOMY.AGING_PER_TICK * factor);
+        if (aged !== (b.wear || 0)) store.updateBuildingAtCell(airport.id, b.cellIndex, { wear: aged });
+      }
     }
 
     // --- Содержание аэропорта ---
