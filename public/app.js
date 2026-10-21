@@ -440,6 +440,9 @@ function connectWs() {
       if (!$('#fleetModal').classList.contains('hidden')) {
         renderFleet();
       }
+      if (!$('#mapScreen').classList.contains('hidden')) {
+        renderMap();
+      }
       if (!$('#envelopeModal').classList.contains('hidden')) {
         // Не перерисовываем, пока игрок вводит срок (иначе сбивается ввод/фокус).
         const ae = document.activeElement;
@@ -4417,6 +4420,114 @@ function openPointsModal() {
 
 $('#pointsBtn')?.addEventListener('click', openPointsModal);
 $('#closePoints')?.addEventListener('click', () => $('#pointsModal')?.classList.add('hidden'));
+
+// ===== КАРТА НАПРАВЛЕНИЙ (Leaflet + OpenStreetMap) =====
+let mapInstance = null;
+let mapHomeMarker = null;
+const mapPointMarkers = new Map();   // id -> { marker, route }
+const mapFlightMarkers = new Map();  // id -> marker
+
+function mapPointColor(p) {
+  if (!p.open) return '#555';
+  return p.access === 'mvl' ? '#6ab0ff' : p.access === 'vvl' ? '#ffd24a' : '#7ddc7d';
+}
+
+function initMap() {
+  if (mapInstance || !window.L || !STATE || !STATE.home) return;
+  mapInstance = L.map('mapCanvas', { zoomControl: true }).setView([STATE.home.lat, STATE.home.lng], 7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© OpenStreetMap contributors',
+  }).addTo(mapInstance);
+}
+
+function renderMap() {
+  if (!STATE || !STATE.home || !STATE.points) return;
+  initMap();
+  if (!mapInstance) return;
+  const home = STATE.home;
+  if (!mapHomeMarker) {
+    const icon = L.divIcon({ html: '🛖', className: 'map-home-icon', iconSize: [26, 26], iconAnchor: [13, 13] });
+    mapHomeMarker = L.marker([home.lat, home.lng], { icon }).addTo(mapInstance)
+      .bindPopup(`<b>${escapeHtml(home.name || 'Аэропорт')}</b>`);
+  }
+
+  for (const p of STATE.points) {
+    const color = mapPointColor(p);
+    const latlng = [p.lat, p.lng];
+    let entry = mapPointMarkers.get(p.id);
+    if (!entry) {
+      const marker = L.circleMarker(latlng, {
+        radius: p.open ? 8 : 6, color, weight: 2,
+        fillColor: color, fillOpacity: p.open ? 0.85 : 0.25,
+      }).addTo(mapInstance);
+      const route = L.polyline([[home.lat, home.lng], latlng], {
+        color, weight: p.open ? 2 : 1, opacity: p.open ? 0.45 : 0.2,
+        dashArray: p.open ? null : '4 6',
+      }).addTo(mapInstance);
+      entry = { marker, route };
+      mapPointMarkers.set(p.id, entry);
+    }
+    entry.marker.setStyle({
+      radius: p.open ? 8 : 6,
+      color: mapPointColor(p),
+      fillColor: mapPointColor(p),
+      fillOpacity: p.open ? 0.85 : 0.25,
+    });
+    entry.marker.bindPopup(
+      `<b>${escapeHtml(p.name)}</b><br>` +
+      `${escapeHtml(p.type)} · ${p.distanceKm} км<br>` +
+      (p.open ? '✅ Открыто' : '🔒 Закрыто'),
+    );
+    entry.route.setStyle({
+      color: mapPointColor(p),
+      opacity: p.open ? 0.45 : 0.2,
+      dashArray: p.open ? null : '4 6',
+    });
+  }
+
+  // Борта в воздухе.
+  const now = STATE.tick || 0;
+  const seen = new Set();
+  for (const f of (STATE.flightsInAir || [])) {
+    const p = STATE.points.find(x => x.id === f.toId);
+    if (!p) continue;
+    seen.add(f.id);
+    const span = Math.max(1, f.endTick - f.startTick);
+    const prog = Math.max(0, Math.min(1, (now - f.startTick) / span));
+    // Свои — из аэропорта к точке; договорные — из точки к аэропорту.
+    const from = f.kind === 'own' ? home : p;
+    const to = f.kind === 'own' ? p : home;
+    const lat = from.lat + (to.lat - from.lat) * prog;
+    const lng = from.lng + (to.lng - from.lng) * prog;
+    let marker = mapFlightMarkers.get(f.id);
+    if (!marker) {
+      const icon = L.divIcon({
+        html: f.craft === 'heli' ? '🚁' : '✈️',
+        className: 'map-plane-icon', iconSize: [22, 22], iconAnchor: [11, 11],
+      });
+      marker = L.marker([lat, lng], { icon, interactive: false }).addTo(mapInstance);
+      mapFlightMarkers.set(f.id, marker);
+    } else {
+      marker.setLatLng([lat, lng]);
+    }
+  }
+  // Убираем маркеры бортов, которых больше нет.
+  for (const [id, marker] of mapFlightMarkers) {
+    if (!seen.has(id)) { mapInstance.removeLayer(marker); mapFlightMarkers.delete(id); }
+  }
+}
+
+function openMap() {
+  showScreen('mapScreen');
+  setTimeout(() => {
+    initMap();
+    if (mapInstance) { mapInstance.invalidateSize(); renderMap(); }
+  }, 60);
+}
+
+$('#mapBtn')?.addEventListener('click', openMap);
+$('#mapBackBtn')?.addEventListener('click', () => showScreen('gameScreen'));
 
 // ===== INIT =====
 loadBackgrounds(); // фоны экранов (вход виден сразу, до логина)

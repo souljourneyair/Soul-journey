@@ -9,7 +9,7 @@ const store = require('./store');
 const { ensureSuperuser } = require('./seed');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
-  CHAPTERS, chapterById, nextChapterId, MOW, POINTS, pointById,
+  CHAPTERS, chapterById, nextChapterId, MOW, POINTS, pointById, HOME_AIRPORT,
   BUILDINGS, BUILD_LIMITS, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, randomBotName, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
@@ -1560,6 +1560,9 @@ function serializeAircraft(airportId) {
       decommissionThreshold: threshold,
       decommissionProgress: Math.min(1, (a.totalEarnings || 0) / threshold),
       decommissioned: !!a.decommissioned,
+      flightTo: a.flightTo || null,
+      flightToName: a.flightToName || null,
+      flightStartTick: a.flightStartTick != null ? a.flightStartTick : null,
     };
   });
 }
@@ -1678,6 +1681,37 @@ function serializeQuests(airport) {
     rewardText: ch ? (ch.reward ? ch.reward.text : null) : null,
     rewardMoney: ch && ch.reward ? (ch.reward.money || 0) : 0,
   };
+}
+
+// Борта «в воздухе» для карты: свои самолёты и ближайшие договорные рейсы.
+function flightsInAir(airport) {
+  const now = store.getTickCounter();
+  const out = [];
+  for (const ac of store.getAircraftByAirport(airport.id)) {
+    if (ac.status !== 'flying' || ac.flightEndsTick == null) continue;
+    out.push({
+      kind: 'own', id: ac.id, craft: ac.craft || 'plane', size: ac.size || null,
+      toId: ac.flightTo || null, toName: ac.flightToName || null,
+      startTick: ac.flightStartTick != null ? ac.flightStartTick : ac.flightEndsTick,
+      endTick: ac.flightEndsTick,
+    });
+  }
+  // Договорные: рейсы, до прилёта которых не больше 2 тиков (визуальный подлёт).
+  const TRAVEL = 2;
+  const byId = new Map(store.getContracts(airport.id).map(c => [c.id, c]));
+  for (const e of (airport.schedule || [])) {
+    const c = byId.get(e.contractId);
+    if (!c || !c.pointId) continue;
+    const arrival = e.dayIndex * CALENDAR.TICKS_PER_DAY + e.slot;
+    if (arrival < now || arrival > now + TRAVEL) continue;
+    out.push({
+      kind: 'contract', id: `${e.contractId}:${e.dayIndex}:${e.slot}`,
+      craft: c.craft || 'heli', size: c.size || null,
+      toId: c.pointId, toName: c.pointName || null,
+      startTick: arrival - TRAVEL, endTick: arrival,
+    });
+  }
+  return out;
 }
 
 function serializeAirport(airport) {
@@ -1869,6 +1903,8 @@ function serializeAirport(airport) {
     ninaLetterSeen: !!airport.ninaLetterSeen,  // видел ли письмо Нины про рейтинг
     openPoints: airport.openPoints || [],       // открытые направления (id)
     points: POINTS.map(p => ({ ...p, open: (airport.openPoints || []).includes(p.id) })),
+    home: HOME_AIRPORT,
+    flightsInAir: flightsInAir(airport),
     paused: !!airport.paused,                    // пауза аэропорта (временная механика)
     unlockedBuildings: airport.unlockedBuildings || [],   // открытые наградой здания
     hasMedicalHeli: !!airport.hasMedicalHeli,    // подарен медвертолёт (городские службы)
@@ -4568,9 +4604,14 @@ app.post('/api/aircraft/fly', auth, (req, res) => {
     ? Math.round(type.revenuePerPax * AIRCRAFT_ECONOMY.MVL_REVENUE_MULT) : type.revenuePerPax;
   if (departingPax > 0) enqueuePax(airport.id, departingPax, flight, ticket, nowTick);
 
+  // Направление для карты: открытая точка нужного типа (если есть).
+  const dest = (airport.openPoints || []).map(pointById).find(p => p && p.access === flight);
   store.updateAircraft(ac.id, {
     status: 'flying', flightEndsTick: nowTick + flightTicks, flightType: flight,
     flightPax: departingPax, // сколько пассажиров увёз (для выручки при возврате)
+    flightTo: dest ? dest.id : null,
+    flightToName: dest ? dest.name : null,
+    flightStartTick: nowTick,
   });
   const fresh = store.getAirportByUserId(req.user.id);
   res.json(serializeAirport(fresh));
@@ -5401,9 +5442,13 @@ function processAircraftTick(airport, currentTick, notifications) {
       const capacity = aircraftCapacity(type, ac.upgradeLevel || 1);
       const departingPax = drawFromPool(airport.id, 'vvl', capacity);
       if (departingPax > 0) enqueuePax(airport.id, departingPax, 'vvl', type.revenuePerPax, currentTick);
+      const dest = (airport.openPoints || []).map(pointById).find(p => p && p.access === 'vvl');
       store.updateAircraft(ac.id, {
         status: 'flying', flightEndsTick: currentTick + type.flightTicks,
         flightType: 'vvl', flightPax: departingPax,
+        flightTo: dest ? dest.id : null,
+        flightToName: dest ? dest.name : null,
+        flightStartTick: currentTick,
       });
     }
   }

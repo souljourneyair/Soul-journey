@@ -10,6 +10,8 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 
@@ -135,6 +137,7 @@
     <nav class="left-menu" id="leftMenu">
   <button id="questsBtn" class="left-menu-btn">Задачи<span id="questsBadge" class="envelope-badge hidden">0</span></button>
   <button id="pointsBtn" class="left-menu-btn">🧭 Направления<span id="pointsBadge" class="envelope-badge hidden">0</span></button>
+  <button id="mapBtn" class="left-menu-btn">🗺 Карта</button>
       <div class="left-menu-title">МЕНЮ</div>
       <button id="fleetBtn" class="left-menu-btn hidden">✈ Авиапарк</button>
       <button id="scheduleBtn" class="left-menu-btn">🕐 Расписание</button>
@@ -184,6 +187,15 @@
   </main>
 
   <div id="toast" class="toast hidden"></div>
+</div>
+
+<!-- ===== ЭКРАН КАРТЫ НАПРАВЛЕНИЙ ===== -->
+<div id="mapScreen" class="screen hidden">
+  <div class="map-screen-head">
+    <button id="mapBackBtn" class="btn-secondary">← Назад</button>
+    <span class="map-title">КАРТА НАПРАВЛЕНИЙ</span>
+  </div>
+  <div id="mapCanvas" class="map-canvas"></div>
 </div>
 
 <!-- ===== ЭКРАН БАНКРОТСТВА (game over) ===== -->

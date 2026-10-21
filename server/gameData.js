@@ -1503,14 +1503,18 @@ function repairCost(wear, buyCost) {
 // направлений и их открытие; привязка договоров к точкам и карта-схема — позже.
 //   access: 'heli' — вертолётная (ближняя), 'vvl' — самолётная ВВЛ,
 //           'mvl' — международная. size — спрос: small/middle/big.
+// Родной аэропорт на карте (центральная Россия; точки вымышленные, но
+// координаты реальные — чтобы Leaflet/OSM показывали правдоподобную географию).
+const HOME_AIRPORT = { lat: 56.0, lng: 37.0, name: 'Домашний аэропорт' };
+
 const POINTS = [
-  { id: 'tihaya', name: 'Турбаза «Тихая»', access: 'heli', type: 'туризм', distanceKm: 20, size: 'small' },
-  { id: 'ozersk', name: 'Озёрск', access: 'heli', type: 'туризм', distanceKm: 120, size: 'small' },
-  { id: 'kedrovo', name: 'Кедрово', access: 'heli', type: 'промышленный', distanceKm: 180, size: 'small' },
-  { id: 'zarechye', name: 'Заречье', access: 'heli', type: 'деловой', distanceKm: 240, size: 'middle' },
-  { id: 'sosnovka', name: 'Сосновка', access: 'heli', type: 'туризм', distanceKm: 300, size: 'middle' },
-  { id: 'verhniy_mayak', name: 'Верхний Маяк', access: 'vvl', type: 'туризм', distanceKm: 380, size: 'middle' },
-  { id: 'krayniy', name: 'Крайний (конкурент)', access: 'vvl', type: 'деловой', distanceKm: 420, size: 'middle' },
+  { id: 'tihaya', name: 'Турбаза «Тихая»', access: 'heli', type: 'туризм', distanceKm: 20, size: 'small', lat: 56.156, lng: 37.161 },
+  { id: 'ozersk', name: 'Озёрск', access: 'heli', type: 'туризм', distanceKm: 120, size: 'small', lat: 55.459, lng: 38.674 },
+  { id: 'kedrovo', name: 'Кедрово', access: 'heli', type: 'промышленный', distanceKm: 180, size: 'small', lat: 55.445, lng: 34.275 },
+  { id: 'zarechye', name: 'Заречье', access: 'heli', type: 'деловой', distanceKm: 240, size: 'middle', lat: 58.031, lng: 35.678 },
+  { id: 'sosnovka', name: 'Сосновка', access: 'heli', type: 'туризм', distanceKm: 300, size: 'middle', lat: 56.924, lng: 41.542 },
+  { id: 'verhniy_mayak', name: 'Верхний Маяк', access: 'vvl', type: 'туризм', distanceKm: 380, size: 'middle', lat: 52.783, lng: 34.906 },
+  { id: 'krayniy', name: 'Крайний (конкурент)', access: 'vvl', type: 'деловой', distanceKm: 420, size: 'middle', lat: 52.723, lng: 40.383 },
 ];
 function pointById(id) { return POINTS.find(p => p.id === id) || null; }
 
@@ -1591,7 +1595,7 @@ function nextChapterId(id) {
 
 module.exports = {
   CONFIG, CALENDAR, tickToClock, tickToDate, MOW,
-  CHAPTERS, chapterById, nextChapterId, POINTS, pointById,
+  CHAPTERS, chapterById, nextChapterId, POINTS, pointById, HOME_AIRPORT,
   BUILDINGS, BUILD_LIMITS, XP_FOR_LEVEL, xpRequiredForLevel, levelFromXp,
   BOT_ECONOMY, BOT_COMPANY_NAMES, randomBotName, randomBotNames, generateRentOffers, rentAcceptChance,
   UPGRADE_ECONOMY, upgradeCost, upgradeMultiplier, buildDurationTicks, upgradeDurationTicks,
