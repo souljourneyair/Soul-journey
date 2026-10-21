@@ -4435,10 +4435,9 @@ function mapPointColor(p) {
 function initMap() {
   if (mapInstance || !window.L || !STATE || !STATE.home) return;
   mapInstance = L.map('mapCanvas', { zoomControl: true }).setView([STATE.home.lat, STATE.home.lng], 7);
-  // Тёмный нейтральный стиль (без политических отметок на тайлах).
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19,
-    attribution: '© OpenStreetMap contributors © CARTO',
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18,
+    attribution: '© OpenStreetMap contributors',
   }).addTo(mapInstance);
 }
 
