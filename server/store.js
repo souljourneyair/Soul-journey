@@ -59,6 +59,7 @@ let cacheMtime = 0;          // время изменения файла, как
 let dirty = false;           // есть несохранённые изменения
 let lastStatCheck = 0;
 let flushTimer = null;
+let missingOnDisk = false;   // база ещё не создана на новой установке
 
 function cloneEmptyDb() {
   return JSON.parse(JSON.stringify(EMPTY_DB));
@@ -212,41 +213,107 @@ function readFromDisk() {
 function load() {
   const now = Date.now();
   // Пока есть несохранённые изменения, наша копия свежее любой на диске.
-  // Иначе сверяемся с файлом, но не чаще раза в четверть секунды.
+  // Иначе сверяемся с файлом, но не чаще раза в STAT_CHECK_MS.
   if (cache && (dirty || now - lastStatCheck < STAT_CHECK_MS)) return cache;
   lastStatCheck = now;
 
-  let mtime = 0;
-  try { mtime = fs.statSync(DATA_FILE).mtimeMs; } catch (e) { mtime = 0; }
-  if (!cache || mtime !== cacheMtime) {
-    cache = readFromDisk();
-    cacheMtime = mtime;
+  let stat;
+  try {
+    stat = fs.statSync(DATA_FILE);
+    missingOnDisk = false;
+  } catch (e) {
+    // Отсутствующий файл допустим только при первой загрузке новой установки.
+    // Если сохранение уже существовало и затем исчезло, не создаём пустую базу.
+    if (e.code === 'ENOENT' && (!cache || missingOnDisk)) {
+      if (!cache) cache = cloneEmptyDb();
+      missingOnDisk = true;
+      cacheMtime = 0;
+      return cache;
+    }
+    throw new Error(`[store] Не удалось проверить файл сохранений ${DATA_FILE}: ${e.message}`);
+  }
+
+  if (!cache || stat.mtimeMs !== cacheMtime) {
+    // Сначала полностью читаем и проверяем новую версию; старый кэш остаётся
+    // нетронутым, если чтение или миграция завершатся ошибкой.
+    const nextCache = readFromDisk();
+    cache = nextCache;
+    cacheMtime = stat.mtimeMs;
+    missingOnDisk = false;
   }
   return cache;
 }
 
-// Немедленно записать накопленное на диск.
-function flush() {
+// Немедленно записать накопленное на диск атомарной заменой.
+function flush(options = {}) {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-  if (!dirty || !cache) return;
-  // Пишем во временный файл и переименовываем — атомарно, не побьём файл при падении сервера.
-  const tmp = DATA_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(cache));
-  fs.renameSync(tmp, DATA_FILE);
-  dirty = false;
-  try { cacheMtime = fs.statSync(DATA_FILE).mtimeMs; } catch (e) { /* не критично */ }
+  if (!dirty || !cache) return true;
+
+  const tmp = `${DATA_FILE}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+  let fd = null;
+  try {
+    const serialized = JSON.stringify(cache);
+    let mode = 0o600;
+    try { mode = fs.statSync(DATA_FILE).mode & 0o777; } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+    }
+
+    fd = fs.openSync(tmp, 'wx', mode);
+    fs.writeFileSync(fd, serialized, 'utf-8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+
+    // До успешного rename dirty остаётся true: при ошибке данные остаются
+    // в памяти и следующая попытка сможет повторить сохранение.
+    fs.renameSync(tmp, DATA_FILE);
+    dirty = false;
+    missingOnDisk = false;
+    try {
+      cacheMtime = fs.statSync(DATA_FILE).mtimeMs;
+      lastStatCheck = Date.now();
+    } catch (e) {
+      cacheMtime = 0;
+      lastStatCheck = 0;
+    }
+    return true;
+  } catch (e) {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (closeError) { /* сохраняем исходную ошибку */ }
+    }
+    try { fs.unlinkSync(tmp); } catch (unlinkError) {
+      if (unlinkError.code !== 'ENOENT') {
+        console.error(`[store] Не удалось удалить временный файл ${tmp}: ${unlinkError.message}`);
+      }
+    }
+    console.error(`[store] Не удалось сохранить ${DATA_FILE}: ${e.message}. Несохранённые данные сохранены в памяти.`);
+    if (options.retry !== false && !flushTimer) {
+      flushTimer = setTimeout(() => flush(), Math.max(FLUSH_MS, 2000));
+    }
+    return false;
+  }
 }
 
 function save(data) {
   cache = data;
   dirty = true;
-  if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
+  if (!flushTimer) flushTimer = setTimeout(() => flush(), FLUSH_MS);
 }
 
-// Не теряем последние изменения при остановке сервера.
-process.on('exit', flush);
+// При штатном завершении делаем последнюю синхронную попытку сохранения.
+process.on('exit', () => {
+  if (!flush({ retry: false })) {
+    console.error('[store] ВНИМАНИЕ: завершение процесса с несохранёнными изменениями.');
+  }
+});
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.on(sig, () => { flush(); process.exit(0); });
+  process.on(sig, () => {
+    const saved = flush({ retry: false });
+    if (!saved) {
+      console.error('[store] Сервер завершает работу с ошибкой: последние изменения не удалось сохранить.');
+    }
+    process.exit(saved ? 0 : 1);
+  });
 }
 
 function newToken() {
