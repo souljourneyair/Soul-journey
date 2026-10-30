@@ -78,10 +78,14 @@ function getClientIp(req) {
   return address.replace(/^::ffff:/, '').slice(0, 128);
 }
 
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 function isValidNewPassword(password) {
   return typeof password === 'string'
     && Array.from(password).length >= 10
     && Buffer.byteLength(password, 'utf8') <= 72;
 }
 
-module.exports = { createRateLimiter, getClientIp, isValidNewPassword };
+module.exports = { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber };

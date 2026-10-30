@@ -7,7 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const store = require('./store');
 const { ensureSuperuser } = require('./seed');
-const { createRateLimiter, getClientIp, isValidNewPassword } = require('./security');
+const { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber } = require('./security');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
   CHAPTERS, chapterById, nextChapterId, MOW, POINTS, pointById,
@@ -3129,11 +3129,16 @@ app.post('/api/fuel/refill', auth, (req, res) => {
   if (!hasFuelDepot(airport.id)) return res.status(400).json({ error: 'no_depot', message: 'Сначала постройте топливный склад' });
   const capacity = totalFuelCapacity(airport.id);
   const stored = airport.fuelStored || 0;
-  let { amount } = req.body || {};
-  // если не указано — заполняем склад доверху
+  const body = req.body || {};
   const space = capacity - stored;
   if (space <= 0) return res.status(400).json({ error: 'full', message: 'Склад уже полон' });
-  amount = (typeof amount === 'number' && amount > 0) ? Math.min(amount, space) : space;
+  let amount = space; // без amount — пополняем склад доверху
+  if (Object.prototype.hasOwnProperty.call(body, 'amount')) {
+    if (!isFiniteNumber(body.amount) || body.amount <= 0) {
+      return res.status(400).json({ error: 'invalid_amount', message: 'Укажите положительное конечное количество топлива' });
+    }
+    amount = Math.min(body.amount, space);
+  }
   const price = fuelUnitPrice(airport);
   const cost = Math.round(amount * price);
   if (airport.money < cost) {
@@ -3180,9 +3185,8 @@ app.post('/api/fuel/contract/cancel', auth, (req, res) => {
 app.post('/api/fuel/threshold', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  let { threshold } = req.body || {};
-  threshold = Number(threshold);
-  if (!isFinite(threshold) || threshold < 0 || threshold > 100) {
+  const { threshold } = req.body || {};
+  if (!isFiniteNumber(threshold) || threshold < 0 || threshold > 100) {
     return res.status(400).json({ error: 'invalid_threshold', message: 'Порог должен быть от 0 до 100%' });
   }
   store.updateAirport(airport.id, { fuelRefillThreshold: Math.round(threshold) });
@@ -3349,7 +3353,7 @@ app.post('/api/building/rent-accept', auth, (req, res) => {
   const effIncome = def.income * upgradeMultiplier(building.upgradeLevel || 1);
   const minPrice = Math.round(effIncome * BOT_ECONOMY.RENT_OFFER_MIN_MULTIPLIER);
   const maxPrice = Math.round(effIncome * BOT_ECONOMY.RENT_OFFER_MAX_MULTIPLIER);
-  if (typeof price !== 'number' || price < minPrice || price > maxPrice) {
+  if (!isFiniteNumber(price) || price < minPrice || price > maxPrice) {
     return res.status(400).json({ error: 'invalid_price' });
   }
 
@@ -3373,7 +3377,7 @@ app.post('/api/building/rent-list', auth, (req, res) => {
   const effectiveIncome = def.income * upgradeMultiplier(building.upgradeLevel || 1);
   const minPrice = Math.round(effectiveIncome * BOT_ECONOMY.RENT_LISTING_MIN_MULTIPLIER);
   const maxPrice = Math.round(effectiveIncome * BOT_ECONOMY.RENT_LISTING_MAX_MULTIPLIER);
-  if (typeof askPrice !== 'number' || askPrice < minPrice || askPrice > maxPrice) {
+  if (!isFiniteNumber(askPrice) || askPrice < minPrice || askPrice > maxPrice) {
     return res.status(400).json({ error: 'invalid_price', message: `Цена должна быть от ${minPrice} до ${maxPrice} у.е.` });
   }
 
@@ -3767,7 +3771,7 @@ app.post('/api/admin/players/:username/set-money', auth, adminAuth, (req, res) =
   const ctx = getTargetOr404(req, res);
   if (!ctx) return;
   const { money } = req.body || {};
-  if (typeof money !== 'number' || money < 0) return res.status(400).json({ error: 'invalid_value' });
+  if (!isFiniteNumber(money) || money < 0) return res.status(400).json({ error: 'invalid_value' });
   const updated = store.updateAirport(ctx.airport.id, { money });
   res.json(serializeAirport(updated));
 });
@@ -3776,7 +3780,7 @@ app.post('/api/admin/players/:username/set-xp', auth, adminAuth, (req, res) => {
   const ctx = getTargetOr404(req, res);
   if (!ctx) return;
   const { xp } = req.body || {};
-  if (typeof xp !== 'number' || xp < 0) return res.status(400).json({ error: 'invalid_value' });
+  if (!isFiniteNumber(xp) || xp < 0) return res.status(400).json({ error: 'invalid_value' });
   const level = levelFromXp(xp);
   const updated = store.updateAirport(ctx.airport.id, { xp, level });
   res.json(serializeAirport(updated));
@@ -3786,7 +3790,7 @@ app.post('/api/admin/players/:username/set-level', auth, adminAuth, (req, res) =
   const ctx = getTargetOr404(req, res);
   if (!ctx) return;
   let { level } = req.body || {};
-  if (typeof level !== 'number') return res.status(400).json({ error: 'invalid_value' });
+  if (!isFiniteNumber(level)) return res.status(400).json({ error: 'invalid_value' });
   level = Math.max(1, Math.min(CONFIG.MAX_LEVEL, Math.round(level)));
   const xp = xpRequiredForLevel(level); // держим xp согласованным с уровнем
   const updated = store.updateAirport(ctx.airport.id, { level, xp });
@@ -3800,24 +3804,26 @@ app.post('/api/admin/players/:username/save-all', auth, adminAuth, (req, res) =>
   const patch = {};
 
   if (money !== undefined) {
-    if (typeof money !== 'number' || money < 0) return res.status(400).json({ error: 'invalid_money' });
+    if (!isFiniteNumber(money) || money < 0) return res.status(400).json({ error: 'invalid_money' });
     patch.money = money;
   }
   // xp и level взаимосвязаны. Определяем, что реально изменил админ:
   // - изменился xp → он главный, пересчитываем level из xp;
   // - иначе если изменился level → синхронизируем xp под новый level.
   // Приоритет у xp: если админ вписал xp, уровень не должен его затирать.
+  if (xp !== undefined && !isFiniteNumber(xp)) return res.status(400).json({ error: 'invalid_xp' });
+  if (level !== undefined && !isFiniteNumber(level)) return res.status(400).json({ error: 'invalid_level' });
   const curLevel = ctx.airport.level;
   const curXp = Math.floor(ctx.airport.xp);
   const levelChanged = level !== undefined && Math.round(level) !== curLevel;
   const xpChanged = xp !== undefined && Math.round(xp) !== curXp;
 
   if (xpChanged) {
-    if (typeof xp !== 'number' || xp < 0) return res.status(400).json({ error: 'invalid_xp' });
+    if (!isFiniteNumber(xp) || xp < 0) return res.status(400).json({ error: 'invalid_xp' });
     patch.xp = xp;
     patch.level = levelFromXp(xp);
   } else if (levelChanged) {
-    if (typeof level !== 'number') return res.status(400).json({ error: 'invalid_level' });
+    if (!isFiniteNumber(level)) return res.status(400).json({ error: 'invalid_level' });
     level = Math.max(0, Math.min(CONFIG.MAX_LEVEL, Math.round(level)));
     patch.level = level;
     patch.xp = xpRequiredForLevel(level);
@@ -4268,7 +4274,11 @@ app.post('/api/bank/borrow', auth, (req, res) => {
   if (airport.loan) {
     return res.status(400).json({ error: 'has_loan', message: 'Сначала погасите текущий кредит' });
   }
-  const amount = Math.floor(Number((req.body || {}).amount) || 0);
+  const rawAmount = (req.body || {}).amount;
+  if (!isFiniteNumber(rawAmount)) {
+    return res.status(400).json({ error: 'invalid_amount', message: 'Сумма кредита должна быть конечным числом' });
+  }
+  const amount = Math.floor(rawAmount);
   const state = bankState(airport);
   if (amount < BANK.MIN_AMOUNT) {
     return res.status(400).json({ error: 'too_small', message: `Минимальная сумма ${BANK.MIN_AMOUNT.toLocaleString('ru-RU')} у.е.` });
