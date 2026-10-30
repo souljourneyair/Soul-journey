@@ -7,6 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const store = require('./store');
 const { ensureSuperuser } = require('./seed');
+const { createRateLimiter, getClientIp, isValidNewPassword } = require('./security');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
   CHAPTERS, chapterById, nextChapterId, MOW, POINTS, pointById,
@@ -36,6 +37,44 @@ const aircraftEvents = require('./aircraftEvents');
 mediaScan.init(Object.keys(BUILDINGS));
 
 const app = express();
+
+// Доверяем X-Forwarded-For только от явно перечисленных reverse proxy.
+// Без TRUSTED_PROXY_IPS Express использует адрес TCP-клиента.
+const trustedProxyIps = new Set(
+  (process.env.TRUSTED_PROXY_IPS || '').split(',')
+    .map(value => value.trim().replace(/^::ffff:/, '')).filter(Boolean)
+);
+app.set('trust proxy', ip => trustedProxyIps.has(String(ip).replace(/^::ffff:/, '')));
+
+// Ограничение попыток до разбора тела запроса: даже некорректный JSON не
+// позволяет обходить IP-лимит на маршрутах входа и регистрации.
+// X-Forwarded-For не доверяется автоматически: Express учитывает его только
+// для IP-адресов, явно перечисленных в TRUSTED_PROXY_IPS.
+const authRateLimiter = createRateLimiter({ maxEntries: 20000 });
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+function sendRateLimitResponse(res, result) {
+  const retryAfterSeconds = Math.max(1, Math.ceil(result.retryAfterMs / 1000));
+  res.set('Retry-After', String(retryAfterSeconds));
+  return res.status(429).json({
+    error: 'rate_limited',
+    message: `Слишком много попыток. Повторите через ${retryAfterSeconds} сек.`,
+    retryAfterSeconds,
+  });
+}
+app.use((req, res, next) => {
+  if (req.method !== 'POST') return next();
+  const ip = getClientIp(req);
+  const routePath = req.path.toLowerCase().replace(/\/+$/, '') || '/';
+  if (routePath === '/api/login') {
+    const result = authRateLimiter.consume(`login:ip:${ip}`, 30, LOGIN_WINDOW_MS);
+    if (!result.allowed) return sendRateLimitResponse(res, result);
+  } else if (routePath === '/api/register') {
+    const result = authRateLimiter.consume(`register:ip:${ip}`, 5, 60 * 60 * 1000);
+    if (!result.allowed) return sendRateLimitResponse(res, result);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '30mb' })); // 30mb: видео-фон до 10MB в base64 (~13.5MB) + запас
 // Понятная ошибка при превышении лимита тела (иначе фронт видит "Ошибка запроса")
 app.use((err, req, res, next) => {
@@ -56,9 +95,16 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 const socketsByToken = new Map();
 
 wss.on('connection', (ws, req) => {
-  const url = new URL(req.url, 'http://x');
-  const token = url.searchParams.get('token');
-  if (!token) { ws.close(); return; }
+  // Токен передаётся как второй WebSocket subprotocol, а не в URL:
+  // query string часто попадает в access-логи reverse proxy.
+  const protocols = String(req.headers['sec-websocket-protocol'] || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  const token = protocols.find((value, index) =>
+    index > 0 && /^[a-f0-9]{48}$/i.test(value)
+  );
+  if (!protocols.includes('souljourney-v1') || !token) { ws.close(); return; }
   const user = store.findUserByToken(token);
   if (!user || user.mustChangePassword || store.isBanActive(user)) { ws.close(); return; }
   if (!socketsByToken.has(token)) socketsByToken.set(token, new Set());
@@ -91,7 +137,9 @@ function banMessage(user) {
 
 // ---------- auth middleware ----------
 function auth(req, res, next) {
-  const token = req.headers['authorization']?.replace('Bearer ', '');
+  const authorization = req.headers['authorization'] || '';
+  const match = /^Bearer\s+([^\s,]+)$/i.exec(authorization);
+  const token = match ? match[1] : null;
   if (!token) return res.status(401).json({ error: 'no_token' });
   const user = store.findUserByToken(token);
   if (!user) return res.status(401).json({ error: 'invalid_token' });
@@ -151,8 +199,11 @@ app.post('/api/register', (req, res) => {
 
   const bad = validateUsername(cleanName);
   if (bad) return res.status(400).json(bad);
-  if (!password || password.length < 4) {
-    return res.status(400).json({ error: 'invalid_input', message: 'Пароль от 4 символов' });
+  if (!isValidNewPassword(password)) {
+    return res.status(400).json({
+      error: 'invalid_password',
+      message: 'Пароль должен содержать не менее 10 символов и не более 72 байт UTF-8',
+    });
   }
   // Сравнение без учёта регистра: если есть «Vasya», логин «vasya» занят.
   const existing = store.findUserByUsername(cleanName);
@@ -172,11 +223,23 @@ app.post('/api/register', (req, res) => {
 });
 
 app.post('/api/login', (req, res) => {
-  const { username, password } = req.body || {};
-  const user = store.findUserByUsername(username);
-  if (!user || !bcrypt.compareSync(password || '', user.passwordHash)) {
+  const body = req.body || {};
+  const username = typeof body.username === 'string' ? body.username.trim() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  const usernameKey = store.normalizeUsername(username).slice(0, USERNAME_MAX) || 'unknown';
+  // Лимит по нормализованному имени действует даже при смене IP. Успешный
+  // вход сбрасывает счётчик этого аккаунта; общий IP-лимит остаётся.
+  const accountLimit = authRateLimiter.consume(`login:user:${usernameKey}`, 10, LOGIN_WINDOW_MS);
+  if (!accountLimit.allowed) return sendRateLimitResponse(res, accountLimit);
+
+  const validInput = username.length >= USERNAME_MIN
+    && username.length <= USERNAME_MAX
+    && Buffer.byteLength(password, 'utf8') <= 1024;
+  const user = validInput ? store.findUserByUsername(username) : null;
+  if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
     return res.status(401).json({ error: 'bad_credentials', message: 'Неверный логин или пароль' });
   }
+  authRateLimiter.reset(`login:user:${usernameKey}`);
   if (store.isBanActive(user)) {
     return res.status(403).json({ error: 'banned', message: banMessage(user), bannedUntil: user.bannedUntil });
   }
@@ -195,7 +258,7 @@ app.post('/api/change-password', auth, (req, res) => {
       || typeof newPassword !== 'string') {
     return res.status(400).json({ error: 'invalid_input', message: 'Укажите текущий и новый пароль' });
   }
-  if (Array.from(newPassword).length < 10 || Buffer.byteLength(newPassword, 'utf8') > 72) {
+  if (!isValidNewPassword(newPassword)) {
     return res.status(400).json({
       error: 'invalid_password',
       message: 'Новый пароль должен содержать не менее 10 символов и не более 72 байт',

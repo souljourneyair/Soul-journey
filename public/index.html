@@ -38,7 +38,8 @@
     <form id="registerForm" class="auth-form hidden">
       <label>Логин<input type="text" id="regUsername" required minlength="3" maxlength="20" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"></label>
       <div class="form-hint">От 3 до 20 символов: буквы, цифры, дефис и подчёркивание. Регистр при входе значения не имеет.</div>
-      <label>Пароль<input type="password" id="regPassword" required minlength="4"></label>
+      <label>Пароль<input type="password" id="regPassword" required minlength="10" maxlength="72" autocomplete="new-password"></label>
+      <div class="form-hint">Не менее 10 символов; максимум 72 байта в UTF-8.</div>
       <button type="submit" class="btn-primary">Создать аккаунт</button>
       <div class="form-msg" id="regMsg"></div>
     </form>

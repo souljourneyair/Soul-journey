@@ -12,6 +12,7 @@
 //   node server/scripts/reset-password.js soultest MyNewPass123
 
 const bcrypt = require('bcryptjs');
+const { isValidNewPassword } = require('../security');
 let store;
 try {
   store = require('../store');
@@ -27,8 +28,8 @@ if (!username || !newPassword) {
   process.exit(1);
 }
 
-if (newPassword.length < 4) {
-  console.error('Пароль должен быть от 4 символов.');
+if (!isValidNewPassword(newPassword)) {
+  console.error('Пароль должен содержать не менее 10 символов и не более 72 байт UTF-8.');
   process.exit(1);
 }
 

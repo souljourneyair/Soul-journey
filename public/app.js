@@ -435,7 +435,7 @@ function updateAirlineButton() {
 function connectWs() {
   if (ws) ws.close();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws?token=${TOKEN}`);
+  ws = new WebSocket(`${proto}://${location.host}/ws`, ['souljourney-v1', TOKEN]);
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'tick') {

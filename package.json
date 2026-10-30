@@ -8,7 +8,8 @@
     "dev": "node server/index.js",
     "test:store": "node --test server/tests/store.test.js",
     "test": "node --test",
-    "test:tick": "node --test server/tests/game-tick.test.js"
+    "test:tick": "node --test server/tests/game-tick.test.js",
+    "test:security": "node --test server/tests/security.test.js"
   },
   "keywords": [],
   "author": "",
