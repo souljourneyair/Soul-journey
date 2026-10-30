@@ -48,8 +48,8 @@ app.set('trust proxy', ip => trustedProxyIps.has(String(ip).replace(/^::ffff:/, 
 
 // Ограничение попыток до разбора тела запроса: даже некорректный JSON не
 // позволяет обходить IP-лимит на маршрутах входа и регистрации.
-// X-Forwarded-For намеренно не используется: доверять ему можно только после
-// явной настройки списка доверенных reverse proxy.
+// X-Forwarded-For не доверяется автоматически: Express учитывает его только
+// для IP-адресов, явно перечисленных в TRUSTED_PROXY_IPS.
 const authRateLimiter = createRateLimiter({ maxEntries: 20000 });
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 function sendRateLimitResponse(res, result) {

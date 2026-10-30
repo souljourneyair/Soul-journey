@@ -67,8 +67,8 @@ function createRateLimiter({ now = Date.now, maxEntries = 20000, cleanupEvery = 
   return { consume, reset };
 }
 
-// Не читаем X-Forwarded-For: его можно подделать, если приложение не настроено
-// на конкретный доверенный reverse proxy.
+// Не доверяем X-Forwarded-For напрямую: req.ip использует его только при
+// явном перечислении адреса reverse proxy в настройке Express trust proxy.
 function getClientIp(req) {
   // req.ip вычисляется Express с учётом app.set('trust proxy').
   const address = req && (typeof req.ip === 'string' && req.ip
