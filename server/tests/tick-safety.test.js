@@ -1,3 +1,5 @@
+const fs = require('node:fs');
+const path = require('node:path');
 'use strict';
 
 const test = require('node:test');
@@ -64,4 +66,27 @@ test('a failing error reporter does not prevent the remaining items from running
   } finally {
     console.error = oldError;
   }
+});
+
+const serverSource = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+
+test('runTick processes airports through the per-airport isolation wrapper', () => {
+  const runTickStart = serverSource.indexOf('function runTick()');
+  const loopStart = serverSource.indexOf('runEachSafely(airports', runTickStart);
+  const airportLogger = serverSource.indexOf(
+    "logTickError('airport', currentTick, airport && airport.id, error)",
+    loopStart,
+  );
+  const nextFunction = serverSource.indexOf('// Обработка авиапарка за тик.', loopStart);
+
+  assert.ok(runTickStart >= 0);
+  assert.ok(loopStart > runTickStart);
+  assert.ok(airportLogger > loopStart);
+  assert.ok(nextFunction > airportLogger);
+});
+
+test('interval uses the guarded tick runner rather than calling runTick directly', () => {
+  assert.match(serverSource, /function runTickSafely\(\)/);
+  assert.match(serverSource, /setInterval\(runTickSafely, CONFIG\.TICK_MS\)/);
+  assert.doesNotMatch(serverSource, /setInterval\(runTick, CONFIG\.TICK_MS\)/);
 });
