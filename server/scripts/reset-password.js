@@ -33,7 +33,7 @@ if (newPassword.length < 4) {
 }
 
 const hash = bcrypt.hashSync(newPassword, 10);
-const user = store.setUserPassword(username, hash);
+const user = store.setUserPassword(username, hash, { mustChangePassword: false });
 
 if (!user) {
   console.error(`Пользователь "${username}" не найден.`);
