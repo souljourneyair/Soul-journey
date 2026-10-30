@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const { ensureSuperuser } = require('./seed');
 const { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber, isBoolean } = require('./security');
+const { calculateWeeklyTax, settleTickBalance } = require('./finance');
 const { runSafely, runEachSafely } = require('./tickSafety');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
@@ -5194,20 +5195,12 @@ function runTick() {
     }
     upkeep = Math.round(upkeep);
 
-    // Баланс с учётом дохода и содержания. Может уйти в минус (долг),
-    // но не глубже дна = суммарной стоимости всех зданий.
+    // Базовый баланс до всех обязательных списаний. Кредит и налог могут
+    // прийтись на один тик — применим их вместе ниже, чтобы одно списание
+    // не перезаписывало другое.
     const floor = -debtFloor(airport.id);
     let newMoney = freshAirport.money + incomePerTick - upkeep;
     let bankrupt = false;
-    if (newMoney <= floor) {
-      newMoney = floor;   // дно долга
-      bankrupt = true;     // достигли дна — банкротство
-    }
-
-    // Репутация: если баланс в минусе — падает; иначе обычное изменение
-    let repChange = reputationPerTick;
-    if (newMoney < 0) repChange -= Math.max(1, Math.round(Math.abs(newMoney) / 5000)); // чем глубже долг, тем сильнее
-    const newRep = Math.max(0, freshAirport.reputation + repChange);
 
     // Пассивный опыт за тик (растёт с уровнем) — вторая половина прогрессии.
     // Начинает капать только после первой постройки: свежий аккаунт не должен
@@ -5222,24 +5215,11 @@ function runTick() {
     const cafeXp = Math.floor(cafePool / PASSENGER_ECONOMY.VISITORS_PER_XP);
     const newXp = freshAirport.xp + xpPerTick + heliXp + cafeXp;
     const newLevel = levelFromXp(newXp);
-    // Копим итоги периода для сводки в ленте: сколько заработано и как
-    // изменилась репутация. Считаем чистый результат — доход минус содержание.
-    const st = freshAirport.periodStats || { sinceTick: currentTick, money: 0, repGain: 0, repLoss: 0 };
-    const repDelta = newRep - (freshAirport.reputation || 0);
-    const periodStats = {
-      sinceTick: st.sinceTick != null ? st.sinceTick : currentTick,
-      money: (st.money || 0) + (incomePerTick - upkeep),
-      repGain: (st.repGain || 0) + Math.max(0, repDelta),
-      repLoss: (st.repLoss || 0) + Math.max(0, -repDelta),
-    };
-
     // Поток пассажиров за прошлый тик — по нему кормится коммерция.
     const paxNow = freshAirport.paxProcessed || 0;
     const paxFlow = Math.max(0, paxNow - (freshAirport.paxProcessedPrev || paxNow));
 
-    const patch = { money: newMoney, reputation: newRep, xp: newXp, level: newLevel, idleSinceTick: idleSince, periodStats,
-      lastPaxFlow: paxFlow, paxProcessedPrev: paxNow,
-      cafeXpPool: cafePool - cafeXp * PASSENGER_ECONOMY.VISITORS_PER_XP };
+    const patch = {};
 
     // --- Ушедшие пассажиры ---
     // Сообщаем не чаще раза в игровой час: люди уходят каждую минуту, пока
@@ -5261,10 +5241,11 @@ function runTick() {
     // Раз в игровые сутки списывается равная доля. Денег не хватает — долг
     // просто уходит в минус, как и любые другие расходы.
     const loan = freshAirport.loan;
+    let loanPayment = 0;
     if (loan && currentTick >= (loan.nextTick || 0)) {
       const left = loan.total - loan.paid;
       const pay = Math.min(loan.perPayment, left);
-      patch.money = (patch.money != null ? patch.money : newMoney) - pay;
+      loanPayment = pay;
       const done = loan.done + 1;
       const paid = loan.paid + pay;
       if (paid >= loan.total || done >= loan.payments) {
@@ -5282,14 +5263,14 @@ function runTick() {
     // период. Убыточная неделя не облагается: платим с прибыли, а не с оборота.
     const taxSince = freshAirport.taxSinceTick != null ? freshAirport.taxSinceTick : currentTick;
     const taxProfit = (freshAirport.taxProfit || 0) + (incomePerTick - upkeep);
+    let taxPayment = 0;
     if (currentTick - taxSince >= TAX.PERIOD_TICKS) {
-      const taxable = Math.max(0, taxProfit);
-      const tax = Math.round(taxable * TAX.RATE);
+      const { taxableProfit, tax } = calculateWeeklyTax(taxProfit, TAX.RATE);
+      taxPayment = tax;
       if (tax > 0) {
-        patch.money = newMoney - tax;
         logEvent(airport.id, 'tax',
           `Налог на прибыль ${Math.round(TAX.RATE * 100)}%: −${tax.toLocaleString('ru-RU')} у.е. ` +
-          `(прибыль за неделю ${Math.round(taxable).toLocaleString('ru-RU')})`);
+          `(прибыль за неделю ${Math.round(taxableProfit).toLocaleString('ru-RU')})`);
         notifications.push(`🧾 Налог на прибыль: −${tax.toLocaleString('ru-RU')} у.е.`);
       } else {
         logEvent(airport.id, 'tax', 'Налог на прибыль: неделя закрыта в убыток, платить не с чего');
@@ -5301,6 +5282,47 @@ function runTick() {
       patch.taxSinceTick = taxSince;
       patch.taxProfit = taxProfit;
     }
+
+    // Применяем все обязательные списания за тик одновременно. Раньше недельный
+    // налог присваивал newMoney заново и тем самым терял платёж по кредиту,
+    // если оба события совпадали. Дно долга проверяем после обоих списаний.
+    const settledBalance = settleTickBalance(newMoney, {
+      floor,
+      loanPayment,
+      taxPayment,
+    });
+    newMoney = settledBalance.money;
+    bankrupt = settledBalance.bankrupt;
+
+    // Репутация зависит от окончательного баланса уже после кредита и налога.
+    let repChange = reputationPerTick;
+    if (newMoney < 0) {
+      repChange -= Math.max(1, Math.round(Math.abs(newMoney) / 5000));
+    }
+    const newRep = Math.max(0, freshAirport.reputation + repChange);
+
+    // Копим итоги периода для сводки в ленте: сколько заработано и как
+    // изменилась репутация. Налог и кредит не являются операционным доходом
+    // или содержанием аэропорта и в периодную прибыль не включаются.
+    const st = freshAirport.periodStats || { sinceTick: currentTick, money: 0, repGain: 0, repLoss: 0 };
+    const repDelta = newRep - (freshAirport.reputation || 0);
+    const periodStats = {
+      sinceTick: st.sinceTick != null ? st.sinceTick : currentTick,
+      money: (st.money || 0) + (incomePerTick - upkeep),
+      repGain: (st.repGain || 0) + Math.max(0, repDelta),
+      repLoss: (st.repLoss || 0) + Math.max(0, -repDelta),
+    };
+    Object.assign(patch, {
+      money: newMoney,
+      reputation: newRep,
+      xp: newXp,
+      level: newLevel,
+      idleSinceTick: idleSince,
+      periodStats,
+      lastPaxFlow: paxFlow,
+      paxProcessedPrev: paxNow,
+      cafeXpPool: cafePool - cafeXp * PASSENGER_ECONOMY.VISITORS_PER_XP,
+    });
 
     // Починка старых сохранений: у аэропортов, начатых до появления бонуса,
     // флаг мог остаться поднятым с прошлой жизни аккаунта. Если игрок ещё не
