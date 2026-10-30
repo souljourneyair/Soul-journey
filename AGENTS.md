@@ -8,7 +8,7 @@ in Russian.
 
 ## Commands
 - `npm install` then `npm start` (`start` and `dev` are identical: `node server/index.js`).
-- Store regression tests: `npm run test:store` (Node.js built-in test runner).
+- Automated tests: `npm test`; focused store tests: `npm run test:store`; focused game-tick tests: `npm run test:tick`.
 - No lint, typecheck, or codegen scripts exist. Verify changed files with `node --check <file>`.
 - Serves on http://localhost:3000 (override with `PORT` env var).
 - Reset a password only with the server stopped: `node server/scripts/reset-password.js <login> <password>` (min 4 chars).

@@ -4746,6 +4746,9 @@ function runTick() {
     ninaMaintain(airport, currentTick);
     const buildings = store.getBuildingsByAirport(airport.id);
     let incomePerTick = 0;
+    // Уведомления создаём до обработки топлива: этот блок тоже может
+    // завершиться сообщением о разрыве контракта при нехватке денег.
+    const notifications = [];
 
     // --- Топливный контракт: истечение и автопродление ---
     if (airport.fuelContract && currentTick >= airport.fuelContract.endsTick) {
@@ -4796,7 +4799,6 @@ function runTick() {
     // Посетители кафе за тик: опыт даёт каждый десятый, поэтому считаем
     // людей, а не очки, и храним остаток.
     let cafeVisitors = 0;
-    const notifications = [];
 
     for (const b of buildings) {
       const def = BUILDINGS[b.buildingId];
