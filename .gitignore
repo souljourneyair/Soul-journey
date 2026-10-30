@@ -1,3 +1,7 @@
 node_modules/
 data.json
 data.json.tmp
+data.json.lock
+data.json.tmp-*
+data.json.corrupt-*
+data.json.memory-conflict-*

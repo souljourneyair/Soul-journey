@@ -8,9 +8,10 @@ in Russian.
 
 ## Commands
 - `npm install` then `npm start` (`start` and `dev` are identical: `node server/index.js`).
-- No test, lint, typecheck, or codegen scripts exist. Verify with a manual run or `node --check <file>`.
+- Store regression tests: `npm run test:store` (Node.js built-in test runner).
+- No lint, typecheck, or codegen scripts exist. Verify changed files with `node --check <file>`.
 - Serves on http://localhost:3000 (override with `PORT` env var).
-- Reset a password without stopping the server: `node server/scripts/reset-password.js <login> <password>` (min 4 chars).
+- Reset a password only with the server stopped: `node server/scripts/reset-password.js <login> <password>` (min 4 chars).
 - Media tools: `node scripts/migrate-media.js [--clean]` and `node scripts/optimize-images.js [--apply]` (needs `sharp` or ImageMagick).
 
 ## Architecture
@@ -28,14 +29,17 @@ in Russian.
 
 ## Persistence (important)
 - The database is `data.json` at repo root (gitignored), created on first run. Never commit it.
-- In-memory cache with delayed flush (~500ms) and atomic tmp-file+rename writes; flushed on process exit / SIGINT / SIGTERM.
-- External edits to `data.json` (e.g. `reset-password.js`) are detected via mtime stat-check and invalidate the cache — such scripts may run while the server is live.
+- Exactly one process may own the database. `server/store.js` creates an exclusive `data.json.lock`; a second server or maintenance script must stop with a clear error.
+- The in-memory cache is the single source of truth while the process runs. Writes are delayed (~500ms), use a unique temporary file + `fsync` + atomic rename, and flush on exit / SIGINT / SIGTERM.
+- A periodic stat-signature check detects external edits; it never silently reloads them over memory. On a conflict the store writes a `data.json.memory-conflict-...` snapshot and refuses to overwrite the changed file.
+- Run maintenance scripts (including `reset-password.js`) only after stopping the server. If a crash leaves `data.json.lock`, check the recorded PID is no longer running before manually deleting the stale lock.
+- Corrupt JSON is copied to `data.json.corrupt-...` and startup fails instead of creating an empty database.
 - Schema changes are applied as idempotent soft-migrations inside `store.js` `readFromDisk()`.
 
 ## Auth & admin
 - Token auth via `Authorization: Bearer <token>`; live updates over WebSocket at `/ws?token=…`.
 - Logins are case-insensitive and trimmed (`store.normalizeUsername`).
-- Seed account `SoulJourney` / `ggg777ggg` is auto-created as admin on every start (hardcoded in `server/seed.js`). Admin UI at `/admin.html`; admin API routes require `isAdmin`.
+- Seed account `SoulJourney` is created as the initial administrator when absent; a generated temporary password must be changed on first login. Admin UI at `/admin.html`; admin API routes require `isAdmin`.
 
 ## Conventions & gotchas
 - No native dependencies on purpose (avoids `better-sqlite3`/node-gyp build failures on VPS). Keep deps limited to `express`/`ws`/`bcryptjs`.

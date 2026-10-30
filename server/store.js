@@ -1,23 +1,19 @@
 // Лёгкое файловое хранилище на чистом Node.js fs — без нативных зависимостей.
 //
-// КЭШ С ПРОВЕРКОЙ ВНЕШНИХ ИЗМЕНЕНИЙ.
+// ЕДИНСТВЕННЫЙ ВЛАДЕЛЕЦ БАЗЫ.
 //
-// Раньше каждая функция перечитывала data.json с диска — это защищало от
-// потери изменений, если файл правит что-то извне (например, скрипт
-// server/scripts/reset-password.js при работающем сервере). На одном игроке
-// незаметно, но нагрузка росла квадратично: при 51 аэропорте один тик делал
-// 7 800 чтений и перемалывал 3.6 ГБ, занимая 8 из 10 секунд между тиками.
-// Ещё десяток игроков — и тики начали бы накладываться.
+// В каждый момент времени только один процесс может открыть data.json на
+// запись: для этого создаётся эксклюзивный data.json.lock. Рабочая копия
+// загружается в память один раз и остаётся единственным источником истины
+// до завершения процесса. Изменения записываются с задержкой, атомарно.
 //
-// Теперь данные живут в памяти, а безопасность внешних правок обеспечена
-// иначе: перед выдачей кэша проверяется время изменения файла (stat вместо
-// чтения и разбора — в тысячу раз дешевле), и при чужой записи кэш
-// сбрасывается. Проверка не чаще раза в STAT_CHECK_MS, чтобы не сыпать
-// системными вызовами.
+// Периодическая stat-проверка не перечитывает файл, а только обнаруживает
+// постороннее изменение. Если файл заменили, удалили или отредактировали
+// при работающем процессе, хранилище фиксирует конфликт, сохраняет отдельную
+// копию состояния из памяти и отказывается перезаписывать data.json.
 //
-// Запись отложенная: изменения копятся в памяти и сбрасываются на диск раз в
-// FLUSH_MS, а также при остановке сервера. Цена — при аварийном падении
-// теряется до полусекунды игры вместо последнего действия.
+// Сервисные скрипты (например, reset-password.js) запускаются только после
+// остановки сервера. Это исключает конкурирующие записи и потерю изменений.
 //
 // При росте нагрузки — замена на Postgres/SQLite делается без изменения
 // остального кода, только этого файла.
@@ -27,6 +23,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const DATA_FILE = path.join(__dirname, '..', 'data.json');
+const LOCK_FILE = `${DATA_FILE}.lock`;
 
 const EMPTY_DB = {
   nextUserId: 1,
@@ -55,15 +52,136 @@ const STAT_CHECK_MS = 250;   // как часто сверяться с файл
 const FLUSH_MS = 500;        // как часто сбрасывать изменения на диск
 
 let cache = null;
-let cacheMtime = 0;          // время изменения файла, каким мы его знаем
 let dirty = false;           // есть несохранённые изменения
 let lastStatCheck = 0;
 let flushTimer = null;
-let missingOnDisk = false;   // база ещё не создана на новой установке
+let dataFileSignature = null; // версия файла, которую сейчас представляет кэш
+let storageConflict = null;   // внешняя запись/второй процесс: сохранять поверх нельзя
+let storeLockOwned = false;
+let storeLockInstance = null;
 
 function cloneEmptyDb() {
   return JSON.parse(JSON.stringify(EMPTY_DB));
 }
+
+// Подпись файла включает inode, размер и времена изменения: этого достаточно
+// для обнаружения атомарной замены и обычного внешнего редактирования.
+function diskSignature() {
+  try {
+    // BigIntStats сохраняет точность времени до наносекунд там, где её
+    // поддерживает файловая система, и снижает риск пропустить быструю замену.
+    const stat = fs.statSync(DATA_FILE, { bigint: true });
+    return [
+      String(stat.dev), String(stat.ino), String(stat.size),
+      String(stat.mtimeNs), String(stat.ctimeNs),
+    ].join(':');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
+function uniqueDataPath(kind) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `${DATA_FILE}.${kind}-${stamp}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+// Эксклюзивная блокировка не позволяет запустить два процесса, использующих
+// один data.json. Устаревший lock-файл удаляется вручную только после проверки,
+// что указанный PID больше не работает: автоматическое удаление создаёт гонки.
+function acquireStoreLock() {
+  let fd;
+  try {
+    fd = fs.openSync(LOCK_FILE, 'wx', 0o600);
+  } catch (e) {
+    if (e.code === 'EEXIST') {
+      let owner = '';
+      try { owner = fs.readFileSync(LOCK_FILE, 'utf8').trim(); } catch (readError) { /* покажем общий текст */ }
+      throw new Error(
+        `[store] Файл блокировки ${LOCK_FILE} уже существует. ` +
+        `Возможно, другой процесс Soul Journey использует эту базу. ` +
+        `Остановите его перед запуском второго процесса. Данные владельца: ${owner || 'не удалось прочитать'}.` +
+        ` Если сервер аварийно завершился, сначала убедитесь, что указанный PID не работает, и только затем удалите lock-файл вручную.`
+      );
+    }
+    throw new Error(`[store] Не удалось создать блокировку базы ${LOCK_FILE}: ${e.message}`);
+  }
+
+  try {
+    storeLockInstance = crypto.randomBytes(8).toString('hex');
+    const owner = JSON.stringify({
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      instance: storeLockInstance,
+    }) + '\n';
+    fs.writeFileSync(fd, owner, 'utf8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    storeLockOwned = true;
+  } catch (e) {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (closeError) { /* исходная ошибка важнее */ }
+    }
+    try { fs.unlinkSync(LOCK_FILE); } catch (unlinkError) { /* best effort */ }
+    throw new Error(`[store] Не удалось записать файл блокировки ${LOCK_FILE}: ${e.message}`);
+  }
+}
+
+function releaseStoreLock() {
+  if (!storeLockOwned) return;
+  storeLockOwned = false;
+  try {
+    const owner = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
+    if (owner.pid !== process.pid || owner.instance !== storeLockInstance) {
+      console.error(`[store] Файл блокировки ${LOCK_FILE} был заменён другим процессом; не удаляю чужую блокировку.`);
+      return;
+    }
+    fs.unlinkSync(LOCK_FILE);
+  } catch (e) {
+    if (e.code !== 'ENOENT') {
+      console.error(`[store] Не удалось безопасно удалить файл блокировки ${LOCK_FILE}: ${e.message}`);
+    }
+  }
+}
+
+function writeMemoryConflictBackup() {
+  if (!cache) return null;
+  const backupPath = uniqueDataPath('memory-conflict');
+  let fd = null;
+  try {
+    fd = fs.openSync(backupPath, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify(cache), 'utf8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    return backupPath;
+  } catch (e) {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (closeError) { /* best effort */ }
+    }
+    try { fs.unlinkSync(backupPath); } catch (unlinkError) { /* best effort */ }
+    console.error(`[store] Не удалось создать копию кэша при конфликте: ${e.message}`);
+    return null;
+  }
+}
+
+function failOnStorageConflict(reason) {
+  if (!storageConflict) {
+    const backupPath = writeMemoryConflictBackup();
+    const backupNote = backupPath
+      ? ` Копия данных из памяти сохранена в ${backupPath}.`
+      : ' Не удалось создать копию данных из памяти; текущий процесс продолжает хранить их в памяти.';
+    storageConflict = new Error(
+      `[store] Конфликт хранилища: ${reason}. ` +
+      'Файл data.json не будет перезаписан автоматически. Остановите сервер и вручную сравните файл и резервную копию.' +
+      backupNote
+    );
+    console.error(storageConflict.message);
+  }
+  throw storageConflict;
+}
+
+acquireStoreLock();
 
 // Повреждённый файл никогда не заменяем пустой базой. Перед остановкой
 // загрузки сохраняем исходник рядом с data.json под уникальным именем.
@@ -222,43 +340,71 @@ function readFromDisk() {
 }
 
 function load() {
+  if (storageConflict) throw storageConflict;
+
   const now = Date.now();
-  // Пока есть несохранённые изменения, наша копия свежее любой на диске.
-  // Иначе сверяемся с файлом, но не чаще раза в STAT_CHECK_MS.
-  if (cache && (dirty || now - lastStatCheck < STAT_CHECK_MS)) return cache;
+  // В памяти всегда находится единственная рабочая копия этой базы.
+  // Периодическая stat-проверка нужна только для обнаружения внешней записи:
+  // автоматически подменять кэш новой версией файла во время работы нельзя.
+  if (cache && now - lastStatCheck < STAT_CHECK_MS) return cache;
   lastStatCheck = now;
 
-  let stat;
+  let currentSignature;
   try {
-    stat = fs.statSync(DATA_FILE);
-    missingOnDisk = false;
+    currentSignature = diskSignature();
   } catch (e) {
-    // Отсутствующий файл допустим только при первой загрузке новой установки.
-    // Если сохранение уже существовало и затем исчезло, не создаём пустую базу.
-    if (e.code === 'ENOENT' && (!cache || missingOnDisk)) {
-      if (!cache) cache = cloneEmptyDb();
-      missingOnDisk = true;
-      cacheMtime = 0;
-      return cache;
-    }
-    throw new Error(`[store] Не удалось проверить файл сохранений ${DATA_FILE}: ${e.message}`);
+    failOnStorageConflict(`не удалось проверить файл сохранений: ${e.message}`);
   }
 
-  if (!cache || stat.mtimeMs !== cacheMtime) {
-    // Сначала полностью читаем и проверяем новую версию; старый кэш остаётся
-    // нетронутым, если чтение или миграция завершатся ошибкой.
+  if (!cache) {
+    if (currentSignature === null) {
+      cache = cloneEmptyDb();
+      dataFileSignature = null;
+      return cache;
+    }
+
     const nextCache = readFromDisk();
+    let afterReadSignature;
+    try {
+      afterReadSignature = diskSignature();
+    } catch (e) {
+      failOnStorageConflict(`файл изменился во время чтения: ${e.message}`);
+    }
+    if (afterReadSignature !== currentSignature) {
+      failOnStorageConflict('data.json изменился во время первоначальной загрузки');
+    }
+
     cache = nextCache;
-    cacheMtime = stat.mtimeMs;
-    missingOnDisk = false;
+    dataFileSignature = currentSignature;
+    return cache;
   }
+
+  if (currentSignature !== dataFileSignature) {
+    failOnStorageConflict('data.json был изменён или удалён извне во время работы процесса');
+  }
+
   return cache;
 }
 
 // Немедленно записать накопленное на диск атомарной заменой.
 function flush(options = {}) {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  if (storageConflict) return false;
   if (!dirty || !cache) return true;
+
+  // Перед каждой записью убеждаемся, что файл всё ещё тот, который мы
+  // загрузили или записали сами. При несовпадении сохраняем кэш отдельно.
+  let currentSignature;
+  try {
+    currentSignature = diskSignature();
+  } catch (e) {
+    try { failOnStorageConflict(`не удалось проверить data.json перед записью: ${e.message}`); }
+    catch (conflictError) { return false; }
+  }
+  if (!storageConflict && currentSignature !== dataFileSignature) {
+    try { failOnStorageConflict('data.json изменился до очередной записи'); }
+    catch (conflictError) { return false; }
+  }
 
   const tmp = `${DATA_FILE}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
   let fd = null;
@@ -277,15 +423,24 @@ function flush(options = {}) {
 
     // До успешного rename dirty остаётся true: при ошибке данные остаются
     // в памяти и следующая попытка сможет повторить сохранение.
+    // Повторная проверка непосредственно перед rename сужает окно гонки
+    // при ручной записи в data.json сторонней программой.
+    const signatureBeforeReplace = diskSignature();
+    if (signatureBeforeReplace !== dataFileSignature) {
+      failOnStorageConflict('data.json изменился непосредственно перед заменой');
+    }
+
     fs.renameSync(tmp, DATA_FILE);
     dirty = false;
-    missingOnDisk = false;
     try {
-      cacheMtime = fs.statSync(DATA_FILE).mtimeMs;
+      dataFileSignature = diskSignature();
+      if (dataFileSignature === null) {
+        failOnStorageConflict('файл data.json исчез сразу после сохранения');
+      }
       lastStatCheck = Date.now();
     } catch (e) {
-      cacheMtime = 0;
-      lastStatCheck = 0;
+      if (storageConflict) throw e;
+      failOnStorageConflict(`не удалось проверить сохранённый файл: ${e.message}`);
     }
     return true;
   } catch (e) {
@@ -298,7 +453,7 @@ function flush(options = {}) {
       }
     }
     console.error(`[store] Не удалось сохранить ${DATA_FILE}: ${e.message}. Несохранённые данные сохранены в памяти.`);
-    if (options.retry !== false && !flushTimer) {
+    if (options.retry !== false && !storageConflict && !flushTimer) {
       flushTimer = setTimeout(() => flush(), Math.max(FLUSH_MS, 2000));
     }
     return false;
@@ -316,6 +471,7 @@ process.on('exit', () => {
   if (!flush({ retry: false })) {
     console.error('[store] ВНИМАНИЕ: завершение процесса с несохранёнными изменениями.');
   }
+  releaseStoreLock();
 });
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => {
