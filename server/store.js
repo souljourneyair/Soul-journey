@@ -60,12 +60,61 @@ let dirty = false;           // есть несохранённые измене
 let lastStatCheck = 0;
 let flushTimer = null;
 
-function readFromDisk() {
+function cloneEmptyDb() {
+  return JSON.parse(JSON.stringify(EMPTY_DB));
+}
+
+// Повреждённый файл никогда не заменяем пустой базой. Перед остановкой
+// загрузки сохраняем исходник рядом с data.json под уникальным именем.
+function corruptedDataError(message, cause) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = `${DATA_FILE}.corrupt-${stamp}-${crypto.randomBytes(4).toString('hex')}`;
   try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-    const data = JSON.parse(raw);
-    // Мягкая миграция: если файл создан до появления какого-то поля — подставляем дефолт,
-    // чтобы обновление кода не ломало уже работающий data.json на сервере.
+    fs.copyFileSync(DATA_FILE, backupPath, fs.constants.COPYFILE_EXCL);
+    return new Error(`[store] ${message}. Исходный файл сохранён: ${backupPath}. Сервер остановлен, чтобы не перезаписать сохранения.`);
+  } catch (backupError) {
+    return new Error(`[store] ${message}. Не удалось создать резервную копию (${backupError.message}). Сервер остановлен, исходный файл не изменён.`);
+  }
+}
+
+function validateDatabaseShape(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('Корень data.json должен быть JSON-объектом');
+  }
+
+  for (const [key, defaultValue] of Object.entries(EMPTY_DB)) {
+    if (Array.isArray(defaultValue) && data[key] !== undefined && !Array.isArray(data[key])) {
+      throw new Error(`Поле "${key}" должно быть массивом`);
+    }
+    if (defaultValue && typeof defaultValue === 'object' && !Array.isArray(defaultValue)
+        && data[key] !== undefined
+        && (!data[key] || typeof data[key] !== 'object' || Array.isArray(data[key]))) {
+      throw new Error(`Поле "${key}" должно быть объектом`);
+    }
+  }
+}
+
+function readFromDisk() {
+  let raw;
+  try {
+    raw = fs.readFileSync(DATA_FILE, 'utf-8');
+  } catch (e) {
+    throw new Error(`[store] Не удалось прочитать существующий файл ${DATA_FILE}: ${e.message}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+    validateDatabaseShape(parsed);
+  } catch (e) {
+    throw corruptedDataError(`Файл ${DATA_FILE} повреждён или имеет неверную структуру: ${e.message}`, e);
+  }
+
+  // Для старых сохранений подставляем значения новых полей, не затрагивая
+  // уже существующие пользовательские данные.
+  const data = Object.assign(cloneEmptyDb(), parsed);
+
+  try {
     if (data.nextMediaId === undefined) data.nextMediaId = 1;
     // Износ ВПП переехал в общее для всех зданий поле wear. Переносим старое
     // значение у уже наигранных сохранений, чтобы накопленный износ не пропал
@@ -92,9 +141,9 @@ function readFromDisk() {
     if (data.settings.authBgKind === undefined) data.settings.authBgKind = null;
     if (data.settings.gameBgUrl === undefined) data.settings.gameBgUrl = null;
     if (data.settings.gameBgKind === undefined) data.settings.gameBgKind = null;
-    if (data.settings.oilPrice === undefined) data.settings.oilPrice = 70;   // база нефти
-    if (data.settings.goldPrice === undefined) data.settings.goldPrice = 2000; // база золота
-    if (data.settings.fuelMarketMult === undefined) data.settings.fuelMarketMult = 1.0; // текущий рыночный множитель
+    if (data.settings.oilPrice === undefined) data.settings.oilPrice = 70;
+    if (data.settings.goldPrice === undefined) data.settings.goldPrice = 2000;
+    if (data.settings.fuelMarketMult === undefined) data.settings.fuelMarketMult = 1.0;
     if (data.settings.fuelMarketRepricedTick === undefined) data.settings.fuelMarketRepricedTick = 0;
     if (!Array.isArray(data.settings.marketHistory)) data.settings.marketHistory = [];
     if (data.settings.marketHourTick === undefined) data.settings.marketHourTick = 0;
@@ -124,8 +173,7 @@ function readFromDisk() {
       if (a.heliCarried === undefined) a.heliCarried = 0;
       if (a.paxServed === undefined) a.paxServed = 0;
       // Исторический недоучёт: прилёты писались в paxProcessed, но не в
-      // paxServed. Подтягиваем общий счёт «обслужено» до пропущенного значения,
-      // чтобы прогресс и задачи не терялись.
+      // paxServed. Подтягиваем общий счёт «обслужено» до пропущенного значения.
       if ((a.paxProcessed || 0) > a.paxServed) a.paxServed = a.paxProcessed;
       if (!a.termQueue) a.termQueue = [];
       if (!a.newsLog) a.newsLog = [];
@@ -149,14 +197,15 @@ function readFromDisk() {
       if (b.buildingId === 'apron') b.buildingId = 'stand_small';
     });
     // удаляем здания снятой с игры Третьей ВПП
-    if (data.buildings) data.buildings = data.buildings.filter(b => b.buildingId !== 'runway_3');
+    data.buildings = data.buildings.filter(b => b.buildingId !== 'runway_3');
     (data.users || []).forEach(u => {
       if (u.isAdmin === undefined) u.isAdmin = false;
       if (u.bannedUntil === undefined) u.bannedUntil = null;
+      if (u.mustChangePassword === undefined) u.mustChangePassword = false;
     });
     return data;
   } catch (e) {
-    return JSON.parse(JSON.stringify(EMPTY_DB));
+    throw corruptedDataError(`Не удалось безопасно применить миграции к ${DATA_FILE}: ${e.message}`, e);
   }
 }
 
