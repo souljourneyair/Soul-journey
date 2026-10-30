@@ -233,11 +233,21 @@ test('HTTP API isolates its save and protects the first construction and finance
   }
   assert.equal(afterMow.mow.credits, 1, `mow credit was not granted before timeout.\n${logs}`);
 
+  const beforeBuild = await request(baseUrl, '/api/state', { token });
+  assert.equal(beforeBuild.status, 200);
+  const buildCost = beforeBuild.data.catalog.helipad.cost;
+
   const build = await request(baseUrl, '/api/build', {
     method: 'POST', token, body: { buildingId: 'helipad' },
   });
   assert.equal(build.status, 200);
-  assert.equal(build.data.money, initialMoney - mowing.data.mow.cost - build.data.catalog.helipad.cost);
+  // Содержание продолжает начисляться между запросами: сравниваем с балансом
+  // непосредственно перед постройкой и допускаем несколько тиков расходов.
+  assert.ok(build.data.money <= beforeBuild.data.money - buildCost,
+    'the full configured construction cost must be deducted');
+  const tickExpenseAllowance = Math.max(0, beforeBuild.data.upkeepPerTick || 0) * 4 + 10;
+  assert.ok(build.data.money >= beforeBuild.data.money - buildCost - tickExpenseAllowance,
+    'only normal tick upkeep may additionally reduce the balance during the request');
   assert.equal(build.data.mow.credits, 0);
   const helipad = build.data.buildings.find(building => building.buildingId === 'helipad');
   assert.ok(helipad, 'new helipad should be persisted and returned');
