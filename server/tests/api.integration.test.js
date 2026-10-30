@@ -254,9 +254,87 @@ test('HTTP API isolates its save and protects the first construction and finance
   assert.equal(helipad.constructionType, 'build');
   assert.ok(helipad.constructionTicksLeft > 0);
 
+  // У аэропорта уже достаточно залоговой стоимости для минимального кредита.
+  const loan = await request(baseUrl, '/api/bank/borrow', {
+    method: 'POST', token, body: { amount: 5000 },
+  });
+  assert.equal(loan.status, 200);
+  assert.equal(loan.data._bank.loan.amount, 5000);
+  assert.ok(loan.data._bank.loan.left > 5000);
+
+  const secondLoan = await request(baseUrl, '/api/bank/borrow', {
+    method: 'POST', token, body: { amount: 5000 },
+  });
+  assert.equal(secondLoan.status, 400);
+  assert.equal(secondLoan.data.error, 'has_loan');
+
+  const repayment = await request(baseUrl, '/api/bank/repay', {
+    method: 'POST', token, body: {},
+  });
+  assert.equal(repayment.status, 200);
+  assert.equal(repayment.data.bank.loan, null, 'early repayment must clear the loan');
+  assert.ok(repayment.data.money < loan.data.money, 'repayment must deduct the outstanding balance');
+
+  // Второй игрок не должен видеть или сносить постройку первого игрока,
+  // даже если знает её cellIndex.
+  const secondRegistration = await request(baseUrl, '/api/register', {
+    method: 'POST',
+    body: { username: 'ApiIntegrationTwo', password: 'Integration-Password-2026' },
+  });
+  assert.equal(secondRegistration.status, 200);
+  const secondLogin = await request(baseUrl, '/api/login', {
+    method: 'POST',
+    body: { username: 'ApiIntegrationTwo', password: 'Integration-Password-2026' },
+  });
+  assert.equal(secondLogin.status, 200);
+  const secondToken = secondLogin.data.token;
+  const secondStart = await request(baseUrl, '/api/start-game', {
+    method: 'POST', token: secondToken, body: {},
+  });
+  assert.equal(secondStart.status, 200);
+
+  const crossPlayerDemolish = await request(baseUrl, '/api/building/demolish', {
+    method: 'POST', token: secondToken, body: { cellIndex: helipad.cellIndex },
+  });
+  assert.equal(crossPlayerDemolish.status, 404);
+  assert.equal(crossPlayerDemolish.data.error, 'no_building');
+
+  const ownAdministrationDemolish = await request(baseUrl, '/api/building/demolish', {
+    method: 'POST', token: secondToken, body: { cellIndex: 0 },
+  });
+  assert.equal(ownAdministrationDemolish.status, 400);
+  assert.equal(ownAdministrationDemolish.data.error, 'not_removable');
+
+  const firstPlayerBeforeRestart = await request(baseUrl, '/api/state', { token });
+  assert.ok(firstPlayerBeforeRestart.data.buildings.some(building => building.buildingId === 'helipad'),
+    'a failed cross-player action must not change the owner airport');
+
+  // Повторный старт очищает старые объекты и возвращает исходный аэропорт,
+  // сохраняя результат предыдущего прохождения.
+  const restarted = await request(baseUrl, '/api/airport/restart', {
+    method: 'POST', token, body: {},
+  });
+  assert.equal(restarted.status, 200);
+  assert.equal(restarted.data.money, 12_000);
+  assert.equal(restarted.data.level, 1);
+  assert.deepEqual(restarted.data.buildings.map(building => building.buildingId), ['admin']);
+  assert.equal(restarted.data.previousResult.buildingsBuilt, 2);
+
+  const deleted = await request(baseUrl, '/api/account/delete', {
+    method: 'POST', token: secondToken, body: {},
+  });
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.data.deleted, true);
+  const deletedAccountMe = await request(baseUrl, '/api/me', { token: secondToken });
+  assert.equal(deletedAccountMe.status, 401);
+
+  const firstPlayerAfterSecondDeleted = await request(baseUrl, '/api/state', { token });
+  assert.equal(firstPlayerAfterSecondDeleted.status, 200);
+  assert.equal(firstPlayerAfterSecondDeleted.data.money, 12_000);
+
   const saved = JSON.parse(fs.readFileSync(tempDataFile, 'utf8'));
-  assert.equal(saved.users.length, 2, 'isolated save contains the admin and test account');
-  assert.equal(saved.airports.length, 2, 'isolated save contains admin and test airports');
+  assert.equal(saved.users.length, 2, 'isolated save contains the admin and surviving test account');
+  assert.equal(saved.airports.length, 2, 'deleting the second account must also remove its airport');
   assertFileUnchanged(productionDataFile, productionDataBefore);
   assertFileUnchanged(productionLockFile, productionLockBefore);
   assert.ok(fs.existsSync(tempMediaDir), 'test media folders should live only in the temporary directory');
