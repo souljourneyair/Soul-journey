@@ -334,43 +334,73 @@ function readFromDisk() {
 }
 
 function load() {
+  if (storageConflict) throw storageConflict;
+
   const now = Date.now();
-  // Пока есть несохранённые изменения, наша копия свежее любой на диске.
-  // Иначе сверяемся с файлом, но не чаще раза в STAT_CHECK_MS.
-  if (cache && (dirty || now - lastStatCheck < STAT_CHECK_MS)) return cache;
+  // В памяти всегда находится единственная рабочая копия этой базы.
+  // Периодическая stat-проверка нужна только для обнаружения внешней записи:
+  // автоматически подменять кэш новой версией файла во время работы нельзя.
+  if (cache && now - lastStatCheck < STAT_CHECK_MS) return cache;
   lastStatCheck = now;
 
-  let stat;
+  let currentSignature;
   try {
-    stat = fs.statSync(DATA_FILE);
-    missingOnDisk = false;
+    currentSignature = diskSignature();
   } catch (e) {
-    // Отсутствующий файл допустим только при первой загрузке новой установки.
-    // Если сохранение уже существовало и затем исчезло, не создаём пустую базу.
-    if (e.code === 'ENOENT' && (!cache || missingOnDisk)) {
-      if (!cache) cache = cloneEmptyDb();
-      missingOnDisk = true;
-      cacheMtime = 0;
-      return cache;
-    }
-    throw new Error(`[store] Не удалось проверить файл сохранений ${DATA_FILE}: ${e.message}`);
+    failOnStorageConflict(`не удалось проверить файл сохранений: ${e.message}`);
   }
 
-  if (!cache || stat.mtimeMs !== cacheMtime) {
-    // Сначала полностью читаем и проверяем новую версию; старый кэш остаётся
-    // нетронутым, если чтение или миграция завершатся ошибкой.
+  if (!cache) {
+    if (currentSignature === null) {
+      cache = cloneEmptyDb();
+      missingOnDisk = true;
+      dataFileSignature = null;
+      return cache;
+    }
+
     const nextCache = readFromDisk();
+    let afterReadSignature;
+    try {
+      afterReadSignature = diskSignature();
+    } catch (e) {
+      failOnStorageConflict(`файл изменился во время чтения: ${e.message}`);
+    }
+    if (afterReadSignature !== currentSignature) {
+      failOnStorageConflict('data.json изменился во время первоначальной загрузки');
+    }
+
     cache = nextCache;
-    cacheMtime = stat.mtimeMs;
+    dataFileSignature = currentSignature;
     missingOnDisk = false;
+    return cache;
   }
+
+  if (currentSignature !== dataFileSignature) {
+    failOnStorageConflict('data.json был изменён или удалён извне во время работы процесса');
+  }
+
   return cache;
 }
 
 // Немедленно записать накопленное на диск атомарной заменой.
 function flush(options = {}) {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+  if (storageConflict) return false;
   if (!dirty || !cache) return true;
+
+  // Перед каждой записью убеждаемся, что файл всё ещё тот, который мы
+  // загрузили или записали сами. При несовпадении сохраняем кэш отдельно.
+  let currentSignature;
+  try {
+    currentSignature = diskSignature();
+  } catch (e) {
+    try { failOnStorageConflict(`не удалось проверить data.json перед записью: ${e.message}`); }
+    catch (conflictError) { return false; }
+  }
+  if (!storageConflict && currentSignature !== dataFileSignature) {
+    try { failOnStorageConflict('data.json изменился до очередной записи'); }
+    catch (conflictError) { return false; }
+  }
 
   const tmp = `${DATA_FILE}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
   let fd = null;
@@ -393,11 +423,14 @@ function flush(options = {}) {
     dirty = false;
     missingOnDisk = false;
     try {
-      cacheMtime = fs.statSync(DATA_FILE).mtimeMs;
+      dataFileSignature = diskSignature();
+      if (dataFileSignature === null) {
+        failOnStorageConflict('файл data.json исчез сразу после сохранения');
+      }
       lastStatCheck = Date.now();
     } catch (e) {
-      cacheMtime = 0;
-      lastStatCheck = 0;
+      if (storageConflict) throw e;
+      failOnStorageConflict(`не удалось проверить сохранённый файл: ${e.message}`);
     }
     return true;
   } catch (e) {
@@ -410,7 +443,7 @@ function flush(options = {}) {
       }
     }
     console.error(`[store] Не удалось сохранить ${DATA_FILE}: ${e.message}. Несохранённые данные сохранены в памяти.`);
-    if (options.retry !== false && !flushTimer) {
+    if (options.retry !== false && !storageConflict && !flushTimer) {
       flushTimer = setTimeout(() => flush(), Math.max(FLUSH_MS, 2000));
     }
     return false;
@@ -428,6 +461,7 @@ process.on('exit', () => {
   if (!flush({ retry: false })) {
     console.error('[store] ВНИМАНИЕ: завершение процесса с несохранёнными изменениями.');
   }
+  releaseStoreLock();
 });
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => {
