@@ -573,7 +573,8 @@ test('HTTP API isolates its save and protects the first construction and finance
   assert.equal(restarted.data.money, 12_000);
   assert.equal(restarted.data.level, 1);
   assert.deepEqual(restarted.data.buildings.map(building => building.buildingId), ['admin']);
-  assert.equal(restarted.data.previousResult.buildingsBuilt, 2);
+  assert.equal(restarted.data.previousResult.buildingsBuilt, 3,
+    'the chapter-one flow leaves the administration and two helipads in the previous result');
 
   const deleted = await request(baseUrl, '/api/account/delete', {
     method: 'POST', token: secondToken, body: {},
