@@ -10,7 +10,8 @@
     "test": "node --test",
     "test:tick": "node --test server/tests/game-tick.test.js",
     "test:security": "node --test server/tests/security.test.js",
-    "test:tick-safety": "node --test server/tests/tick-safety.test.js"
+    "test:tick-safety": "node --test server/tests/tick-safety.test.js",
+    "test:game-data": "node --test server/tests/game-data.test.js"
   },
   "keywords": [],
   "author": "",
