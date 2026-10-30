@@ -166,6 +166,28 @@ $('#registerForm').addEventListener('submit', async (e) => {
   }
 });
 
+$('#passwordChangeForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const newPassword = $('#newPassword').value;
+  if (newPassword !== $('#confirmPassword').value) {
+    $('#passwordChangeMsg').textContent = 'Новые пароли не совпадают';
+    return;
+  }
+  try {
+    await api('/api/change-password', 'POST', {
+      currentPassword: $('#currentPassword').value,
+      newPassword,
+    });
+    $('#currentPassword').value = '';
+    $('#newPassword').value = '';
+    $('#confirmPassword').value = '';
+    $('#passwordChangeMsg').textContent = '';
+    await bootAfterAuth();
+  } catch (err) {
+    $('#passwordChangeMsg').textContent = err.message;
+  }
+});
+
 async function onAuthed(data) {
   TOKEN = data.token;
   localStorage.setItem('soul_journey_token', TOKEN);
@@ -237,6 +259,10 @@ $$('.start-option').forEach(btn => {
 async function bootAfterAuth() {
   try {
     const me = await api('/api/me');
+    if (me.mustChangePassword) {
+      showScreen('passwordChangeScreen');
+      return;
+    }
     if (me.username) {
       const playerEl = $('#topboardPlayer');
       if (playerEl) playerEl.textContent = me.username;
