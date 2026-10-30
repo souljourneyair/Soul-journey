@@ -82,10 +82,14 @@ function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isBoolean(value) {
+  return typeof value === 'boolean';
+}
+
 function isValidNewPassword(password) {
   return typeof password === 'string'
     && Array.from(password).length >= 10
     && Buffer.byteLength(password, 'utf8') <= 72;
 }
 
-module.exports = { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber };
+module.exports = { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber, isBoolean };

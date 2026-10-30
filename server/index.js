@@ -7,7 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const store = require('./store');
 const { ensureSuperuser } = require('./seed');
-const { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber } = require('./security');
+const { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber, isBoolean } = require('./security');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
   CHAPTERS, chapterById, nextChapterId, MOW, POINTS, pointById,
@@ -2301,7 +2301,8 @@ app.post('/api/welcome/claim', auth, (req, res) => {
 app.post('/api/airport/pause', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  const paused = !!(req.body || {}).paused;
+  const { paused } = req.body || {};
+  if (!isBoolean(paused)) return res.status(400).json({ error: 'invalid_paused' });
   const updated = store.updateAirport(airport.id, { paused });
   res.json(serializeAirport(updated));
 });
@@ -2826,7 +2827,8 @@ app.post('/api/nina-service/enable', auth, (req, res) => {
 app.post('/api/nina-service/set', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
-  const hired = !!(req.body || {}).hired;
+  const { hired } = req.body || {};
+  if (!isBoolean(hired)) return res.status(400).json({ error: 'invalid_hired' });
   const updated = store.updateAirport(airport.id, { ninaService: hired, ninaOfferPending: false });
   res.json(serializeAirport(updated));
 });
@@ -3198,7 +3200,8 @@ app.post('/api/fuel/contract/auto', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
   const { enabled } = req.body || {};
-  store.updateAirport(airport.id, { fuelAutoContract: !!enabled });
+  if (!isBoolean(enabled)) return res.status(400).json({ error: 'invalid_enabled' });
+  store.updateAirport(airport.id, { fuelAutoContract: enabled });
   res.json(serializeFuel(store.getAirportByUserId(req.user.id)));
 });
 
@@ -4403,6 +4406,8 @@ app.get('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
 // частью будущей панели вызова происшествий.
 app.post('/api/admin/damage-building', auth, adminAuth, (req, res) => {
   const { username, cellIndex, wear, ruined } = req.body || {};
+  if (ruined !== undefined && !isBoolean(ruined)) return res.status(400).json({ error: 'invalid_ruined' });
+  if (wear !== undefined && !isFiniteNumber(wear)) return res.status(400).json({ error: 'invalid_wear' });
   const target = store.findUserByUsername(username);
   if (!target) return res.status(404).json({ error: 'no_user', message: 'Игрок не найден' });
   const airport = store.getAirportByUserId(target.id);
@@ -4425,7 +4430,12 @@ app.post('/api/admin/disaster', auth, adminAuth, (req, res) => {
   }
   const currentTick = store.getTickCounter();
   const targets = [];
-  if (all) {
+  if (all !== undefined && !isBoolean(all)) return res.status(400).json({ error: 'invalid_all' });
+  const delayTicks = req.body.delayTicks === undefined ? 0 : req.body.delayTicks;
+  if (!isFiniteNumber(delayTicks) || !Number.isSafeInteger(delayTicks) || delayTicks < 0) {
+    return res.status(400).json({ error: 'invalid_delay', message: 'Задержка должна быть целым неотрицательным числом тиков' });
+  }
+  if (all === true) {
     targets.push(...store.getAllAirports());
   } else {
     const user = store.findUserByUsername(username);
@@ -4434,7 +4444,7 @@ app.post('/api/admin/disaster', auth, adminAuth, (req, res) => {
     if (!ap) return res.status(404).json({ error: 'no_airport', message: 'У игрока нет аэропорта' });
     targets.push(ap);
   }
-  const delay = Math.max(0, Number(req.body.delayTicks) || 0);
+  const delay = delayTicks;
   if (delay > 0) {
     // отложенный вызов: сработает в тике, когда придёт время
     const queue = store.getSettings().scheduledDisasters || [];
@@ -4454,8 +4464,9 @@ app.post('/api/admin/disaster', auth, adminAuth, (req, res) => {
 // Включить или выключить случайные происшествия целиком.
 app.post('/api/admin/disasters-enabled', auth, adminAuth, (req, res) => {
   const { enabled } = req.body || {};
-  store.setSetting('disastersEnabled', !!enabled);
-  res.json({ ok: true, enabled: !!enabled });
+  if (!isBoolean(enabled)) return res.status(400).json({ error: 'invalid_enabled' });
+  store.setSetting('disastersEnabled', enabled);
+  res.json({ ok: true, enabled });
 });
 
 app.post('/api/admin/gameplay-settings', auth, adminAuth, (req, res) => {
