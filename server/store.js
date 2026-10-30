@@ -52,11 +52,9 @@ const STAT_CHECK_MS = 250;   // как часто сверяться с файл
 const FLUSH_MS = 500;        // как часто сбрасывать изменения на диск
 
 let cache = null;
-let cacheMtime = 0;          // время изменения файла, каким мы его знаем
 let dirty = false;           // есть несохранённые изменения
 let lastStatCheck = 0;
 let flushTimer = null;
-let missingOnDisk = false;   // база ещё не создана на новой установке
 let dataFileSignature = null; // версия файла, которую сейчас представляет кэш
 let storageConflict = null;   // внешняя запись/второй процесс: сохранять поверх нельзя
 let storeLockOwned = false;
@@ -349,7 +347,6 @@ function load() {
   if (!cache) {
     if (currentSignature === null) {
       cache = cloneEmptyDb();
-      missingOnDisk = true;
       dataFileSignature = null;
       return cache;
     }
@@ -367,7 +364,6 @@ function load() {
 
     cache = nextCache;
     dataFileSignature = currentSignature;
-    missingOnDisk = false;
     return cache;
   }
 
@@ -415,9 +411,15 @@ function flush(options = {}) {
 
     // До успешного rename dirty остаётся true: при ошибке данные остаются
     // в памяти и следующая попытка сможет повторить сохранение.
+    // Повторная проверка непосредственно перед rename сужает окно гонки
+    // при ручной записи в data.json сторонней программой.
+    const signatureBeforeReplace = diskSignature();
+    if (signatureBeforeReplace !== dataFileSignature) {
+      failOnStorageConflict('data.json изменился непосредственно перед заменой');
+    }
+
     fs.renameSync(tmp, DATA_FILE);
     dirty = false;
-    missingOnDisk = false;
     try {
       dataFileSignature = diskSignature();
       if (dataFileSignature === null) {
