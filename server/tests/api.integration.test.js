@@ -319,6 +319,35 @@ test('HTTP API isolates its save and protects the first construction and finance
   assert.equal(acceptConsumedOfferAgain.status, 404);
   assert.equal(acceptConsumedOfferAgain.data.error, 'no_offer');
 
+  // Глава 1 использует только разовый учебный договор. Прямые запросы не
+  // должны включать расписание или чартеры раньше перехода во вторую главу.
+  const chapterOneBalance = await request(baseUrl, '/api/state', { token });
+  const chapterOneCharter = await request(baseUrl, '/api/charter/order', {
+    method: 'POST', token, body: { craft: 'heli', seats: 2 },
+  });
+  assert.equal(chapterOneCharter.status, 403);
+  assert.equal(chapterOneCharter.data.error, 'feature_locked');
+
+  const lockedScheduleRequests = [
+    ['/api/schedule/place', { contractId: acceptedContract.data.contracts[0].id, dayIndex: 1, slot: 0 }],
+    ['/api/schedule/remove', { id: 'not-used' }],
+    ['/api/schedule/row', { contractId: acceptedContract.data.contracts[0].id, row: 0 }],
+    ['/api/schedule/clear', {}],
+    ['/api/schedule/unassign', { contractId: acceptedContract.data.contracts[0].id }],
+    ['/api/schedule/copy-day', { dayIndex: 1, contractId: acceptedContract.data.contracts[0].id }],
+  ];
+  for (const [route, body] of lockedScheduleRequests) {
+    const locked = await request(baseUrl, route, { method: 'POST', token, body });
+    assert.equal(locked.status, 403, `${route} must be locked in chapter one`);
+    assert.equal(locked.data.error, 'feature_locked', `${route} must return the common progression error`);
+  }
+  const chapterOneEnvelope = await request(baseUrl, '/api/envelope', { token });
+  assert.equal(chapterOneEnvelope.data.contracts.length, 1);
+  assert.equal(chapterOneEnvelope.data.schedule.length, 0);
+  const chapterOneBalanceAfterLockedRequests = await request(baseUrl, '/api/state', { token });
+  assert.equal(chapterOneBalanceAfterLockedRequests.data.money, chapterOneBalance.data.money,
+    'locked charter and schedule requests must not charge the airport');
+
   const upgradeDuringChapterOne = await request(baseUrl, '/api/building/upgrade', {
     method: 'POST', token, body: { cellIndex: completedHelipad.cellIndex },
   });

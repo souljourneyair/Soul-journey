@@ -2466,6 +2466,18 @@ function isChartersAvailable(airport) {
   return ch >= 2 || ch === -1;
 }
 
+// Одной проверки на клиенте недостаточно: прямые HTTP-запросы также должны
+// соблюдать прогрессию главы. Используется всеми изменяющими API расписания
+// и заказа чартеров.
+function requireChartersAvailable(airport, res) {
+  if (isChartersAvailable(airport)) return true;
+  res.status(403).json({
+    error: 'feature_locked',
+    message: 'Расписание и чартеры доступны со второй главы',
+  });
+  return false;
+}
+
 // Максимальный уровень апгрейда зданий в текущей главе: гл.1 — без апгрейдов,
 // гл.2 — до 2, гл.3 — до 3. После прохождения (chapter = -1) и дальше — 3.
 function chapterUpgradeCap(airport) {
@@ -2634,6 +2646,7 @@ app.get('/api/schedule', auth, (req, res) => {
 app.post('/api/charter/order', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (!requireChartersAvailable(airport, res)) return;
   const body = req.body || {};
   const craft = body.craft === 'plane' ? 'plane' : 'heli';
   const currentTick = store.getTickCounter();
@@ -2774,6 +2787,7 @@ const SCHEDULE_SLOTS = 12;   // 12 слотов по 2 игровых часа (
 app.post('/api/schedule/place', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (!requireChartersAvailable(airport, res)) return;
   const { contractId, dayIndex, slot } = req.body || {};
   const c = store.getContractById(Number(contractId));
   if (!c || c.airportId !== airport.id) {
@@ -2845,6 +2859,7 @@ app.post('/api/nina-service/dismiss', auth, (req, res) => {
 app.post('/api/schedule/remove', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (!requireChartersAvailable(airport, res)) return;
   const { id } = req.body || {};
   const schedule = (airport.schedule || []).filter(e => e.id !== id);
   store.updateAirport(airport.id, { schedule });
@@ -2855,6 +2870,7 @@ app.post('/api/schedule/remove', auth, (req, res) => {
 app.post('/api/schedule/row', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (!requireChartersAvailable(airport, res)) return;
   const { contractId, row } = req.body || {};
   const c = store.getContractById(Number(contractId));
   if (!c || c.airportId !== airport.id) {
@@ -2879,6 +2895,7 @@ app.post('/api/schedule/row', auth, (req, res) => {
 app.post('/api/schedule/clear', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (!requireChartersAvailable(airport, res)) return;
   store.updateAirport(airport.id, { schedule: [] });
   res.json(serializeEnvelope(airport.id));
 });
@@ -2887,6 +2904,7 @@ app.post('/api/schedule/clear', auth, (req, res) => {
 app.post('/api/schedule/unassign', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (!requireChartersAvailable(airport, res)) return;
   const cid = Number((req.body || {}).contractId);
   const c = store.getContractById(cid);
   if (!c || c.airportId !== airport.id) {
@@ -2902,6 +2920,7 @@ app.post('/api/schedule/unassign', auth, (req, res) => {
 app.post('/api/schedule/copy-day', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
   if (!airport) return res.status(404).json({ error: 'no_airport' });
+  if (!requireChartersAvailable(airport, res)) return;
   const srcDay = Number((req.body || {}).dayIndex);
   if (!Number.isInteger(srcDay) || srcDay < 0) {
     return res.status(400).json({ error: 'bad_date', message: 'Неверная дата' });
