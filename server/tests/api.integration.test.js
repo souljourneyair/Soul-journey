@@ -275,6 +275,50 @@ test('HTTP API isolates its save and protects the first construction and finance
   assert.ok(completedConstructionState.xp > build.data.xp,
     'completed construction must award XP');
 
+  // После ввода первой вертолётной площадки глава 1 должна получить первое
+  // гарантированное предложение — даже если направления ещё не открыты.
+  const envelopeDeadline = Date.now() + 10_000;
+  let envelope = await request(baseUrl, '/api/envelope', { token });
+  while (Date.now() < envelopeDeadline && envelope.data.offers.length === 0) {
+    await wait(200);
+    envelope = await request(baseUrl, '/api/envelope', { token });
+  }
+  assert.equal(envelope.status, 200);
+  assert.equal(envelope.data.offers.length, 1,
+    `chapter one should generate its guaranteed first contract offer.\\n${logs}`);
+  const firstOffer = envelope.data.offers[0];
+  assert.equal(firstOffer.craft, 'heli');
+  assert.equal(firstOffer.pointId, 'tihaya');
+
+  const invalidDuration = await request(baseUrl, '/api/envelope/accept', {
+    method: 'POST', token,
+    body: { offerId: firstOffer.id, durationUnit: 'day', durationValue: 0 },
+  });
+  assert.equal(invalidDuration.status, 400);
+  assert.equal(invalidDuration.data.error, 'bad_duration');
+
+  const offerStillAvailable = await request(baseUrl, '/api/envelope', { token });
+  assert.equal(offerStillAvailable.data.offers.length, 1,
+    'invalid duration must not consume the offer');
+
+  const acceptedContract = await request(baseUrl, '/api/envelope/accept', {
+    method: 'POST', token,
+    body: { offerId: firstOffer.id, durationUnit: 'day', durationValue: 3 },
+  });
+  assert.equal(acceptedContract.status, 200);
+  assert.equal(acceptedContract.data.offers.length, 0);
+  assert.equal(acceptedContract.data.contracts.length, 1);
+  assert.equal(acceptedContract.data.contracts[0].craft, 'heli');
+  assert.equal(acceptedContract.data.contracts[0].pointId, 'tihaya');
+  assert.ok(acceptedContract.data.contracts[0].daysLeft > 0);
+
+  const acceptConsumedOfferAgain = await request(baseUrl, '/api/envelope/accept', {
+    method: 'POST', token,
+    body: { offerId: firstOffer.id, durationUnit: 'day', durationValue: 3 },
+  });
+  assert.equal(acceptConsumedOfferAgain.status, 404);
+  assert.equal(acceptConsumedOfferAgain.data.error, 'no_offer');
+
   const upgradeDuringChapterOne = await request(baseUrl, '/api/building/upgrade', {
     method: 'POST', token, body: { cellIndex: completedHelipad.cellIndex },
   });
