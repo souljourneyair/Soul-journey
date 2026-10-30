@@ -68,10 +68,12 @@ function cloneEmptyDb() {
 // для обнаружения атомарной замены и обычного внешнего редактирования.
 function diskSignature() {
   try {
-    const stat = fs.statSync(DATA_FILE);
+    // BigIntStats сохраняет точность времени до наносекунд там, где её
+    // поддерживает файловая система, и снижает риск пропустить быструю замену.
+    const stat = fs.statSync(DATA_FILE, { bigint: true });
     return [
       String(stat.dev), String(stat.ino), String(stat.size),
-      String(stat.mtimeMs), String(stat.ctimeMs),
+      String(stat.mtimeNs), String(stat.ctimeNs),
     ].join(':');
   } catch (e) {
     if (e.code === 'ENOENT') return null;
