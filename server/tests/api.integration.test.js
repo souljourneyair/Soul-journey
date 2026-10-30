@@ -95,7 +95,7 @@ async function request(baseUrl, route, { method = 'GET', token, body } = {}) {
 }
 
 test('HTTP API isolates its save and protects the first construction and finance flow', {
-  timeout: 45_000,
+  timeout: 90_000,
 }, async t => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soul-journey-api-'));
   const tempDataFile = path.join(tempRoot, 'api-data.json');
@@ -253,6 +253,40 @@ test('HTTP API isolates its save and protects the first construction and finance
   assert.ok(helipad, 'new helipad should be persisted and returned');
   assert.equal(helipad.constructionType, 'build');
   assert.ok(helipad.constructionTicksLeft > 0);
+
+  // Проверяем завершение стройки через реальный игровой тик, а не прямую
+  // запись в data.json. У площадки по конфигу 8 тиков строительства.
+  const constructionDeadline = Date.now() + 45_000;
+  let completedConstructionState = build.data;
+  let completedHelipad = helipad;
+  while (Date.now() < constructionDeadline && completedHelipad.constructionType !== null) {
+    await wait(200);
+    const state = await request(baseUrl, '/api/state', { token });
+    assert.equal(state.status, 200);
+    completedConstructionState = state.data;
+    completedHelipad = completedConstructionState.buildings.find(
+      building => building.buildingId === 'helipad',
+    );
+    assert.ok(completedHelipad, 'helipad must remain present while construction progresses');
+  }
+  assert.equal(completedHelipad.constructionType, null,
+    `helipad construction did not finish before timeout.\n${logs}`);
+  assert.equal(completedHelipad.constructionTicksLeft, 0);
+  assert.ok(completedConstructionState.xp > build.data.xp,
+    'completed construction must award XP');
+
+  const upgradeDuringChapterOne = await request(baseUrl, '/api/building/upgrade', {
+    method: 'POST', token, body: { cellIndex: completedHelipad.cellIndex },
+  });
+  assert.equal(upgradeDuringChapterOne.status, 400);
+  assert.equal(upgradeDuringChapterOne.data.error, 'chapter_upgrade_cap',
+    'chapter one must reject building upgrades above its configured cap');
+
+  const rentOffersForHelipad = await request(baseUrl, '/api/building/rent-offers', {
+    method: 'POST', token, body: { cellIndex: completedHelipad.cellIndex },
+  });
+  assert.equal(rentOffersForHelipad.status, 400);
+  assert.equal(rentOffersForHelipad.data.error, 'non_rentable');
 
   // У аэропорта уже достаточно залоговой стоимости для минимального кредита.
   const loan = await request(baseUrl, '/api/bank/borrow', {
