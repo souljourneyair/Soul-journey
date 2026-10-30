@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { calculateWeeklyTax, settleTickBalance } = require('../finance');
@@ -69,4 +71,23 @@ test('financial helpers reject non-finite values and negative deductions', () =>
   assert.throws(() => calculateWeeklyTax(Infinity, 0.2), /finite number/);
   assert.throws(() => calculateWeeklyTax(100, 1.2), /between 0 and 1/);
   assert.throws(() => settleTickBalance(100, { floor: -100, loanPayment: -1 }), /cannot be negative/);
+});
+
+const serverSource = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+
+test('runTick applies loan and tax deductions together before finalizing the patch', () => {
+  const loanStart = serverSource.indexOf('const loan = freshAirport.loan;');
+  const settlement = serverSource.indexOf('const settledBalance = settleTickBalance', loanStart);
+  const oldSaveBlock = serverSource.indexOf('// Починка старых сохранений:', settlement);
+  assert.ok(loanStart >= 0);
+  assert.ok(settlement > loanStart);
+  assert.ok(oldSaveBlock > settlement);
+
+  const financialRegion = serverSource.slice(loanStart, oldSaveBlock);
+  assert.match(financialRegion, /loanPayment = pay/);
+  assert.match(financialRegion, /taxPayment = tax/);
+  assert.match(financialRegion, /settleTickBalance\(newMoney,\s*\{\s*floor,\s*loanPayment,\s*taxPayment,/);
+  assert.doesNotMatch(financialRegion, /patch\.money\s*=/,
+    'neither scheduled deduction may overwrite the other in the airport patch');
+  assert.ok(financialRegion.indexOf('settleTickBalance') < financialRegion.indexOf('Object.assign(patch'));
 });
