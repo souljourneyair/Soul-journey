@@ -48,6 +48,7 @@ test('client IP comes from the socket and ignores a forged forwarded header', ()
     headers: { 'x-forwarded-for': '203.0.113.99' },
   };
   assert.equal(getClientIp(req), '192.0.2.5');
+  assert.equal(getClientIp({ ip: '203.0.113.99', socket: { remoteAddress: '127.0.0.1' } }), '203.0.113.99');
   assert.equal(getClientIp({ headers: { 'x-forwarded-for': '203.0.113.99' } }), 'unknown');
 });
 

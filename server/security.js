@@ -70,7 +70,10 @@ function createRateLimiter({ now = Date.now, maxEntries = 20000, cleanupEvery = 
 // Не читаем X-Forwarded-For: его можно подделать, если приложение не настроено
 // на конкретный доверенный reverse proxy.
 function getClientIp(req) {
-  const address = req && req.socket && req.socket.remoteAddress;
+  // req.ip вычисляется Express с учётом app.set('trust proxy').
+  const address = req && (typeof req.ip === 'string' && req.ip
+    ? req.ip
+    : req.socket && req.socket.remoteAddress);
   if (typeof address !== 'string' || !address) return 'unknown';
   return address.replace(/^::ffff:/, '').slice(0, 128);
 }

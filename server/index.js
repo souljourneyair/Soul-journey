@@ -38,6 +38,14 @@ mediaScan.init(Object.keys(BUILDINGS));
 
 const app = express();
 
+// Доверяем X-Forwarded-For только от явно перечисленных reverse proxy.
+// Без TRUSTED_PROXY_IPS Express использует адрес TCP-клиента.
+const trustedProxyIps = new Set(
+  (process.env.TRUSTED_PROXY_IPS || '').split(',')
+    .map(value => value.trim().replace(/^::ffff:/, '')).filter(Boolean)
+);
+app.set('trust proxy', ip => trustedProxyIps.has(String(ip).replace(/^::ffff:/, '')));
+
 // Ограничение попыток до разбора тела запроса: даже некорректный JSON не
 // позволяет обходить IP-лимит на маршрутах входа и регистрации.
 // X-Forwarded-For намеренно не используется: доверять ему можно только после
@@ -56,10 +64,11 @@ function sendRateLimitResponse(res, result) {
 app.use((req, res, next) => {
   if (req.method !== 'POST') return next();
   const ip = getClientIp(req);
-  if (req.path === '/api/login') {
+  const routePath = req.path.toLowerCase().replace(/\/+$/, '') || '/';
+  if (routePath === '/api/login') {
     const result = authRateLimiter.consume(`login:ip:${ip}`, 30, LOGIN_WINDOW_MS);
     if (!result.allowed) return sendRateLimitResponse(res, result);
-  } else if (req.path === '/api/register') {
+  } else if (routePath === '/api/register') {
     const result = authRateLimiter.consume(`register:ip:${ip}`, 5, 60 * 60 * 1000);
     if (!result.allowed) return sendRateLimitResponse(res, result);
   }

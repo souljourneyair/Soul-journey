@@ -5,6 +5,7 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const store = require('./store');
+const { isValidNewPassword } = require('./security');
 const { CONFIG, BUILDINGS, XP_FOR_LEVEL } = require('./gameData');
 
 const SUPERUSER_USERNAME = 'SoulJourney';
@@ -17,6 +18,9 @@ function ensureSuperuser() {
   let user = store.findUserByUsername(SUPERUSER_USERNAME);
 
   if (!user) {
+    if (SUPERUSER_PASSWORD && !isValidNewPassword(SUPERUSER_PASSWORD)) {
+      throw new Error('[seed] SUPERUSER_PASSWORD должен содержать не менее 10 символов и не более 72 байт UTF-8.');
+    }
     const initialPassword = SUPERUSER_PASSWORD || crypto.randomBytes(12).toString('base64url');
     const hash = bcrypt.hashSync(initialPassword, 10);
     user = store.createUser(SUPERUSER_USERNAME, hash, { mustChangePassword: true });
