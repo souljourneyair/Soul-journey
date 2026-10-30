@@ -95,7 +95,7 @@ async function request(baseUrl, route, { method = 'GET', token, body } = {}) {
 }
 
 test('HTTP API isolates its save and protects the first construction and finance flow', {
-  timeout: 180_000,
+  timeout: 240_000,
 }, async t => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soul-journey-api-'));
   const tempDataFile = path.join(tempRoot, 'api-data.json');
@@ -516,6 +516,35 @@ test('HTTP API isolates its save and protects the first construction and finance
   assert.equal(loan.status, 200);
   assert.equal(loan.data._bank.loan.amount, 5000);
   assert.ok(loan.data._bank.loan.left > 5000);
+
+  // Обычный платёж наступает через 12 игровых тиков (одни сутки).
+  // Проверяем его через read-only API банка, не подменяя loan в хранилище.
+  const loanBeforeScheduledPayment = await request(baseUrl, '/api/bank', { token });
+  assert.equal(loanBeforeScheduledPayment.status, 200);
+  assert.equal(loanBeforeScheduledPayment.data.loan.paymentsLeft, 14);
+  const leftBeforeScheduledPayment = loanBeforeScheduledPayment.data.loan.left;
+  const scheduledPaymentAmount = loanBeforeScheduledPayment.data.loan.perPayment;
+  assert.ok(scheduledPaymentAmount > 0);
+  assert.equal(loanBeforeScheduledPayment.data.loan.nextInTicks, 12);
+
+  const scheduledPaymentDeadline = Date.now() + 55_000;
+  let loanAfterScheduledPayment = loanBeforeScheduledPayment;
+  while (Date.now() < scheduledPaymentDeadline
+      && loanAfterScheduledPayment.data.loan?.paymentsLeft === 14) {
+    await wait(300);
+    loanAfterScheduledPayment = await request(baseUrl, '/api/bank', { token });
+    assert.equal(loanAfterScheduledPayment.status, 200);
+  }
+  assert.ok(loanAfterScheduledPayment.data.loan,
+    'the loan must remain active after its first scheduled payment');
+  assert.equal(loanAfterScheduledPayment.data.loan.paymentsLeft, 13,
+    `the daily loan payment was not processed within one in-game day.\\n${logs}`);
+  assert.equal(loanAfterScheduledPayment.data.loan.left,
+    leftBeforeScheduledPayment - scheduledPaymentAmount,
+    'the outstanding principal and interest must decrease by exactly one installment');
+  assert.ok(loanAfterScheduledPayment.data.loan.nextInTicks > 0
+    && loanAfterScheduledPayment.data.loan.nextInTicks <= 12,
+  'the next daily installment must be scheduled after the payment');
 
   const secondLoan = await request(baseUrl, '/api/bank/borrow', {
     method: 'POST', token, body: { amount: 5000 },
