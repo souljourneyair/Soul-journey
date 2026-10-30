@@ -59,13 +59,74 @@ let cacheMtime = 0;          // время изменения файла, как
 let dirty = false;           // есть несохранённые изменения
 let lastStatCheck = 0;
 let flushTimer = null;
+let missingOnDisk = false;   // база ещё не создана на новой установке
+
+function cloneEmptyDb() {
+  return JSON.parse(JSON.stringify(EMPTY_DB));
+}
+
+// Повреждённый файл никогда не заменяем пустой базой. Перед остановкой
+// загрузки сохраняем исходник рядом с data.json под уникальным именем.
+function corruptedDataError(message, cause) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = `${DATA_FILE}.corrupt-${stamp}-${crypto.randomBytes(4).toString('hex')}`;
+  try {
+    fs.copyFileSync(DATA_FILE, backupPath, fs.constants.COPYFILE_EXCL);
+    return new Error(`[store] ${message}. Исходный файл сохранён: ${backupPath}. Сервер остановлен, чтобы не перезаписать сохранения.`);
+  } catch (backupError) {
+    return new Error(`[store] ${message}. Не удалось создать резервную копию (${backupError.message}). Сервер остановлен, исходный файл не изменён.`);
+  }
+}
+
+function validateDatabaseShape(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('Корень data.json должен быть JSON-объектом');
+  }
+
+  for (const [key, defaultValue] of Object.entries(EMPTY_DB)) {
+    if (Array.isArray(defaultValue) && data[key] != null && !Array.isArray(data[key])) {
+      throw new Error(`Поле "${key}" должно быть массивом`);
+    }
+    if (defaultValue && typeof defaultValue === 'object' && !Array.isArray(defaultValue)
+        && data[key] != null
+        && (typeof data[key] !== 'object' || Array.isArray(data[key]))) {
+      throw new Error(`Поле "${key}" должно быть объектом`);
+    }
+  }
+}
 
 function readFromDisk() {
+  let raw;
   try {
-    const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-    const data = JSON.parse(raw);
-    // Мягкая миграция: если файл создан до появления какого-то поля — подставляем дефолт,
-    // чтобы обновление кода не ломало уже работающий data.json на сервере.
+    raw = fs.readFileSync(DATA_FILE, 'utf-8');
+  } catch (e) {
+    throw new Error(`[store] Не удалось прочитать существующий файл ${DATA_FILE}: ${e.message}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+    validateDatabaseShape(parsed);
+  } catch (e) {
+    throw corruptedDataError(`Файл ${DATA_FILE} повреждён или имеет неверную структуру: ${e.message}`, e);
+  }
+
+  // Для старых сохранений подставляем значения новых полей, не затрагивая
+  // уже существующие пользовательские данные.
+  const data = Object.assign(cloneEmptyDb(), parsed);
+  // Старые версии уже допускали null в необязательных полях. Нормализуем их
+  // к пустым значениям, но не принимаем строки/числа вместо коллекций.
+  for (const [key, defaultValue] of Object.entries(EMPTY_DB)) {
+    if (Array.isArray(defaultValue) && !Array.isArray(data[key])) {
+      data[key] = [];
+    } else if (defaultValue && typeof defaultValue === 'object'
+        && !Array.isArray(defaultValue)
+        && (!data[key] || typeof data[key] !== 'object' || Array.isArray(data[key]))) {
+      data[key] = {};
+    }
+  }
+
+  try {
     if (data.nextMediaId === undefined) data.nextMediaId = 1;
     // Износ ВПП переехал в общее для всех зданий поле wear. Переносим старое
     // значение у уже наигранных сохранений, чтобы накопленный износ не пропал
@@ -92,9 +153,9 @@ function readFromDisk() {
     if (data.settings.authBgKind === undefined) data.settings.authBgKind = null;
     if (data.settings.gameBgUrl === undefined) data.settings.gameBgUrl = null;
     if (data.settings.gameBgKind === undefined) data.settings.gameBgKind = null;
-    if (data.settings.oilPrice === undefined) data.settings.oilPrice = 70;   // база нефти
-    if (data.settings.goldPrice === undefined) data.settings.goldPrice = 2000; // база золота
-    if (data.settings.fuelMarketMult === undefined) data.settings.fuelMarketMult = 1.0; // текущий рыночный множитель
+    if (data.settings.oilPrice === undefined) data.settings.oilPrice = 70;
+    if (data.settings.goldPrice === undefined) data.settings.goldPrice = 2000;
+    if (data.settings.fuelMarketMult === undefined) data.settings.fuelMarketMult = 1.0;
     if (data.settings.fuelMarketRepricedTick === undefined) data.settings.fuelMarketRepricedTick = 0;
     if (!Array.isArray(data.settings.marketHistory)) data.settings.marketHistory = [];
     if (data.settings.marketHourTick === undefined) data.settings.marketHourTick = 0;
@@ -124,8 +185,7 @@ function readFromDisk() {
       if (a.heliCarried === undefined) a.heliCarried = 0;
       if (a.paxServed === undefined) a.paxServed = 0;
       // Исторический недоучёт: прилёты писались в paxProcessed, но не в
-      // paxServed. Подтягиваем общий счёт «обслужено» до пропущенного значения,
-      // чтобы прогресс и задачи не терялись.
+      // paxServed. Подтягиваем общий счёт «обслужено» до пропущенного значения.
       if ((a.paxProcessed || 0) > a.paxServed) a.paxServed = a.paxProcessed;
       if (!a.termQueue) a.termQueue = [];
       if (!a.newsLog) a.newsLog = [];
@@ -149,55 +209,122 @@ function readFromDisk() {
       if (b.buildingId === 'apron') b.buildingId = 'stand_small';
     });
     // удаляем здания снятой с игры Третьей ВПП
-    if (data.buildings) data.buildings = data.buildings.filter(b => b.buildingId !== 'runway_3');
+    data.buildings = data.buildings.filter(b => b.buildingId !== 'runway_3');
     (data.users || []).forEach(u => {
       if (u.isAdmin === undefined) u.isAdmin = false;
       if (u.bannedUntil === undefined) u.bannedUntil = null;
+      if (u.mustChangePassword === undefined) u.mustChangePassword = false;
     });
     return data;
   } catch (e) {
-    return JSON.parse(JSON.stringify(EMPTY_DB));
+    throw corruptedDataError(`Не удалось безопасно применить миграции к ${DATA_FILE}: ${e.message}`, e);
   }
 }
 
 function load() {
   const now = Date.now();
   // Пока есть несохранённые изменения, наша копия свежее любой на диске.
-  // Иначе сверяемся с файлом, но не чаще раза в четверть секунды.
+  // Иначе сверяемся с файлом, но не чаще раза в STAT_CHECK_MS.
   if (cache && (dirty || now - lastStatCheck < STAT_CHECK_MS)) return cache;
   lastStatCheck = now;
 
-  let mtime = 0;
-  try { mtime = fs.statSync(DATA_FILE).mtimeMs; } catch (e) { mtime = 0; }
-  if (!cache || mtime !== cacheMtime) {
-    cache = readFromDisk();
-    cacheMtime = mtime;
+  let stat;
+  try {
+    stat = fs.statSync(DATA_FILE);
+    missingOnDisk = false;
+  } catch (e) {
+    // Отсутствующий файл допустим только при первой загрузке новой установки.
+    // Если сохранение уже существовало и затем исчезло, не создаём пустую базу.
+    if (e.code === 'ENOENT' && (!cache || missingOnDisk)) {
+      if (!cache) cache = cloneEmptyDb();
+      missingOnDisk = true;
+      cacheMtime = 0;
+      return cache;
+    }
+    throw new Error(`[store] Не удалось проверить файл сохранений ${DATA_FILE}: ${e.message}`);
+  }
+
+  if (!cache || stat.mtimeMs !== cacheMtime) {
+    // Сначала полностью читаем и проверяем новую версию; старый кэш остаётся
+    // нетронутым, если чтение или миграция завершатся ошибкой.
+    const nextCache = readFromDisk();
+    cache = nextCache;
+    cacheMtime = stat.mtimeMs;
+    missingOnDisk = false;
   }
   return cache;
 }
 
-// Немедленно записать накопленное на диск.
-function flush() {
+// Немедленно записать накопленное на диск атомарной заменой.
+function flush(options = {}) {
   if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-  if (!dirty || !cache) return;
-  // Пишем во временный файл и переименовываем — атомарно, не побьём файл при падении сервера.
-  const tmp = DATA_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(cache));
-  fs.renameSync(tmp, DATA_FILE);
-  dirty = false;
-  try { cacheMtime = fs.statSync(DATA_FILE).mtimeMs; } catch (e) { /* не критично */ }
+  if (!dirty || !cache) return true;
+
+  const tmp = `${DATA_FILE}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+  let fd = null;
+  try {
+    const serialized = JSON.stringify(cache);
+    let mode = 0o600;
+    try { mode = fs.statSync(DATA_FILE).mode & 0o777; } catch (e) {
+      if (e.code !== 'ENOENT') throw e;
+    }
+
+    fd = fs.openSync(tmp, 'wx', mode);
+    fs.writeFileSync(fd, serialized, 'utf-8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+
+    // До успешного rename dirty остаётся true: при ошибке данные остаются
+    // в памяти и следующая попытка сможет повторить сохранение.
+    fs.renameSync(tmp, DATA_FILE);
+    dirty = false;
+    missingOnDisk = false;
+    try {
+      cacheMtime = fs.statSync(DATA_FILE).mtimeMs;
+      lastStatCheck = Date.now();
+    } catch (e) {
+      cacheMtime = 0;
+      lastStatCheck = 0;
+    }
+    return true;
+  } catch (e) {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (closeError) { /* сохраняем исходную ошибку */ }
+    }
+    try { fs.unlinkSync(tmp); } catch (unlinkError) {
+      if (unlinkError.code !== 'ENOENT') {
+        console.error(`[store] Не удалось удалить временный файл ${tmp}: ${unlinkError.message}`);
+      }
+    }
+    console.error(`[store] Не удалось сохранить ${DATA_FILE}: ${e.message}. Несохранённые данные сохранены в памяти.`);
+    if (options.retry !== false && !flushTimer) {
+      flushTimer = setTimeout(() => flush(), Math.max(FLUSH_MS, 2000));
+    }
+    return false;
+  }
 }
 
 function save(data) {
   cache = data;
   dirty = true;
-  if (!flushTimer) flushTimer = setTimeout(flush, FLUSH_MS);
+  if (!flushTimer) flushTimer = setTimeout(() => flush(), FLUSH_MS);
 }
 
-// Не теряем последние изменения при остановке сервера.
-process.on('exit', flush);
+// При штатном завершении делаем последнюю синхронную попытку сохранения.
+process.on('exit', () => {
+  if (!flush({ retry: false })) {
+    console.error('[store] ВНИМАНИЕ: завершение процесса с несохранёнными изменениями.');
+  }
+});
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.on(sig, () => { flush(); process.exit(0); });
+  process.on(sig, () => {
+    const saved = flush({ retry: false });
+    if (!saved) {
+      console.error('[store] Сервер завершает работу с ошибкой: последние изменения не удалось сохранить.');
+    }
+    process.exit(saved ? 0 : 1);
+  });
 }
 
 function newToken() {
