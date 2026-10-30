@@ -20,11 +20,11 @@ function getRunTickSource() {
 
 test('runTick initializes per-airport notifications before any notification is used', () => {
   const runTick = getRunTickSource();
-  const airportLoop = runTick.indexOf('for (const airport of airports)');
+  const airportLoop = runTick.indexOf('runEachSafely(airports');
   const declaration = runTick.indexOf('const notifications = [];');
   const firstUse = runTick.search(/notifications\s*\./);
 
-  assert.notEqual(airportLoop, -1, 'runTick() must iterate through airports');
+  assert.notEqual(airportLoop, -1, 'runTick() must isolate processing for each airport');
   assert.notEqual(declaration, -1, 'notifications array must be declared');
   assert.notEqual(firstUse, -1, 'notifications must be used in runTick()');
 

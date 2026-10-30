@@ -202,7 +202,7 @@ test('building damage reduces usefulness and repair never makes an object worse'
   assert.ok(damageMultiplier(0.2) > damageMultiplier(0.7));
   const repairingCap = DAMAGE_ECONOMY.REPAIR_CAPACITY_MULT;
   assert.equal(damageMultiplier(0.1, true), Math.min(0.9, repairingCap));
-  assert.equal(damageMultiplier(0.9, true), Math.min(0.1, repairingCap));
+  assert.ok(Math.abs(damageMultiplier(0.9, true) - Math.min(0.1, repairingCap)) < 1e-12);
 });
 
 test('building repair costs and times rise with wear while preserving minimum charge', () => {
@@ -270,9 +270,9 @@ test('fuel market multiplier is neutral inside its dead zone and bounded outside
 
 test('market price steps stay inside configured baseline bounds', () => {
   const base = 100;
-  assert.equal(marketStepPrice(base, base, 0.1, 0.5, 2), 110);
+  assert.ok(Math.abs(marketStepPrice(base, base, 0.1, 0.5, 2) - 110) < 1e-9);
   assert.equal(marketStepPrice(base, base, 10, 0.5, 2), 200);
-  assert.equal(marketStepPrice(base, base, -10, 0.5, 2), 50);
+  assert.ok(Math.abs(marketStepPrice(base, base, -10, 0.5, 2) - 50) < 1e-9);
 });
 
 test('fuel suppliers have unique IDs and can be looked up', () => {
@@ -287,8 +287,7 @@ test('fuel suppliers have unique IDs and can be looked up', () => {
 });
 
 test('terminal throughput rises predictably with upgrade level', () => {
-  assert.ok(terminalThroughput('A', 1) > 0);
-  for (const terminalClass of ['A', 'B', 'C', 'D', 'E', 'F']) {
+  for (const terminalClass of ['terminal_a', 'terminal_b', 'terminal_c', 'terminal_d', 'terminal_e', 'terminal_f']) {
     const base = terminalThroughput(terminalClass, 1);
     assert.ok(base > 0, `missing throughput for class ${terminalClass}`);
     assert.equal(terminalThroughput(terminalClass, 2),
