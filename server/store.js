@@ -27,6 +27,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const DATA_FILE = path.join(__dirname, '..', 'data.json');
+const LOCK_FILE = `${DATA_FILE}.lock`;
 
 const EMPTY_DB = {
   nextUserId: 1,
@@ -60,10 +61,121 @@ let dirty = false;           // есть несохранённые измене
 let lastStatCheck = 0;
 let flushTimer = null;
 let missingOnDisk = false;   // база ещё не создана на новой установке
+let dataFileSignature = null; // версия файла, которую сейчас представляет кэш
+let storageConflict = null;   // внешняя запись/второй процесс: сохранять поверх нельзя
+let storeLockOwned = false;
 
 function cloneEmptyDb() {
   return JSON.parse(JSON.stringify(EMPTY_DB));
 }
+
+// Подпись файла включает inode, размер и времена изменения: этого достаточно
+// для обнаружения атомарной замены и обычного внешнего редактирования.
+function diskSignature() {
+  try {
+    const stat = fs.statSync(DATA_FILE);
+    return [
+      String(stat.dev), String(stat.ino), String(stat.size),
+      String(stat.mtimeMs), String(stat.ctimeMs),
+    ].join(':');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
+function uniqueDataPath(kind) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `${DATA_FILE}.${kind}-${stamp}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`;
+}
+
+// Эксклюзивная блокировка не позволяет запустить два процесса, использующих
+// один data.json. Устаревший lock-файл удаляется вручную только после проверки,
+// что указанный PID больше не работает: автоматическое удаление создаёт гонки.
+function acquireStoreLock() {
+  let fd;
+  try {
+    fd = fs.openSync(LOCK_FILE, 'wx', 0o600);
+  } catch (e) {
+    if (e.code === 'EEXIST') {
+      let owner = '';
+      try { owner = fs.readFileSync(LOCK_FILE, 'utf8').trim(); } catch (readError) { /* покажем общий текст */ }
+      throw new Error(
+        `[store] Файл блокировки ${LOCK_FILE} уже существует. ` +
+        `Возможно, другой процесс Soul Journey использует эту базу. ` +
+        `Остановите его перед запуском второго процесса. Данные владельца: ${owner || 'не удалось прочитать'}.` +
+        ` Если сервер аварийно завершился, сначала убедитесь, что указанный PID не работает, и только затем удалите lock-файл вручную.`
+      );
+    }
+    throw new Error(`[store] Не удалось создать блокировку базы ${LOCK_FILE}: ${e.message}`);
+  }
+
+  try {
+    const owner = JSON.stringify({
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      instance: crypto.randomBytes(8).toString('hex'),
+    }) + '\n';
+    fs.writeFileSync(fd, owner, 'utf8');
+    fs.fsyncSync(fd);
+    storeLockOwned = true;
+  } catch (e) {
+    try { fs.closeSync(fd); } catch (closeError) { /* исходная ошибка важнее */ }
+    try { fs.unlinkSync(LOCK_FILE); } catch (unlinkError) { /* best effort */ }
+    throw new Error(`[store] Не удалось записать файл блокировки ${LOCK_FILE}: ${e.message}`);
+  }
+  fs.closeSync(fd);
+}
+
+function releaseStoreLock() {
+  if (!storeLockOwned) return;
+  storeLockOwned = false;
+  try {
+    fs.unlinkSync(LOCK_FILE);
+  } catch (e) {
+    if (e.code !== 'ENOENT') {
+      console.error(`[store] Не удалось удалить файл блокировки ${LOCK_FILE}: ${e.message}`);
+    }
+  }
+}
+
+function writeMemoryConflictBackup() {
+  if (!cache) return null;
+  const backupPath = uniqueDataPath('memory-conflict');
+  let fd = null;
+  try {
+    fd = fs.openSync(backupPath, 'wx', 0o600);
+    fs.writeFileSync(fd, JSON.stringify(cache), 'utf8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    return backupPath;
+  } catch (e) {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (closeError) { /* best effort */ }
+    }
+    try { fs.unlinkSync(backupPath); } catch (unlinkError) { /* best effort */ }
+    console.error(`[store] Не удалось создать копию кэша при конфликте: ${e.message}`);
+    return null;
+  }
+}
+
+function failOnStorageConflict(reason) {
+  if (!storageConflict) {
+    const backupPath = writeMemoryConflictBackup();
+    const backupNote = backupPath
+      ? ` Копия данных из памяти сохранена в ${backupPath}.`
+      : ' Не удалось создать копию данных из памяти; текущий процесс продолжает хранить их в памяти.';
+    storageConflict = new Error(
+      `[store] Конфликт хранилища: ${reason}. ` +
+      'Файл data.json не будет перезаписан автоматически. Остановите сервер и вручную сравните файл и резервную копию.' +
+      backupNote
+    );
+    console.error(storageConflict.message);
+  }
+  throw storageConflict;
+}
+
+acquireStoreLock();
 
 // Повреждённый файл никогда не заменяем пустой базой. Перед остановкой
 // загрузки сохраняем исходник рядом с data.json под уникальным именем.
