@@ -84,12 +84,12 @@ function validateDatabaseShape(data) {
   }
 
   for (const [key, defaultValue] of Object.entries(EMPTY_DB)) {
-    if (Array.isArray(defaultValue) && data[key] !== undefined && !Array.isArray(data[key])) {
+    if (Array.isArray(defaultValue) && data[key] != null && !Array.isArray(data[key])) {
       throw new Error(`Поле "${key}" должно быть массивом`);
     }
     if (defaultValue && typeof defaultValue === 'object' && !Array.isArray(defaultValue)
-        && data[key] !== undefined
-        && (!data[key] || typeof data[key] !== 'object' || Array.isArray(data[key]))) {
+        && data[key] != null
+        && (typeof data[key] !== 'object' || Array.isArray(data[key]))) {
       throw new Error(`Поле "${key}" должно быть объектом`);
     }
   }
@@ -114,6 +114,17 @@ function readFromDisk() {
   // Для старых сохранений подставляем значения новых полей, не затрагивая
   // уже существующие пользовательские данные.
   const data = Object.assign(cloneEmptyDb(), parsed);
+  // Старые версии уже допускали null в необязательных полях. Нормализуем их
+  // к пустым значениям, но не принимаем строки/числа вместо коллекций.
+  for (const [key, defaultValue] of Object.entries(EMPTY_DB)) {
+    if (Array.isArray(defaultValue) && !Array.isArray(data[key])) {
+      data[key] = [];
+    } else if (defaultValue && typeof defaultValue === 'object'
+        && !Array.isArray(defaultValue)
+        && (!data[key] || typeof data[key] !== 'object' || Array.isArray(data[key]))) {
+      data[key] = {};
+    }
+  }
 
   try {
     if (data.nextMediaId === undefined) data.nextMediaId = 1;
