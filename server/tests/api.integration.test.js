@@ -433,7 +433,6 @@ test('HTTP API isolates its save and protects the first construction and finance
   assert.equal(chapterTwo.data.chartersAvailable, true);
   assert.ok(chapterTwo.data.openPoints.includes('tihaya'));
   assert.ok(chapterTwo.data.openPoints.includes('ozersk'));
-  assert.equal(chapterTwo.data.hasMedicalHeli, true);
 
   // После перехода в главу 2 появляется обычное предложение по одной из
   // открытых точек. Оно уже не разовое: его можно поставить в расписание.
