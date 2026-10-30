@@ -11,7 +11,14 @@
 const fs = require('fs');
 const path = require('path');
 
-const PUBLIC_DIR = path.join(__dirname, '..', 'public');
+// В интеграционных тестах медиа-каталоги также изолируются во временную
+// папку. В штатном запуске публичные файлы остаются в public/.
+const TEST_MEDIA_DIR = process.env.NODE_ENV === 'test'
+  ? process.env.SOUL_JOURNEY_TEST_MEDIA_DIR
+  : null;
+const PUBLIC_DIR = TEST_MEDIA_DIR
+  ? path.resolve(TEST_MEDIA_DIR)
+  : path.join(__dirname, '..', 'public');
 const BUILDINGS_DIR = path.join(PUBLIC_DIR, 'uploads', 'buildings');
 const SCREENS_DIR = path.join(PUBLIC_DIR, 'uploads', 'screens');
 const LOGO_DIR = path.join(PUBLIC_DIR, 'uploads', 'logo');

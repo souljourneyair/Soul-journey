@@ -22,7 +22,15 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DATA_FILE = path.join(__dirname, '..', 'data.json');
+// В интеграционных тестах разрешаем изолированную временную базу. В обычном
+// запуске и даже при случайно заданной переменной вне NODE_ENV=test всегда
+// используется стандартный data.json проекта.
+const TEST_DATA_FILE = process.env.NODE_ENV === 'test'
+  ? process.env.SOUL_JOURNEY_TEST_DATA_FILE
+  : null;
+const DATA_FILE = TEST_DATA_FILE
+  ? path.resolve(TEST_DATA_FILE)
+  : path.join(__dirname, '..', 'data.json');
 const LOCK_FILE = `${DATA_FILE}.lock`;
 
 const EMPTY_DB = {
