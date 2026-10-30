@@ -1,14 +1,24 @@
-// Сброс пароля игрока напрямую в data.json — без веб-интерфейса,
+// Сброс пароля игрока через файловое хранилище — без веб-интерфейса,
 // т.к. в MVP ещё нет email-восстановления.
 //
-// Запуск (на сервере, из папки проекта):
+// ВАЖНО: перед запуском обязательно остановите сервер Soul Journey.
+// Хранилище использует эксклюзивную блокировку data.json.lock и не разрешает
+// одновременно менять сохранение из сервера и сервисной утилиты.
+//
+// Запуск (из папки проекта):
 //   node server/scripts/reset-password.js <логин> <новый_пароль>
 //
 // Пример:
 //   node server/scripts/reset-password.js soultest MyNewPass123
 
 const bcrypt = require('bcryptjs');
-const store = require('../store');
+let store;
+try {
+  store = require('../store');
+} catch (error) {
+  console.error(error.message || error);
+  process.exit(1);
+}
 
 const [, , username, newPassword] = process.argv;
 
