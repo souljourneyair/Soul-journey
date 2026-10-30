@@ -12,7 +12,8 @@
     "test:security": "node --test server/tests/security.test.js",
     "test:tick-safety": "node --test server/tests/tick-safety.test.js",
     "test:game-data": "node --test server/tests/game-data.test.js",
-    "test:api": "node --test server/tests/api.integration.test.js"
+    "test:api": "node --test server/tests/api.integration.test.js",
+    "test:finance": "node --test server/tests/finance.test.js"
   },
   "keywords": [],
   "author": "",
