@@ -205,7 +205,7 @@ function newToken() {
 }
 
 // ---------- users ----------
-function createUser(username, passwordHash) {
+function createUser(username, passwordHash, options = {}) {
   const data = load();
   const user = {
     id: data.nextUserId++,
@@ -214,6 +214,7 @@ function createUser(username, passwordHash) {
     token: newToken(),
     createdAt: Date.now(),
     isAdmin: false,
+    mustChangePassword: !!options.mustChangePassword,
     bannedUntil: null, // null | 'forever' | timestamp(ms)
   };
   data.users.push(user);
@@ -259,12 +260,25 @@ function findUserById(id) {
   return data.users.find(u => u.id === id) || null;
 }
 
-function setUserPassword(username, passwordHash) {
+function setUserPassword(username, passwordHash, options = {}) {
   const data = load();
   const key = normalizeUsername(username);
   const user = data.users.find(u => normalizeUsername(u.username) === key);
   if (!user) return null;
   user.passwordHash = passwordHash;
+  if (typeof options.mustChangePassword === 'boolean') {
+    user.mustChangePassword = options.mustChangePassword;
+  }
+  save(data);
+  return user;
+}
+
+function setUserMustChangePassword(username, required) {
+  const data = load();
+  const key = normalizeUsername(username);
+  const user = data.users.find(u => normalizeUsername(u.username) === key);
+  if (!user) return null;
+  user.mustChangePassword = !!required;
   save(data);
   return user;
 }
@@ -733,7 +747,7 @@ function getLeaderboard(limit = 50) {
 
 module.exports = {
   createUser, findUserByUsername, findUserByToken, findUserById, setUserPassword,
-  normalizeUsername, findCaseDuplicateUsernames,
+  setUserMustChangePassword, normalizeUsername, findCaseDuplicateUsernames,
   getAllUsers, setUserAdmin, setUserBan, isBanActive, deleteUser,
   createAirport, getAirportByUserId, getAirportById, updateAirport, getAllAirports,
   addBuilding, getBuildingsByAirport, findBuildingAtCell, updateBuildingAtCell, removeBuildingAtCell, removeAllBuildings, swapCells,
