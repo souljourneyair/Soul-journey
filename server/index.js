@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const store = require('./store');
 const { ensureSuperuser } = require('./seed');
 const { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber, isBoolean } = require('./security');
+const { runSafely, runEachSafely } = require('./tickSafety');
 const {
   CONFIG, CALENDAR, tickToClock, tickToDate,
   CHAPTERS, chapterById, nextChapterId, MOW, POINTS, pointById,
@@ -4795,6 +4796,21 @@ app.post('/api/aircraft/upgrade', auth, (req, res) => {
 });
 
 // ---------- game tick ----------
+function logTickError(scope, tick, airportId, error) {
+  const err = error instanceof Error ? error : new Error(String(error));
+  const details = {
+    event: 'game_tick_error',
+    scope,
+    tick: Number.isSafeInteger(tick) ? tick : null,
+    airportId: airportId == null ? null : airportId,
+    errorName: err.name || 'Error',
+    message: err.message || String(err),
+    stack: typeof err.stack === 'string' ? err.stack : null,
+  };
+  // Не добавляем в журнал объекты пользователя, пароли, токены или HTTP-заголовки.
+  console.error(`[game-tick] ${JSON.stringify(details)}`);
+}
+
 function runTick() {
   const currentTick = store.incrementTickCounter();
   const airports = store.getAllAirports();
@@ -4811,10 +4827,10 @@ function runTick() {
     store.setSetting('marketHourTick', currentTick);
   }
 
-  for (const airport of airports) {
+  runEachSafely(airports, (airport) => {
     // Пауза (временное решение): пока включена — аэропорт заморожен, ничего не
     // начисляется и не списывается. Полезно, чтобы не разориться в оффлайне.
-    if (airport.paused) continue;
+    if (airport.paused) return;
     // Смена главы: рейтинг начинаем заново. Иначе задача «Рейтинг N» закрывается
     // сразу за счёт рейтинга, принесённого из прошлой главы.
     const chNow = airport.chapter || 1;
@@ -5385,7 +5401,9 @@ function runTick() {
         bankrupt,
       });
     }
-  }
+  }, (error, airport) => {
+    logTickError('airport', currentTick, airport && airport.id, error);
+  });
 }
 
 // Обработка авиапарка за тик. Возвращает суммарный доход и изменение репутации
@@ -6129,7 +6147,15 @@ function totalHangarSlots(airportId) {
   return slots;
 }
 
-setInterval(runTick, CONFIG.TICK_MS);
+function runTickSafely() {
+  runSafely(runTick, (error) => {
+    let currentTick = null;
+    try { currentTick = store.getTickCounter(); } catch (_) { /* хранилище тоже недоступно */ }
+    logTickError('tick', currentTick, null, error);
+  });
+}
+
+setInterval(runTickSafely, CONFIG.TICK_MS);
 
 const PORT = process.env.PORT || 3000;
 
