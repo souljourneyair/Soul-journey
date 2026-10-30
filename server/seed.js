@@ -20,6 +20,8 @@ function ensureSuperuser() {
     const initialPassword = SUPERUSER_PASSWORD || crypto.randomBytes(12).toString('base64url');
     const hash = bcrypt.hashSync(initialPassword, 10);
     user = store.createUser(SUPERUSER_USERNAME, hash, { mustChangePassword: true });
+    store.setUserAdmin(SUPERUSER_USERNAME, true);
+    user = store.findUserByUsername(SUPERUSER_USERNAME);
     console.log(`[seed] Создан первоначальный администратор "${SUPERUSER_USERNAME}" — требуется сменить пароль при первом входе`);
     if (!SUPERUSER_PASSWORD) {
       console.warn(`[seed] Одноразовый пароль первого входа: ${initialPassword}`);
@@ -29,10 +31,10 @@ function ensureSuperuser() {
     }
   }
 
+  // Права уже существующего аккаунта не восстанавливаем автоматически:
+  // администратор мог быть намеренно отключён через систему управления.
   if (!user.isAdmin) {
-    store.setUserAdmin(SUPERUSER_USERNAME, true);
-    console.log(`[seed] "${SUPERUSER_USERNAME}" назначен администратором`);
-    user = store.findUserByUsername(SUPERUSER_USERNAME);
+    console.warn(`[seed] У "${SUPERUSER_USERNAME}" нет прав администратора; автоматическое восстановление отключено.`);
   }
 
   // Для ранее созданной базы без этого поля также требуем смену начального
