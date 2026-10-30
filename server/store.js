@@ -58,6 +58,7 @@ let flushTimer = null;
 let dataFileSignature = null; // версия файла, которую сейчас представляет кэш
 let storageConflict = null;   // внешняя запись/второй процесс: сохранять поверх нельзя
 let storeLockOwned = false;
+let storeLockInstance = null;
 
 function cloneEmptyDb() {
   return JSON.parse(JSON.stringify(EMPTY_DB));
@@ -105,30 +106,39 @@ function acquireStoreLock() {
   }
 
   try {
+    storeLockInstance = crypto.randomBytes(8).toString('hex');
     const owner = JSON.stringify({
       pid: process.pid,
       startedAt: new Date().toISOString(),
-      instance: crypto.randomBytes(8).toString('hex'),
+      instance: storeLockInstance,
     }) + '\n';
     fs.writeFileSync(fd, owner, 'utf8');
     fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
     storeLockOwned = true;
   } catch (e) {
-    try { fs.closeSync(fd); } catch (closeError) { /* исходная ошибка важнее */ }
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (closeError) { /* исходная ошибка важнее */ }
+    }
     try { fs.unlinkSync(LOCK_FILE); } catch (unlinkError) { /* best effort */ }
     throw new Error(`[store] Не удалось записать файл блокировки ${LOCK_FILE}: ${e.message}`);
   }
-  fs.closeSync(fd);
 }
 
 function releaseStoreLock() {
   if (!storeLockOwned) return;
   storeLockOwned = false;
   try {
+    const owner = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
+    if (owner.pid !== process.pid || owner.instance !== storeLockInstance) {
+      console.error(`[store] Файл блокировки ${LOCK_FILE} был заменён другим процессом; не удаляю чужую блокировку.`);
+      return;
+    }
     fs.unlinkSync(LOCK_FILE);
   } catch (e) {
     if (e.code !== 'ENOENT') {
-      console.error(`[store] Не удалось удалить файл блокировки ${LOCK_FILE}: ${e.message}`);
+      console.error(`[store] Не удалось безопасно удалить файл блокировки ${LOCK_FILE}: ${e.message}`);
     }
   }
 }
