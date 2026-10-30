@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const sourceStore = path.join(__dirname, '..', 'store.js');
 
@@ -98,34 +98,41 @@ test('deleting an existing save while the server is running does not reset it to
   assert.match(result.stderr, /Конфликт хранилища|data\.json был изменён или удалён/i);
 });
 
-test('a running store process rejects a second process using the same save file', (t) => {
+test('a second process cannot open a save file while another process owns its lock', async (t) => {
   const fixture = createFixture(t);
-  const first = spawnSync(process.execPath, ['-e', `
+  const child = spawn(process.execPath, ['-e', `
     require(${JSON.stringify(fixture.storePath)});
-    process.stdout.write('LOCKED');
-    setTimeout(() => process.exit(0), 1500);
-  `], { encoding: 'utf8', timeout: 5000 });
+    process.stdout.write('READY');
+    setInterval(() => {}, 1000);
+  `], { stdio: ['ignore', 'pipe', 'pipe'] });
 
-  assert.equal(first.status, 0, first.stderr);
-  assert.equal(fs.existsSync(fixture.dataPath + '.lock'), false, 'lock should be released on clean exit');
-});
+  let childStderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', chunk => { childStderr += chunk; });
+  t.after(() => {
+    if (child.exitCode === null && !child.killed) child.kill('SIGTERM');
+  });
 
-test('a concurrent process cannot acquire an existing store lock', (t) => {
-  const fixture = createFixture(t);
-  const holder = spawnSync(process.execPath, ['-e', `
-    const store = require(${JSON.stringify(fixture.storePath)});
-    store.getAllUsers();
-    process.stdout.write('ready');
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200);
-  `], { encoding: 'utf8', timeout: 5000 });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('store process did not acquire lock')), 5000);
+    child.once('error', reject);
+    child.once('exit', (code) => reject(new Error(`store process exited early (${code}): ${childStderr}`)));
+    child.stdout.once('data', (chunk) => {
+      if (String(chunk).includes('READY')) {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
+  });
 
-  // spawnSync выполняет дочерний процесс до конца; после штатного выхода
-  // lock должен быть удалён и повторное открытие допустимо.
-  assert.equal(holder.status, 0, holder.stderr);
-  assert.equal(fs.existsSync(fixture.dataPath + '.lock'), false);
+  assert.equal(fs.existsSync(fixture.dataPath + '.lock'), true);
+  const second = runStore(fixture, 'store.getAllUsers();');
+  assert.notEqual(second.status, 0);
+  assert.match(second.stderr, /Файл блокировки.*уже существует/);
 
-  const retry = runStore(fixture, 'store.getAllUsers();');
-  assert.equal(retry.status, 0, retry.stderr);
+  child.kill('SIGTERM');
+  await new Promise(resolve => child.once('exit', resolve));
+  assert.equal(fs.existsSync(fixture.dataPath + '.lock'), false, 'lock should be released after clean shutdown');
 });
 
 test('external edits are not reloaded over the in-memory cache', (t) => {
