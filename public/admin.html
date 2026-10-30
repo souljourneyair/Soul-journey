@@ -30,6 +30,25 @@
   </div>
 </div>
 
+<!-- ===== ОБЯЗАТЕЛЬНАЯ СМЕНА ПЕРВОНАЧАЛЬНОГО ПАРОЛЯ ===== -->
+<div id="passwordChangeScreen" class="screen hidden">
+  <div class="board-frame auth-card">
+    <div class="board-header">
+      <span class="board-title">ЗАЩИТА АККАУНТА</span>
+      <span class="board-sub">ПЕРВОНАЧАЛЬНАЯ НАСТРОЙКА</span>
+    </div>
+    <p class="form-hint">Перед доступом к панели управления задайте собственный пароль администратора.</p>
+    <form id="passwordChangeForm" class="auth-form">
+      <label>Текущий временный пароль<input type="password" id="currentPassword" required autocomplete="current-password"></label>
+      <label>Новый пароль<input type="password" id="newPassword" required minlength="10" maxlength="72" autocomplete="new-password"></label>
+      <label>Повторите новый пароль<input type="password" id="confirmPassword" required minlength="10" maxlength="72" autocomplete="new-password"></label>
+      <div class="form-hint">Не менее 10 символов. Новый пароль должен отличаться от временного.</div>
+      <button type="submit" class="btn-primary">Сохранить новый пароль</button>
+      <div class="form-msg" id="passwordChangeMsg"></div>
+    </form>
+  </div>
+</div>
+
 <!-- ===== ДОСТУП ЗАПРЕЩЁН ===== -->
 <div id="deniedScreen" class="screen hidden">
   <div class="board-frame auth-card">
