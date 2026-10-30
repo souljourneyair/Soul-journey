@@ -201,7 +201,7 @@ test('building damage reduces usefulness and repair never makes an object worse'
   assert.equal(damageMultiplier(1), 0);
   assert.ok(damageMultiplier(0.2) > damageMultiplier(0.7));
   const repairingCap = DAMAGE_ECONOMY.REPAIR_CAPACITY_MULT;
-  assert.equal(damageMultiplier(0.1, true), Math.max(0, 0.9));
+  assert.equal(damageMultiplier(0.1, true), Math.min(0.9, repairingCap));
   assert.equal(damageMultiplier(0.9, true), Math.min(0.1, repairingCap));
 });
 
@@ -236,8 +236,10 @@ test('building reputation falls with wear and reaches zero at total wear', () =>
 test('bank interest rate stays bounded and reacts to oil and gold in opposite directions', () => {
   const base = bankRate(BANK.OIL_BASE, BANK.GOLD_BASE);
   assert.ok(base >= BANK.MIN_RATE && base <= BANK.MAX_RATE);
-  assert.ok(bankRate(BANK.OIL_BASE * 1.05, BANK.GOLD_BASE) >= base);
-  assert.ok(bankRate(BANK.OIL_BASE, BANK.GOLD_BASE * 1.05) <= base);
+  const oilUp = bankRate(BANK.OIL_BASE * 1.2, BANK.GOLD_BASE);
+  const oilAndGoldUp = bankRate(BANK.OIL_BASE * 1.2, BANK.GOLD_BASE * 1.05);
+  assert.ok(oilUp > base);
+  assert.ok(oilAndGoldUp < oilUp, 'a higher gold price lowers the rate at a fixed oil price');
   assert.equal(bankRate(BANK.OIL_BASE, BANK.GOLD_BASE), BANK.MIN_RATE);
   assert.ok(bankRate(BANK.OIL_BASE * 100, BANK.GOLD_BASE) <= BANK.MAX_RATE);
 });
