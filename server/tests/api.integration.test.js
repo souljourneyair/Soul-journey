@@ -517,11 +517,31 @@ test('HTTP API isolates its save and protects the first construction and finance
   assert.equal(loan.data._bank.loan.amount, 5000);
   assert.ok(loan.data._bank.loan.left > 5000);
 
+  assert.equal(loan.data._bank.loan.nextInTicks, loan.data.calendar.ticksPerDay);
+  const scheduledInstallment = loan.data._bank.loan.perPayment;
+
   const secondLoan = await request(baseUrl, '/api/bank/borrow', {
     method: 'POST', token, body: { amount: 5000 },
   });
   assert.equal(secondLoan.status, 400);
   assert.equal(secondLoan.data.error, 'has_loan');
+
+  // Проверяем не только досрочное погашение через API, но и обычный платёж,
+  // который должен автоматически списаться после 12 игровых тиков.
+  const installmentDeadline = Date.now() + 55_000;
+  let bankAfterInstallment = await request(baseUrl, '/api/bank', { token });
+  while (Date.now() < installmentDeadline
+      && bankAfterInstallment.data.loan
+      && bankAfterInstallment.data.loan.paid < scheduledInstallment) {
+    await wait(200);
+    bankAfterInstallment = await request(baseUrl, '/api/bank', { token });
+  }
+  assert.equal(bankAfterInstallment.status, 200);
+  assert.ok(bankAfterInstallment.data.loan,
+    `the loan must remain active after its first scheduled installment.\\n${logs}`);
+  assert.equal(bankAfterInstallment.data.loan.paid, scheduledInstallment);
+  assert.equal(bankAfterInstallment.data.loan.paymentsLeft, 13);
+  assert.ok(bankAfterInstallment.data.loan.nextInTicks > 0);
 
   const repayment = await request(baseUrl, '/api/bank/repay', {
     method: 'POST', token, body: {},
