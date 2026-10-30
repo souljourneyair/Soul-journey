@@ -399,19 +399,23 @@ test('HTTP API isolates its save and protects the first construction and finance
   // завершённый объект, после которого тик закроет последнюю задачу главы 1.
   const secondConstructionDeadline = Date.now() + 45_000;
   let chapterOneCompleteState = secondHelipadBuild.data;
-  let completedSecondHelipad = chapterOneCompleteState.buildings.find(
+  const secondHelipadInProgress = chapterOneCompleteState.buildings.find(
     building => building.buildingId === 'helipad' && building.constructionType === 'build',
   );
+  assert.ok(secondHelipadInProgress, 'the second helipad must start as a construction');
+  const secondHelipadCellIndex = secondHelipadInProgress.cellIndex;
+  let completedSecondHelipad = secondHelipadInProgress;
   while (Date.now() < secondConstructionDeadline
-      && (completedSecondHelipad?.constructionType !== null
+      && (completedSecondHelipad.constructionType !== null
         || chapterOneCompleteState.quests.pendingReward !== 1)) {
     await wait(150);
     const state = await request(baseUrl, '/api/state', { token });
     assert.equal(state.status, 200);
     chapterOneCompleteState = state.data;
     completedSecondHelipad = chapterOneCompleteState.buildings.find(
-      building => building.buildingId === 'helipad' && building.constructionType === 'build',
+      building => building.cellIndex === secondHelipadCellIndex,
     );
+    assert.ok(completedSecondHelipad, 'the second helipad must remain in the airport');
   }
   assert.ok(completedSecondHelipad, 'the second helipad must remain in the airport');
   assert.equal(completedSecondHelipad.constructionType, null,
