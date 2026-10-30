@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createRateLimiter, getClientIp, isValidNewPassword } = require('../security');
+const { createRateLimiter, getClientIp, isValidNewPassword, isFiniteNumber, isBoolean } = require('../security');
 
 test('rate limiter allows the configured number of attempts and returns retry delay', () => {
   let now = 1000;
@@ -58,4 +58,25 @@ test('new passwords must be at least 10 characters and no more than 72 UTF-8 byt
   assert.equal(isValidNewPassword('🙂'.repeat(18)), true);
   assert.equal(isValidNewPassword('🙂'.repeat(19)), false);
   assert.equal(isValidNewPassword(null), false);
+});
+
+test('financial number validation rejects Infinity, NaN, strings and booleans', () => {
+  assert.equal(isFiniteNumber(0), true);
+  assert.equal(isFiniteNumber(125.5), true);
+  assert.equal(isFiniteNumber(Infinity), false);
+  assert.equal(isFiniteNumber(-Infinity), false);
+  assert.equal(isFiniteNumber(NaN), false);
+  assert.equal(isFiniteNumber('100'), false);
+  assert.equal(isFiniteNumber(true), false);
+  assert.equal(isFiniteNumber(null), false);
+});
+
+test('boolean validation rejects string and numeric truthy values', () => {
+  assert.equal(isBoolean(true), true);
+  assert.equal(isBoolean(false), true);
+  assert.equal(isBoolean('false'), false);
+  assert.equal(isBoolean('true'), false);
+  assert.equal(isBoolean(1), false);
+  assert.equal(isBoolean(0), false);
+  assert.equal(isBoolean(null), false);
 });
