@@ -11,6 +11,20 @@ const { spawn } = require('node:child_process');
 const projectRoot = path.resolve(__dirname, '..', '..');
 const serverEntry = path.join(projectRoot, 'server', 'index.js');
 const productionDataFile = path.join(projectRoot, 'data.json');
+const productionLockFile = `${productionDataFile}.lock`;
+
+function snapshotFile(filePath) {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+}
+
+function assertFileUnchanged(filePath, before) {
+  const after = snapshotFile(filePath);
+  if (before === null) {
+    assert.equal(after, null, `integration test unexpectedly created ${filePath}`);
+  } else {
+    assert.deepEqual(after, before, `integration test modified ${filePath}`);
+  }
+}
 
 function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -88,10 +102,13 @@ test('HTTP API isolates its save and protects the first construction and finance
   const port = await findFreePort();
   const baseUrl = `http://127.0.0.1:${port}`;
 
+  const productionDataBefore = snapshotFile(productionDataFile);
+  const productionLockBefore = snapshotFile(productionLockFile);
+  const tempMediaDir = path.join(tempRoot, 'public-media');
+
   assert.notEqual(tempDataFile, productionDataFile);
   assert.equal(fs.existsSync(tempDataFile), false);
-  assert.equal(fs.existsSync(productionDataFile), false,
-    'integration tests must not create or modify the production data.json');
+  assert.equal(fs.existsSync(tempMediaDir), false);
 
   const child = spawn(process.execPath, [serverEntry], {
     cwd: projectRoot,
@@ -99,6 +116,7 @@ test('HTTP API isolates its save and protects the first construction and finance
       ...process.env,
       NODE_ENV: 'test',
       SOUL_JOURNEY_TEST_DATA_FILE: tempDataFile,
+      SOUL_JOURNEY_TEST_MEDIA_DIR: tempMediaDir,
       SUPERUSER_PASSWORD: 'CI-Only-Admin-Password-2026',
       PORT: String(port),
     },
@@ -229,6 +247,7 @@ test('HTTP API isolates its save and protects the first construction and finance
   const saved = JSON.parse(fs.readFileSync(tempDataFile, 'utf8'));
   assert.equal(saved.users.length, 2, 'isolated save contains the admin and test account');
   assert.equal(saved.airports.length, 2, 'isolated save contains admin and test airports');
-  assert.equal(fs.existsSync(productionDataFile), false,
-    'the real project data.json must remain untouched');
+  assertFileUnchanged(productionDataFile, productionDataBefore);
+  assertFileUnchanged(productionLockFile, productionLockBefore);
+  assert.ok(fs.existsSync(tempMediaDir), 'test media folders should live only in the temporary directory');
 });
