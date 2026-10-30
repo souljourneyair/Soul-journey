@@ -109,8 +109,11 @@ test('a second process cannot open a save file while another process owns its lo
   let childStderr = '';
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', chunk => { childStderr += chunk; });
-  t.after(() => {
-    if (child.exitCode === null && !child.killed) child.kill('SIGTERM');
+  t.after(async () => {
+    if (child.exitCode === null) {
+      child.kill('SIGTERM');
+      await new Promise(resolve => child.once('exit', resolve));
+    }
   });
 
   await new Promise((resolve, reject) => {
