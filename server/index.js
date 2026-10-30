@@ -60,7 +60,7 @@ wss.on('connection', (ws, req) => {
   const token = url.searchParams.get('token');
   if (!token) { ws.close(); return; }
   const user = store.findUserByToken(token);
-  if (!user || store.isBanActive(user)) { ws.close(); return; }
+  if (!user || user.mustChangePassword || store.isBanActive(user)) { ws.close(); return; }
   if (!socketsByToken.has(token)) socketsByToken.set(token, new Set());
   socketsByToken.get(token).add(ws);
   ws.on('close', () => socketsByToken.get(token)?.delete(ws));
@@ -97,6 +97,16 @@ function auth(req, res, next) {
   if (!user) return res.status(401).json({ error: 'invalid_token' });
   if (store.isBanActive(user)) {
     return res.status(403).json({ error: 'banned', message: banMessage(user), bannedUntil: user.bannedUntil });
+  }
+  // Первоначальный администратор может видеть /api/me и менять пароль,
+  // но до этого не получает доступ к игровым и административным API.
+  if (user.mustChangePassword
+      && req.path !== '/api/me'
+      && req.path !== '/api/change-password') {
+    return res.status(403).json({
+      error: 'password_change_required',
+      message: 'Перед началом работы необходимо сменить первоначальный пароль',
+    });
   }
   req.user = user;
   next();
@@ -170,7 +180,39 @@ app.post('/api/login', (req, res) => {
   if (store.isBanActive(user)) {
     return res.status(403).json({ error: 'banned', message: banMessage(user), bannedUntil: user.bannedUntil });
   }
-  res.json({ token: user.token, userId: user.id, username: user.username, isAdmin: !!user.isAdmin });
+  res.json({
+    token: user.token,
+    userId: user.id,
+    username: user.username,
+    isAdmin: !!user.isAdmin,
+    mustChangePassword: !!user.mustChangePassword,
+  });
+});
+
+app.post('/api/change-password', auth, (req, res) => {
+  const { currentPassword, newPassword } = req.body || {};
+  if (typeof currentPassword !== 'string' || !currentPassword
+      || typeof newPassword !== 'string') {
+    return res.status(400).json({ error: 'invalid_input', message: 'Укажите текущий и новый пароль' });
+  }
+  if (Array.from(newPassword).length < 10 || Buffer.byteLength(newPassword, 'utf8') > 72) {
+    return res.status(400).json({
+      error: 'invalid_password',
+      message: 'Новый пароль должен содержать не менее 10 символов и не более 72 байт',
+    });
+  }
+  if (!bcrypt.compareSync(currentPassword, req.user.passwordHash)) {
+    return res.status(401).json({ error: 'bad_credentials', message: 'Текущий пароль указан неверно' });
+  }
+  if (bcrypt.compareSync(newPassword, req.user.passwordHash)) {
+    return res.status(400).json({ error: 'same_password', message: 'Новый пароль должен отличаться от текущего' });
+  }
+
+  const passwordHash = bcrypt.hashSync(newPassword, 10);
+  const updated = store.setUserPassword(req.user.username, passwordHash, { mustChangePassword: false });
+  if (!updated) return res.status(500).json({ error: 'password_update_failed', message: 'Не удалось сохранить новый пароль' });
+
+  res.json({ changed: true, mustChangePassword: false });
 });
 
 // ---------- game state helpers ----------
@@ -2031,7 +2073,12 @@ function serializeAirport(airport) {
 // ---------- game routes ----------
 app.get('/api/me', auth, (req, res) => {
   const airport = store.getAirportByUserId(req.user.id);
-  res.json({ username: req.user.username, hasAirport: !!airport, isAdmin: !!req.user.isAdmin });
+  res.json({
+    username: req.user.username,
+    hasAirport: !!airport,
+    isAdmin: !!req.user.isAdmin,
+    mustChangePassword: !!req.user.mustChangePassword,
+  });
 });
 
 app.post('/api/start-game', auth, (req, res) => {

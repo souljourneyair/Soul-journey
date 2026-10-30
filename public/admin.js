@@ -16,7 +16,7 @@ const BUILDING_ICONS = {
 };
 
 function showScreen(id) {
-  ['authScreen', 'deniedScreen'].forEach(s => $(`#${s}`).classList.add('hidden'));
+  ['authScreen', 'deniedScreen', 'passwordChangeScreen'].forEach(s => $(`#${s}`).classList.add('hidden'));
   $('#adminScreen').classList.add('hidden');
   if (id === 'adminScreen') {
     $('#adminScreen').classList.remove('hidden');
@@ -53,13 +53,37 @@ $('#loginForm').addEventListener('submit', async (e) => {
     });
     TOKEN = data.token;
     localStorage.setItem('soul_journey_admin_token', TOKEN);
-    if (!data.isAdmin) {
+    if (data.mustChangePassword) {
+      showScreen('passwordChangeScreen');
+    } else if (!data.isAdmin) {
       showScreen('deniedScreen');
     } else {
       await enterAdmin();
     }
   } catch (err) {
     $('#loginMsg').textContent = err.message;
+  }
+});
+
+$('#passwordChangeForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const newPassword = $('#newPassword').value;
+  if (newPassword !== $('#confirmPassword').value) {
+    $('#passwordChangeMsg').textContent = 'Новые пароли не совпадают';
+    return;
+  }
+  try {
+    await api('/api/change-password', 'POST', {
+      currentPassword: $('#currentPassword').value,
+      newPassword,
+    });
+    $('#currentPassword').value = '';
+    $('#newPassword').value = '';
+    $('#confirmPassword').value = '';
+    $('#passwordChangeMsg').textContent = '';
+    await boot();
+  } catch (err) {
+    $('#passwordChangeMsg').textContent = err.message;
   }
 });
 
@@ -75,6 +99,7 @@ async function boot() {
   if (!TOKEN) { showScreen('authScreen'); return; }
   try {
     const me = await api('/api/me');
+    if (me.mustChangePassword) { showScreen('passwordChangeScreen'); return; }
     if (!me.isAdmin) { showScreen('deniedScreen'); return; }
     await enterAdmin();
   } catch (err) {
