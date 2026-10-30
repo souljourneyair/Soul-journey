@@ -95,7 +95,7 @@ async function request(baseUrl, route, { method = 'GET', token, body } = {}) {
 }
 
 test('HTTP API isolates its save and protects the first construction and finance flow', {
-  timeout: 90_000,
+  timeout: 180_000,
 }, async t => {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'soul-journey-api-'));
   const tempDataFile = path.join(tempRoot, 'api-data.json');
@@ -360,6 +360,149 @@ test('HTTP API isolates its save and protects the first construction and finance
   });
   assert.equal(rentOffersForHelipad.status, 400);
   assert.equal(rentOffersForHelipad.data.error, 'non_rentable');
+
+  // Глава 1 завершается только после реального первого прилёта и второй
+  // построенной площадки. Второй покос запускаем, пока первый борт уже летит,
+  // чтобы не добавлять лишнее ожидание в интеграционный сценарий.
+  const secondMowing = await request(baseUrl, '/api/quests/mow', {
+    method: 'POST', token, body: {},
+  });
+  assert.equal(secondMowing.status, 200);
+  assert.equal(secondMowing.data.mow.mowing, true);
+
+  const firstArrivalDeadline = Date.now() + 35_000;
+  let chapterOneProgress = secondMowing.data;
+  while (Date.now() < firstArrivalDeadline
+      && (chapterOneProgress.mow.credits < 1 || chapterOneProgress.paxArrived < 1)) {
+    await wait(150);
+    const state = await request(baseUrl, '/api/state', { token });
+    assert.equal(state.status, 200);
+    chapterOneProgress = state.data;
+  }
+  assert.ok(chapterOneProgress.mow.credits >= 1,
+    `second mowing did not finish before timeout.\\n${logs}`);
+  assert.ok(chapterOneProgress.paxArrived >= 1,
+    `the chapter-one contract did not deliver its first aircraft.\\n${logs}`);
+
+  const secondHelipadCost = chapterOneProgress.catalog.helipad.cost;
+  const secondHelipadBuild = await request(baseUrl, '/api/build', {
+    method: 'POST', token, body: { buildingId: 'helipad' },
+  });
+  assert.equal(secondHelipadBuild.status, 200);
+  assert.ok(secondHelipadBuild.data.money <= chapterOneProgress.money - secondHelipadCost);
+  assert.equal(secondHelipadBuild.data.mow.credits, 0);
+  assert.equal(secondHelipadBuild.data.buildings.filter(
+    building => building.buildingId === 'helipad',
+  ).length, 2);
+
+  // Глава не должна перейти автоматически при запуске стройки: нужен
+  // завершённый объект, после которого тик закроет последнюю задачу главы 1.
+  const secondConstructionDeadline = Date.now() + 45_000;
+  let chapterOneCompleteState = secondHelipadBuild.data;
+  let completedSecondHelipad = chapterOneCompleteState.buildings.find(
+    building => building.buildingId === 'helipad' && building.constructionType === 'build',
+  );
+  while (Date.now() < secondConstructionDeadline
+      && (completedSecondHelipad?.constructionType !== null
+        || chapterOneCompleteState.quests.pendingReward !== 1)) {
+    await wait(150);
+    const state = await request(baseUrl, '/api/state', { token });
+    assert.equal(state.status, 200);
+    chapterOneCompleteState = state.data;
+    completedSecondHelipad = chapterOneCompleteState.buildings.find(
+      building => building.buildingId === 'helipad' && building.constructionType === 'build',
+    );
+  }
+  assert.ok(completedSecondHelipad, 'the second helipad must remain in the airport');
+  assert.equal(completedSecondHelipad.constructionType, null,
+    `the second helipad did not finish before timeout.\\n${logs}`);
+  assert.equal(chapterOneCompleteState.quests.pendingReward, 1,
+    `chapter one should offer its reward after all four tasks are complete.\\n${logs}`);
+  assert.equal(chapterOneCompleteState.quests.chapter.id, 1);
+
+  const chapterTwo = await request(baseUrl, '/api/quests/reward/ack', {
+    method: 'POST', token, body: {},
+  });
+  assert.equal(chapterTwo.status, 200);
+  assert.equal(chapterTwo.data.quests.chapter.id, 2);
+  assert.equal(chapterTwo.data.quests.pendingReward, null);
+  assert.equal(chapterTwo.data.chartersAvailable, true);
+  assert.ok(chapterTwo.data.openPoints.includes('tihaya'));
+  assert.ok(chapterTwo.data.openPoints.includes('ozersk'));
+  assert.equal(chapterTwo.data.hasMedicalHeli, true);
+
+  // После перехода в главу 2 появляется обычное предложение по одной из
+  // открытых точек. Оно уже не разовое: его можно поставить в расписание.
+  const chapterTwoOfferDeadline = Date.now() + 15_000;
+  let chapterTwoEnvelope = await request(baseUrl, '/api/envelope', { token });
+  while (Date.now() < chapterTwoOfferDeadline && chapterTwoEnvelope.data.offers.length === 0) {
+    await wait(150);
+    chapterTwoEnvelope = await request(baseUrl, '/api/envelope', { token });
+  }
+  assert.equal(chapterTwoEnvelope.status, 200);
+  assert.equal(chapterTwoEnvelope.data.offers.length, 1,
+    `chapter two should generate a regular contract offer.\\n${logs}`);
+  const chapterTwoOffer = chapterTwoEnvelope.data.offers[0];
+  assert.equal(chapterTwoOffer.craft, 'heli');
+  assert.ok(chapterTwo.data.openPoints.includes(chapterTwoOffer.pointId));
+
+  const chapterTwoContractResponse = await request(baseUrl, '/api/envelope/accept', {
+    method: 'POST', token,
+    body: { offerId: chapterTwoOffer.id, durationUnit: 'day', durationValue: 3 },
+  });
+  assert.equal(chapterTwoContractResponse.status, 200);
+  assert.equal(chapterTwoContractResponse.data.contracts.length, 1);
+  const chapterTwoContract = chapterTwoContractResponse.data.contracts[0];
+  assert.equal(chapterTwoContract.pointId, chapterTwoOffer.pointId);
+  assert.equal(chapterTwoContract.craft, 'heli');
+
+  const beforeSchedule = await request(baseUrl, '/api/state', { token });
+  assert.equal(beforeSchedule.status, 200);
+  const scheduleDay = Math.floor(beforeSchedule.data.tick / beforeSchedule.data.calendar.ticksPerDay) + 1;
+  const scheduleSlot = 0;
+
+  const placeBeforeRow = await request(baseUrl, '/api/schedule/place', {
+    method: 'POST', token,
+    body: { contractId: chapterTwoContract.id, dayIndex: scheduleDay, slot: scheduleSlot },
+  });
+  assert.equal(placeBeforeRow.status, 400);
+  assert.equal(placeBeforeRow.data.error, 'row_required');
+
+  const assignContractRow = await request(baseUrl, '/api/schedule/row', {
+    method: 'POST', token,
+    body: { contractId: chapterTwoContract.id, row: 0 },
+  });
+  assert.equal(assignContractRow.status, 200);
+  assert.deepEqual(assignContractRow.data.scheduleRows, [chapterTwoContract.id]);
+
+  const scheduledFlight = await request(baseUrl, '/api/schedule/place', {
+    method: 'POST', token,
+    body: { contractId: chapterTwoContract.id, dayIndex: scheduleDay, slot: scheduleSlot },
+  });
+  assert.equal(scheduledFlight.status, 200);
+  assert.equal(scheduledFlight.data.schedule.length, 1);
+  assert.equal(scheduledFlight.data.schedule[0].contractId, chapterTwoContract.id);
+  assert.equal(scheduledFlight.data.schedule[0].dayIndex, scheduleDay);
+  assert.equal(scheduledFlight.data.schedule[0].slot, scheduleSlot);
+
+  const duplicateScheduleCell = await request(baseUrl, '/api/schedule/place', {
+    method: 'POST', token,
+    body: { contractId: chapterTwoContract.id, dayIndex: scheduleDay, slot: scheduleSlot },
+  });
+  assert.equal(duplicateScheduleCell.status, 400);
+  assert.equal(duplicateScheduleCell.data.error, 'cell_taken');
+
+  const invalidScheduleSlot = await request(baseUrl, '/api/schedule/place', {
+    method: 'POST', token,
+    body: { contractId: chapterTwoContract.id, dayIndex: scheduleDay, slot: 12 },
+  });
+  assert.equal(invalidScheduleSlot.status, 400);
+  assert.equal(invalidScheduleSlot.data.error, 'bad_slot');
+
+  const scheduleAfterRejectedRequests = await request(baseUrl, '/api/envelope', { token });
+  assert.equal(scheduleAfterRejectedRequests.data.schedule.length, 1,
+    'invalid and duplicate schedule requests must not change the existing flight');
+  assert.equal(scheduleAfterRejectedRequests.data.schedule[0].id, scheduledFlight.data.schedule[0].id);
 
   // У аэропорта уже достаточно залоговой стоимости для минимального кредита.
   const loan = await request(baseUrl, '/api/bank/borrow', {
